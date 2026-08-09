@@ -47,6 +47,32 @@
 
 The repo has two build paths: one for fast in-game testing and one for release archives.
 
+### Local environment
+
+Run this once from the repo root:
+
+```powershell
+.\init-env.ps1
+```
+
+From Git Bash:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./init-env.ps1
+```
+
+There is also an `init-env.cmd` wrapper for launching the same setup from Explorer.
+
+The initializer asks for and stores these user environment variables:
+
+```text
+XIVEQUIP_ADDON_PATH            # Full live AddOns\XIVEquip install folder
+XIVEQUIP_SAVED_VARIABLES_DIR   # Folder containing XIVEquip.lua SavedVariables
+XIVEQUIP_ARCHIVE_DIR           # Publish archive output folder
+```
+
+Open a new terminal after running it so the variables are available to build scripts.
+
 ### Version scheme
 
 XIVEquip uses semantic-ish addon versions:
@@ -88,13 +114,9 @@ The dev build script:
 1. Reads `## Version:` from `XIVEquip/XIVEquip.toc`.
 2. If the version is a release version, bumps patch by default and appends `-dev.1`.
 3. If the version is already `-dev.N`, increments `N`.
-4. Copies the addon folder to:
+4. Copies the addon folder to `%XIVEQUIP_ADDON_PATH%`.
 
-```text
-D:\Games\Blizzard\World of Warcraft\_retail_\Interface\AddOns\XIVEquip
-```
-
-After it runs, reload the UI in-game and the AddOns list/TOC version should show the new dev build.
+After it runs, reload the UI in-game and the AddOns list/TOC version should show the new dev build. You can override the configured install path for one run with `-AddonPath`.
 
 Optional bump choices when starting a new dev line:
 
@@ -124,10 +146,10 @@ After running `/xive fixture capture` in game, run `/reload` or log out so WoW w
 .\tools\import-fixture.ps1
 ```
 
-The importer reads:
+The importer reads `XIVEquip.lua` from the configured SavedVariables folder:
 
 ```text
-D:\Games\Blizzard\World of Warcraft\_retail_\WTF\Account\<ACCOUNT>\SavedVariables\XIVEquip.lua
+%XIVEQUIP_SAVED_VARIABLES_DIR%\XIVEquip.lua
 ```
 
 and writes a redacted fixture to:
@@ -151,11 +173,7 @@ The publish build script:
 1. Reads the current TOC version.
 2. Removes a trailing `-dev.N`, if present.
 3. Writes the release version back to `XIVEquip/XIVEquip.toc`.
-4. Creates `XIVEquip-<version>.zip` in the archive folder:
-
-```text
-E:\eng\src\XIVEquipArchives
-```
+4. Creates `XIVEquip-<version>.zip` in `%XIVEQUIP_ARCHIVE_DIR%`.
 
 For example:
 

@@ -1,5 +1,5 @@
 param(
-    [string]$ArchiveDir = (Join-Path $PSScriptRoot "..\XIVEquipArchives")
+    [string]$ArchiveDir = $env:XIVEQUIP_ARCHIVE_DIR
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,6 +41,13 @@ if (-not (Test-Path -LiteralPath $AddonDir)) {
 }
 if (-not (Test-Path -LiteralPath $TocPath)) {
     throw "XIVEquip.toc not found at expected path: $TocPath"
+}
+
+if ([string]::IsNullOrWhiteSpace($ArchiveDir)) {
+    $ArchiveDir = [Environment]::GetEnvironmentVariable("XIVEQUIP_ARCHIVE_DIR", "User")
+    if ([string]::IsNullOrWhiteSpace($ArchiveDir)) {
+        $ArchiveDir = Join-Path $PSScriptRoot "..\XIVEquipArchives"
+    }
 }
 
 $currentVersion = Get-TocVersion -Path $TocPath
