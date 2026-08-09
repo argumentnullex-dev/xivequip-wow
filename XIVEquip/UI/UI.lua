@@ -174,6 +174,42 @@ local function withLoginSilenced(fn)
   return ok, err
 end
 
+local function configuredPlannerMode()
+  local S = XIVEquip.Settings
+  if S and type(S.GetPlannerMode) == "function" then return S:GetPlannerMode() end
+  return "legacy"
+end
+
+local function acquireComparerPass()
+  local M = XIVEquip.Comparers
+  if not (M and type(M.StartPass) == "function") then return nil end
+  if type(M.AcquirePass) == "function" then return M:AcquirePass() end
+
+  local cmp, resolution = M:StartPass()
+  local closed = false
+  return {
+    comparer = cmp,
+    resolution = resolution,
+    Close = function()
+      if closed then return end
+      closed = true
+      if M and type(M.EndPass) == "function" then M:EndPass() end
+    end,
+    EndPass = function(selfLease)
+      return selfLease:Close()
+    end,
+  }
+end
+
+local function releaseComparerPass(lease)
+  if not lease then return end
+  if type(lease.Close) == "function" then
+    lease:Close()
+  elseif type(lease.EndPass) == "function" then
+    lease:EndPass()
+  end
+end
+
 -- Use saved button position if present, otherwise sensible defaults near the portrait
 -- [XIVEquip-AUTO] anchorButton: Helper for UI module.
 local function anchorButton()
@@ -287,33 +323,44 @@ local function createButton()
     end
 
     local changes, pending, weaponPlan, tooltipHeader
+    local comparerLease
 
     -- Callback used in UI.lua to run inline logic.
     withLoginSilenced(function()
-      local cmp = XIVEquip.Comparers and XIVEquip.Comparers:StartPass()
-
-      if cmp and type(cmp.GetActiveTooltipHeader) == "function" then
-        tooltipHeader = cmp.GetActiveTooltipHeader()
-      end
-
-      if cmp and XIVEquip.Gear and XIVEquip.Gear.PlanBest then
-        changes, pending = XIVEquip.Gear:PlanBest(cmp) -- requires Gear:PlanBest to honor opts.exclude
+      if configuredPlannerMode() == "native" then
+        local result, nativeFailure
+        if XIVEquip.Gear and XIVEquip.Gear.PlanBest then
+          changes, pending, _, result, nativeFailure = XIVEquip.Gear:PlanBest(nil, { planner = "native" })
+        else
+          changes, pending = {}, false
+        end
+        if nativeFailure then
+          tooltipHeader = "Planner: native 2.0 failed"
+          changes, pending = {}, false
+        else
+          local source = result and result.diagnostics and result.diagnostics.scoreSource or "unknown"
+          tooltipHeader = "Planner: native 2.0  |  Source: " .. tostring(source)
+        end
       else
-        changes, pending = {}, false
-      end
+        comparerLease = acquireComparerPass()
+        local cmp = comparerLease and comparerLease.comparer
 
-      if tooltipHeader and tooltipHeader ~= "" then
-        GameTooltip:AddLine("|cffffd200" .. tooltipHeader .. "|r")
-      end
+        if cmp and type(cmp.GetActiveTooltipHeader) == "function" then
+          tooltipHeader = cmp.GetActiveTooltipHeader()
+        end
 
-      if XIVEquip.Weapons and XIVEquip.Weapons.FindBestLoadout and XIVEquip.Weapons.PlanBest then
-        weaponPlan = XIVEquip.Weapons:PlanBest(cmp) -- optional if implemented
-      end
-
-      if XIVEquip.Comparers and XIVEquip.Comparers.EndPass then
-        XIVEquip.Comparers:EndPass()
+        if cmp and XIVEquip.Gear and XIVEquip.Gear.PlanBest then
+          changes, pending = XIVEquip.Gear:PlanBest(cmp, { planner = "legacy" })
+        else
+          changes, pending = {}, false
+        end
       end
     end)
+    releaseComparerPass(comparerLease)
+
+    if tooltipHeader and tooltipHeader ~= "" then
+      GameTooltip:AddLine("|cffffd200" .. tooltipHeader .. "|r")
+    end
 
     if pending then
       GameTooltip:AddLine("|cffFFD100Loading item data…|r")

@@ -183,4 +183,32 @@ test("extracts weapon dps/min/max damage from the same stats table", function()
   A.equal(candidate.weapon.dps, 55.5)
 end)
 
+test("extracts weapon speed and tooltip damage fallback for native Pawn scoring", function()
+  local addon = newAddon()
+  FakeWorld.Install({
+    items = {
+      axe = {
+        itemID = 6002, equipLoc = "INVTYPE_WEAPON",
+        stats = {},
+      },
+    },
+  })
+  _G.C_TooltipInfo = {
+    GetHyperlink = function()
+      return {
+        lines = {
+          { leftText = "120 - 240 Damage", rightText = "Speed 3.60" },
+        },
+      }
+    end,
+  }
+
+  local candidate = addon.Evaluation.CandidateNormalizer.FromLink(FakeWorld.ItemLink(6002), {})
+
+  A.equal(candidate.weapon.minimumDamage, 120)
+  A.equal(candidate.weapon.maximumDamage, 240)
+  A.equal(candidate.weapon.swingIntervalSeconds, 3.60)
+  A.equal(candidate.weapon.dps, 50)
+end)
+
 return tests

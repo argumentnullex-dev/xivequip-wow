@@ -11,24 +11,9 @@
 -- here before there's an actual caller risks it silently diverging from
 -- the real thing.
 --
--- Deliberately narrower than Pawn's stat extraction (Comparers/Pawn/
--- Interface.lua's computeScoreFromValues): no tooltip parsing, so no
--- socketed-gem deltas and no weapon swing-interval (doc's own open
--- question, section 38.2) -- confirmed via exploration this is a legitimate
--- scope cut, not a duplication of Pawn's tooltip-gap-filling logic.
---
--- KNOWN CAVEAT for whoever wires CandidateEvaluator into a live scoring
--- path (Phase 3+): GetItemStats doesn't always carry ITEM_MIN_DAMAGE/
--- ITEM_MAX_DAMAGE for every weapon -- Pawn's own scorer falls back to
--- tooltip parsing (GetWeaponDamageAndSpeed) specifically to cover that
--- gap. Because this normalizer has no such fallback, weapon.minimumDamage/
--- maximumDamage can come back as their 0 default for an item whose
--- tooltip would show real numbers -- and XIVWeights.Scorer prefers
--- min/max over DPS whenever the scale has a nonzero min/max weight, so a
--- MinDamage/MaxDamage-only Pawn scale could silently score such a weapon
--- as having zero weapon value. Verify this against real weapon data (or
--- add a tooltip fallback here) before this scorer replaces the current
--- comparer path.
+-- Weapon damage/speed extraction mirrors the legacy Pawn bridge's tooltip
+-- fallback so native Pawn scales do not advertise supported weapon keys
+-- that silently score as zero when GetItemStats omits damage fields.
 local addonName, XIVEquip = ...
 XIVEquip.Evaluation = XIVEquip.Evaluation or {}
 local Evaluation = XIVEquip.Evaluation
@@ -71,6 +56,8 @@ local WEAPON_TOKEN_MAP = {
   ITEM_MIN_DAMAGE = "minimumDamage",
   ITEM_MAX_DAMAGE = "maximumDamage",
   ITEM_MOD_DAMAGE_PER_SECOND = "dps", ITEM_MOD_DAMAGE_PER_SECOND_SHORT = "dps",
+  ITEM_WEAPON_SPEED = "swingIntervalSeconds",
+  Speed = "swingIntervalSeconds",
 }
 
 local function parseItemID(link)
@@ -82,6 +69,30 @@ local function getItemStatsCompat(link)
   local fn = _G.GetItemStats or (C_Item and C_Item.GetItemStats)
   if type(fn) ~= "function" then return {} end
   return fn(link) or {}
+end
+
+local function getWeaponDamageAndSpeed(link)
+  if not (link and C_TooltipInfo and type(C_TooltipInfo.GetHyperlink) == "function") then return nil end
+  local tip = C_TooltipInfo.GetHyperlink(link)
+  if not (tip and type(tip.lines) == "table") then return nil end
+
+  local minD, maxD, speed
+  local function grab(text)
+    if type(text) ~= "string" then return end
+    local a, b = text:match("(%d+)%s*%-%s*(%d+)%s+[Dd]amage")
+    if a and b then
+      minD = tonumber(a)
+      maxD = tonumber(b)
+    end
+    local sp = text:match("[Ss]peed%s+([%d%.]+)")
+    if sp then speed = tonumber(sp) end
+  end
+
+  for _, line in ipairs(tip.lines) do
+    grab(line.leftText)
+    grab(line.rightText)
+  end
+  return minD, maxD, speed
 end
 
 -- resolveUniqueness(itemID, link) -> key, limit
@@ -174,12 +185,19 @@ function CandidateNormalizer.FromLink(link, source)
     end
   end
 
-  local weapon = { dps = 0, minimumDamage = 0, maximumDamage = 0 }
+  local weapon = { dps = 0, minimumDamage = 0, maximumDamage = 0, swingIntervalSeconds = 0 }
   for token, field in pairs(WEAPON_TOKEN_MAP) do
     local amount = rawStats[token]
     if type(amount) == "number" then
       weapon[field] = amount
     end
+  end
+  local tmin, tmax, tspeed = getWeaponDamageAndSpeed(link)
+  if type(tmin) == "number" and weapon.minimumDamage == 0 then weapon.minimumDamage = tmin end
+  if type(tmax) == "number" and weapon.maximumDamage == 0 then weapon.maximumDamage = tmax end
+  if type(tspeed) == "number" and weapon.swingIntervalSeconds == 0 then weapon.swingIntervalSeconds = tspeed end
+  if weapon.dps == 0 and weapon.minimumDamage > 0 and weapon.maximumDamage > 0 and weapon.swingIntervalSeconds > 0 then
+    weapon.dps = ((weapon.minimumDamage + weapon.maximumDamage) / 2) / weapon.swingIntervalSeconds
   end
 
   return {

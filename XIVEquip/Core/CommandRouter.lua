@@ -57,6 +57,42 @@ local function comparerHeader(cmp, resolution)
   return "Comparer: " .. tostring(label)
 end
 
+local function acquireComparerPass(M)
+  if not (M and type(M.StartPass) == "function") then return nil end
+  if type(M.AcquirePass) == "function" then return M:AcquirePass() end
+
+  local cmp, resolution = M:StartPass()
+  local closed = false
+  return {
+    comparer = cmp,
+    resolution = resolution,
+    Close = function()
+      if closed then return end
+      closed = true
+      if M and type(M.EndPass) == "function" then M:EndPass() end
+    end,
+    EndPass = function(selfLease)
+      return selfLease:Close()
+    end,
+  }
+end
+
+local function releaseComparerPass(lease)
+  if not lease then return end
+  if type(lease.Close) == "function" then
+    lease:Close()
+  elseif type(lease.EndPass) == "function" then
+    lease:EndPass()
+  end
+end
+
+local function errorDetail(err)
+  local text = tostring(err or "unknown error")
+  if debugstack then return text .. "\n" .. tostring(debugstack(2) or "") end
+  if debug and type(debug.traceback) == "function" then return debug.traceback(text, 2) end
+  return text
+end
+
 local function parsePlannerOverride(rest, usage)
   local want = string.lower(trim(rest))
   if want == "" then return nil end
@@ -264,10 +300,11 @@ C.RegisterRoot("use", function(rest)
     print(PREFIX .. "No comparer matching '" .. want .. "'."); return
   end
   setComparerSetting(key)
-  local _, resolution = M:StartPass()
-  local cmp = resolution and resolution.comparer
+  local lease = acquireComparerPass(M)
+  local resolution = lease and lease.resolution
+  local cmp = lease and lease.comparer
   local active = cmp and (cmp.Label or resolution.resolved_key) or M:GetDisplayLabel(key)
-  if M.EndPass then M:EndPass() end
+  releaseComparerPass(lease)
   if resolution and resolution.fallback_used then
     print(PREFIX .. "Comparer set to: " .. M:GetDisplayLabel(key) .. " (using " .. tostring(active) .. ")")
   elseif resolution and not resolution.comparer then
@@ -314,7 +351,10 @@ C.RegisterRoot("status", function(_)
   local st = (S and S.Get and S:Get()) or _G.XIVEquip_Settings or {}
   local M = XIVEquip.Comparers
   local cmp, resolution
-  if M and M.StartPass then cmp, resolution = M:StartPass() end
+  local lease = acquireComparerPass(M)
+  if lease then
+    cmp, resolution = lease.comparer, lease.resolution
+  end
 
   local configured = (resolution and resolution.configured_key)
       or (S and S.GetComparerName and S:GetComparerName())
@@ -332,7 +372,7 @@ C.RegisterRoot("status", function(_)
   print(PREFIX .. "Auto spec: " .. (((S and S.GetAutomation and S:GetAutomation("SpecEquip")) or false) and "ON" or "OFF"))
   print(PREFIX .. "Auto sets: " .. (((S and S.GetAutomation and S:GetAutomation("SaveSpecSet")) or false) and "ON" or "OFF"))
 
-  if M and M.EndPass then M:EndPass() end
+  releaseComparerPass(lease)
 end)
 
 -- /xive plan [legacy|native]
@@ -372,14 +412,25 @@ C.RegisterRoot("plan", function(rest)
     return
   end
 
-  local cmp, resolution = M:StartPass()
-  local _, pending, plan = Gear:PlanBest(cmp, { planner = "legacy" })
+  local lease
+  local cmp, resolution
+  local ok, errOrChanges, pending, plan = xpcall(function()
+    lease = acquireComparerPass(M)
+    cmp, resolution = lease and lease.comparer, lease and lease.resolution
+    return Gear:PlanBest(cmp, { planner = "legacy" })
+  end, errorDetail)
+  releaseComparerPass(lease)
+  if not ok then
+    print(PREFIX .. "Legacy planner failed; no plan available. Check the debug log for details.")
+    if XIVEquip.Log and type(XIVEquip.Log.Error) == "function" then
+      XIVEquip.Log.Error("Legacy planner failure: " .. tostring(errOrChanges))
+    end
+    return
+  end
 
   print(PREFIX .. "Planner: legacy")
   print(PREFIX .. comparerHeader(cmp, resolution))
   printPlan(plan, pending)
-
-  if M.EndPass then M:EndPass() end
 end)
 
 local function identityFromLink(link)
@@ -437,13 +488,6 @@ local function addonVersion()
   local ok, version = pcall(metadata, addon, "Version")
   if ok and version and version ~= "" then return tostring(version) end
   return "unknown"
-end
-
-local function errorDetail(err)
-  local text = tostring(err or "unknown error")
-  if debugstack then return text .. "\n" .. tostring(debugstack(2) or "") end
-  if debug and type(debug.traceback) == "function" then return debug.traceback(text, 2) end
-  return text
 end
 
 local function pickSummary(pick)
@@ -554,13 +598,15 @@ C.RegisterRoot("compare", function(_)
 
   local legacy = { ok = false, pending = false, plan = {}, error = nil, resolution = nil, comparerHeader = nil }
   if M and M.StartPass then
-    local cmp
+    local lease
     local legacyOk, legacyChangesOrErr, legacyPending, legacyPlan = xpcall(function()
-      cmp, legacy.resolution = M:StartPass()
+      lease = acquireComparerPass(M)
+      local cmp = lease and lease.comparer
+      legacy.resolution = lease and lease.resolution
       legacy.comparerHeader = comparerHeader(cmp, legacy.resolution)
       return Gear:PlanBest(cmp, { planner = "legacy" })
     end, errorDetail)
-    if M.EndPass then M:EndPass() end
+    releaseComparerPass(lease)
 
     if legacyOk then
       legacy.ok = true
@@ -835,9 +881,12 @@ C.RegisterRoot("score", function(rest)
 
   local M = XIVEquip.Comparers
   local cmp, resolution
-  if M and M.StartPass then cmp, resolution = M:StartPass() end
+  local lease = acquireComparerPass(M)
+  if lease then
+    cmp, resolution = lease.comparer, lease.resolution
+  end
   local v, src, entry = scoreWithComparer(cmp, link)
-  if M and M.EndPass then M:EndPass() end
+  releaseComparerPass(lease)
 
   if type(v) == "number" then
     local label = (entry and (entry.name or entry.key)) or src or (cmp and cmp.Label) or
@@ -874,7 +923,10 @@ C.RegisterRoot("diag", function(_)
 
   local M = XIVEquip.Comparers
   local cmp, resolution
-  if M and M.StartPass then cmp, resolution = M:StartPass() end
+  local lease = acquireComparerPass(M)
+  if lease then
+    cmp, resolution = lease.comparer, lease.resolution
+  end
 
   print(PREFIX .. comparerHeader(cmp, resolution))
 
@@ -907,7 +959,7 @@ C.RegisterRoot("diag", function(_)
     end
   end
 
-  if M and M.EndPass then M:EndPass() end
+  releaseComparerPass(lease)
   print(PREFIX .. string.format("Total score (sum of printed slots): %.2f", total))
 end)
 

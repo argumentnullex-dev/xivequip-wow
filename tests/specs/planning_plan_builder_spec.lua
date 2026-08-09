@@ -111,4 +111,19 @@ test("PlanBuilder relies on 2H equip side effects instead of emitting an empty o
   A.equal(plan[1].equipLoc, "INVTYPE_2HWEAPON")
 end)
 
+test("PlanBuilder treats nil recommendation for an occupied slot as no operation", function()
+  local addon = newAddon()
+  local current = equipped(101, 11)
+
+  local changes, pending, plan = addon.Planning.PlanBuilder.Build({
+    equippedBySlot = { [11] = current },
+    finalSlots = { [11] = nil },
+    optimizedSlots = { 11 },
+  })
+
+  A.equal(pending, false)
+  A.equal(#changes, 0)
+  A.equal(#plan, 0)
+end)
+
 return tests

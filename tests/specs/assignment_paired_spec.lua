@@ -84,6 +84,23 @@ test("the same physical item cannot fill both roles, even as the only candidate"
   end
 end)
 
+test("two distinct physical copies with the same itemID may fill both roles when not unique", function()
+  local addon = newAddon()
+  local a = item("copy-a", 10)
+  local b = item("copy-b", 20)
+  a.itemID = 9001
+  b.itemID = 9001
+
+  local best = addon.Assignments.Paired.Solve(baseSpec(addon, { candidates = { a, b } }))
+
+  A.truthy(best)
+  A.truthy(best.picks.first)
+  A.truthy(best.picks.second)
+  A.equal(best.picks.first.itemID, 9001)
+  A.equal(best.picks.second.itemID, 9001)
+  A.truthy(best.picks.first.physicalID ~= best.picks.second.physicalID)
+end)
+
 test("a candidate with no physicalID or guid still cannot fill both roles", function()
   local addon = newAddon()
   -- CandidateNormalizer.FromLink copies source.guid/source.physicalID

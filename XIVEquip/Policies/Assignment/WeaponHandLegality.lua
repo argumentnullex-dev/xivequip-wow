@@ -52,6 +52,10 @@ local function equipLocOf(candidate)
   return candidate and candidate.equip and candidate.equip.equipLoc
 end
 
+local function offhandWillBeClearedByMainhandEquip(mh, capabilities)
+  return is2H(equipLocOf(mh)) and capabilities["XIVEquip.titan_grip"] ~= true
+end
+
 local function canMainHand(candidate, capabilities, emptyAllowed)
   if not candidate then return emptyAllowed and emptyAllowed.mh == true end
   local equipLoc = equipLocOf(candidate)
@@ -94,6 +98,10 @@ XIVEquip:RegisterPolicy({
     end
 
     if not oh then
+      local currentOH = assignment.currentBySlot and assignment.currentBySlot[17]
+      if currentOH and not offhandWillBeClearedByMainhandEquip(mh, capabilities) then
+        return false, "nil offhand does not unequip the currently equipped offhand"
+      end
       if capabilities["XIVEquip.require_shield"] then
         return false, "this spec requires a shield in the offhand"
       end

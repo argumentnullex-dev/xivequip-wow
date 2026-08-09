@@ -165,6 +165,23 @@ function M:StartPass()
   return resolution.comparer, resolution
 end
 
+function M:AcquirePass()
+  local cmp, resolution = self:StartPass()
+  local closed = false
+  return {
+    comparer = cmp,
+    resolution = resolution,
+    Close = function()
+      if closed then return end
+      closed = true
+      if M.EndPass then M:EndPass() end
+    end,
+    EndPass = function(selfLease)
+      return selfLease:Close()
+    end,
+  }
+end
+
 -- M:EndPass: Core addon plumbing: end pass.
 function M:EndPass()
   runtimeActive = nil

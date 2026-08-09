@@ -440,28 +440,29 @@ end
 
 -- solvePaired: the shared body behind Groups.Rings.Solve/Groups.Trinkets.Solve
 -- -- ports Jewelry.lua's solvePair orchestration (lines 313-354) around
--- the one shared Paired.Solve call: current-score computation (legal only
--- if both slots occupied, unique-compatible, and not the same physical
--- item -- Jewelry.lua:321-326), the ilvl-floor-then-unrestricted-retry
--- (Jewelry.lua:328-340), and the final "worth changing" gate.
+-- the one shared Paired.Solve call: current-score computation, the
+-- ilvl-floor-then-unrestricted-retry (Jewelry.lua:328-340), and the final
+-- "worth changing" gate.
 local function solvePaired(groupId, slots, candidates, context, loadoutState, currentA, currentB)
   local roleA, roleB = "first", "second"
   local roles = { roleA, roleB }
 
-  local currentAssignment = (currentA and currentB) and Paired.Evaluate({
+  local emptyAllowed = { [roleA] = currentA == nil, [roleB] = currentB == nil }
+  local currentAssignment = Paired.Evaluate({
     roles = roles, slots = slots, groupId = groupId, context = context, loadoutState = loadoutState,
     picks = { [roleA] = currentA, [roleB] = currentB },
     currentByRole = { [roleA] = currentA, [roleB] = currentB },
     currentBySlot = { [slots[roleA]] = currentA, [slots[roleB]] = currentB },
-  }) or nil
-  local currentScore = currentAssignment and currentAssignment.score or -math.huge
+    isCurrentState = true,
+    emptyAllowed = emptyAllowed,
+  })
 
   local compare = pairedCompare(roleA, roleB, currentA, currentB)
   local floor = emptySlotIlvlFloor(candidates, currentA, currentB)
 
   local function attempt(pool)
     return Paired.Solve({
-      roles = roles, slots = slots, emptyAllowed = { [roleA] = true, [roleB] = true },
+      roles = roles, slots = slots, emptyAllowed = emptyAllowed,
       candidates = pool, context = context, loadoutState = loadoutState, groupId = groupId, compare = compare,
       currentByRole = { [roleA] = currentA, [roleB] = currentB },
       currentBySlot = { [slots[roleA]] = currentA, [slots[roleB]] = currentB },
@@ -476,7 +477,8 @@ local function solvePaired(groupId, slots, candidates, context, loadoutState, cu
     end
   end
 
-  if not best or best.score <= currentScore + EPS then return nil end
+  if not best then return nil end
+  if currentAssignment and not compare(best, currentAssignment) then return nil end
   return best
 end
 
@@ -493,7 +495,7 @@ function Groups.Rings.Frontier(candidates, context, loadoutState, currentA, curr
     context = context,
     loadoutState = loadoutState,
     compare = pairedCompare("first", "second", currentA, currentB),
-    emptyAllowed = { first = true, second = true },
+    emptyAllowed = { first = currentA == nil, second = currentB == nil },
     currentA = currentA,
     currentB = currentB,
     allSlots = allSlots,
@@ -514,7 +516,7 @@ function Groups.Trinkets.Frontier(candidates, context, loadoutState, currentA, c
     context = context,
     loadoutState = loadoutState,
     compare = pairedCompare("first", "second", currentA, currentB),
-    emptyAllowed = { first = true, second = true },
+    emptyAllowed = { first = currentA == nil, second = currentB == nil },
     currentA = currentA,
     currentB = currentB,
     allSlots = allSlots,
