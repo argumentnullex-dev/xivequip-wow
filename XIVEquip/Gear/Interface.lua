@@ -164,11 +164,16 @@ local function nativeFailureDetail(err)
 end
 
 local function logNativePlannerFailure(detail)
-  local message = "Native 2.0 planner failed; aborting without legacy fallback: " .. tostring(detail or "unknown error")
+  local fullDetail = tostring(detail or "unknown error")
+  local summary = fullDetail:match("^[^\r\n]+") or fullDetail
+  local message = "Native 2.0 planner failed; aborting without legacy fallback: " .. summary
   if XIVEquip.Log and type(XIVEquip.Log.Error) == "function" then
     XIVEquip.Log.Error(message)
   elseif XIVEquip.Log and type(XIVEquip.Log.Warn) == "function" then
     XIVEquip.Log.Warn(message)
+  end
+  if XIVEquip.Log and type(XIVEquip.Log.Debugf) == "function" then
+    XIVEquip.Log.Debugf("force", "Native 2.0 planner failure detail:\n%s", fullDetail)
   end
 end
 

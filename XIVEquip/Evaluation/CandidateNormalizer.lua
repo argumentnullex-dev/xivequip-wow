@@ -143,15 +143,18 @@ local function resolveUniqueness(itemID, link)
   return nil, nil
 end
 
--- FromLink(link, source) -> candidate
+-- FromLink(link, source) -> candidate|nil, reason
 -- source: caller-supplied identity/location metadata, e.g.
 --   { kind = "bag", bag = 0, slot = 4, guid = "...", physicalID = "bag:0:4" }
 -- Passed through verbatim on the returned candidate.
 function CandidateNormalizer.FromLink(link, source)
   source = source or {}
-  local itemID = parseItemID(link)
+  local itemID = parseItemID(link) or source.itemID
+  local itemInfo = itemID or link
+  if itemInfo == nil then return nil, "invalid-item-info" end
 
-  local _, _, _, equipLoc, _, itemClassID, itemSubclassID = GetItemInfoInstant(itemID)
+  local okInstant, _, _, _, equipLoc, _, itemClassID, itemSubclassID = pcall(GetItemInfoInstant, itemInfo)
+  if not okInstant or not equipLoc then return nil, "pending-item-data" end
   local _, _, _, baseItemLevel, requiredLevel = GetItemInfo(link)
 
   -- GetItemInfo's 4th return is the item's *base* level. GetDetailedItemLevelInfo

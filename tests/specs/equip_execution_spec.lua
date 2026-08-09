@@ -420,6 +420,32 @@ test("native planner failure prints even when normal equip messages are disabled
   A.truthy(containsMessage(raw.printed, "Native 2.0 planner failed; no gear was equipped."))
 end)
 
+test("native planner failure logs a concise visible error and keeps traceback in debug detail", function()
+  local addon, raw = newHarness({
+    keepPlanBest = true,
+    equipped = { [1] = itemLink(101) },
+  })
+  local errors, debugDetails = {}, {}
+  addon.Log = {
+    Error = function(msg) errors[#errors + 1] = tostring(msg) end,
+    Debugf = function(_, fmt, detail)
+      debugDetails[#debugDetails + 1] = tostring(detail or fmt or "")
+    end,
+  }
+  addon.Gear.PlanBestNative = function()
+    error("native planner failed")
+  end
+
+  addon.Gear:EquipBest({ planner = "native" })
+  raw.runTimers()
+
+  A.equal(#errors, 1)
+  A.truthy(errors[1]:find("native planner failed", 1, true))
+  A.falsy(errors[1]:find("\n", 1, true), "visible error log should not contain a traceback")
+  A.truthy(#debugDetails >= 1)
+  A.truthy(debugDetails[1]:find("\n", 1, true), "full traceback belongs in debug detail")
+end)
+
 test("legacy StartPass failure does not call EndPass", function()
   local addon, raw = newHarness({ keepPlanBest = true })
   addon.Comparers.StartPass = function()
