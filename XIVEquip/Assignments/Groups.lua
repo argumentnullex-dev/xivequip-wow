@@ -25,12 +25,11 @@
 -- including the current one. A slot being empty is an ordinary resulting
 -- state, not a special case -- it contributes no candidate, no uniqueness
 -- usage, and a score of 0. Whether an empty resulting state is available
--- to enumerate for a given role, though, depends on whether it's already
--- the current state for that role (see frontierPaired's emptyAllowed
--- doc): Frontier never invents "unequip this" as a new option just
--- because nil is representable -- that's still Paired.Evaluate's
--- exclusive call, and Solve's "worth changing" gate is what actually
--- decides whether change happens at all.
+-- to enumerate for a given role, though, depends on the group's physical
+-- semantics: rings/trinkets only allow emptiness when already empty,
+-- weapons allow an empty offhand when that is a legal weapon loadout.
+-- PlanBuilder decides whether that final empty offhand is already caused
+-- by a mainhand equip side effect or requires an explicit offhand cleanup.
 local addonName, XIVEquip = ...
 XIVEquip.Assignments = XIVEquip.Assignments or {}
 local Assignments = XIVEquip.Assignments
@@ -253,6 +252,8 @@ local function prepareWeaponAssignments(frontier, context)
   end
   return frontier
 end
+
+Groups.Weapons.PrepareAssignments = prepareWeaponAssignments
 
 -- Solve(candidates, context, loadoutState, currentMH, currentOH) -> best|nil
 -- currentMH/currentOH: the candidates presently equipped in 16/17 (or nil).

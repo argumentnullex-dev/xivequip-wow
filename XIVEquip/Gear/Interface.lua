@@ -295,6 +295,7 @@ end
 
 local function pickLinkFor(pick)
   pick = pick or {}
+  if pick.action == "unequip" then return "" end
   return pick.newLink
       or (pick.bag and pick.slot and GetContainerItemLink and GetContainerItemLink(pick.bag, pick.slot))
       or (pick.fromSlot and GetInventoryItemLink("player", pick.fromSlot))
@@ -306,6 +307,15 @@ local function pickSlotFor(pick)
   pick = pick or {}
   return pick.targetSlot
       or (pick.equipLoc and Core.INV_BY_EQUIPLOC and Core.INV_BY_EQUIPLOC[pick.equipLoc])
+end
+
+local function unequipSlot(slotID)
+  if not slotID then return nil end
+  if not (PickupInventoryItem and PutItemInBackpack) then error("unequip_api_unavailable") end
+  if ClearCursor then ClearCursor() end
+  PickupInventoryItem(slotID)
+  PutItemInBackpack()
+  if ClearCursor then ClearCursor() end
 end
 
 local function isSlotLocked(slotID)
@@ -418,7 +428,13 @@ function C:_runEquipPlan(plan, opts)
 
       local oldLink = slotID and GetInventoryItemLink("player", slotID) or nil
       local wasBoEUnbound = isUnboundBoE(pick, pickLink)
-      local ok, err = pcall(function() equipByBasics(pick) end)
+      local ok, err = pcall(function()
+        if pick.action == "unequip" then
+          unequipSlot(slotID)
+        else
+          equipByBasics(pick)
+        end
+      end)
       if not ok then
         result.failed = result.failed + 1
         table.insert(result.steps, { index = index, status = "failed", slot = slotID, reason = tostring(err or "equip_error") })

@@ -111,7 +111,28 @@ test("PlanBuilder relies on 2H equip side effects instead of emitting an empty o
   A.equal(plan[1].equipLoc, "INVTYPE_2HWEAPON")
 end)
 
-test("PlanBuilder treats nil recommendation for an occupied slot as no operation", function()
+test("PlanBuilder emits an explicit offhand cleanup when the selected 2H is already equipped", function()
+  local addon = newAddon()
+  local staff = equipped(301, 16)
+  staff.equip.equipLoc = "INVTYPE_2HWEAPON"
+  local staleOffhand = equipped(302, 17)
+  staleOffhand.equip.equipLoc = "INVTYPE_2HWEAPON"
+
+  local changes, pending, plan = addon.Planning.PlanBuilder.Build({
+    equippedBySlot = { [16] = staff, [17] = staleOffhand },
+    finalSlots = { [16] = staff, [17] = nil },
+    optimizedSlots = { 16, 17 },
+  })
+
+  A.equal(pending, false)
+  A.equal(#changes, 1)
+  A.equal(#plan, 1)
+  A.equal(plan[1].action, "unequip")
+  A.equal(plan[1].targetSlot, 17)
+  A.equal(changes[1].slot, 17)
+end)
+
+test("PlanBuilder treats nil recommendation for an ordinary occupied slot as no operation", function()
   local addon = newAddon()
   local current = equipped(101, 11)
 

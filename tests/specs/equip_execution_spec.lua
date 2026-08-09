@@ -349,6 +349,23 @@ test("explicit legacy planner overrides native planner mode", function()
   A.equal(raw.equipped[1], legacyLink)
 end)
 
+test("explicit unequip plan step clears the target slot through the verified executor", function()
+  local oldOffhand = itemLink(317)
+  local addon, raw = newHarness({
+    equipped = { [17] = oldOffhand },
+    plan = { { action = "unequip", targetSlot = 17 } },
+  })
+
+  local result = addon.Gear:EquipBest()
+  raw.runTimers()
+
+  A.equal(result.succeeded, 1)
+  A.equal(result.failed, 0)
+  A.equal(raw.pickups[1], 17)
+  A.equal(raw.backpackMoves(), 1)
+  A.equal(raw.equipped[17], nil)
+end)
+
 test("native planner failure aborts without equipping or invoking legacy planners", function()
   local newLink = itemLink(302)
   local oldLink = itemLink(101)

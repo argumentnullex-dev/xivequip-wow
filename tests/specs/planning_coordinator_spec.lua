@@ -233,6 +233,71 @@ test("planning coordinator: item-level weapon normalization preserves candidate 
   A.equal(weaponAssignment.scores.oh, 0)
 end)
 
+test("planning coordinator: current 2H item-level baseline uses the same weapon assignment semantics", function()
+  local result = directItemLevelPlan({
+    character = { classFile = "SHAMAN", specID = 262, specName = "Elemental" },
+    items = {
+      current = weapon(1921, "INVTYPE_2HWEAPON", 0, 0, { itemLevel = 600 }),
+      upgrade = weapon(1922, "INVTYPE_2HWEAPON", 0, 0, { itemLevel = 610 }),
+    },
+    equipped = { [16] = "current" },
+    bags = { [0] = { "upgrade" } },
+  })
+
+  A.equal(result.currentSlotScores[16], 1200)
+  A.equal(result.finalSlotScores[16], 1220)
+  A.equal(result.finalSlotScores[16] - result.currentSlotScores[16], 20)
+end)
+
+test("planning coordinator: current slot scores include candidate policy adjustments", function()
+  local result = directItemLevelPlan({
+    character = { classFile = "SHAMAN", specID = 262, specName = "Elemental" },
+    items = {
+      current = weapon(1931, "INVTYPE_2HWEAPON", 0, 0, { itemLevel = 600 }),
+      upgrade = weapon(1932, "INVTYPE_2HWEAPON", 0, 0, { itemLevel = 610 }),
+    },
+    equipped = { [16] = "current" },
+    bags = { [0] = { "upgrade" } },
+    policies = {
+      {
+        id = "Test.weapon_adjustment_current_and_new",
+        phase = "candidate",
+        groups = { "weapons" },
+        apply = function(candidate)
+          if candidate and (candidate.itemID == 1931 or candidate.itemID == 1932) then
+            return { scoreAdjustment = 25 }
+          end
+        end,
+      },
+    },
+  })
+
+  A.equal(result.currentSlotScores[16], 1225)
+  A.equal(result.finalSlotScores[16], 1245)
+  A.equal(result.finalSlotScores[16] - result.currentSlotScores[16], 20)
+end)
+
+test("planning coordinator and plan builder clear a stale Titan's Grip offhand after spec change", function()
+  local result = directItemLevelPlan({
+    character = { classFile = "WARRIOR", specID = 71, specName = "Arms" },
+    items = {
+      current = weapon(1941, "INVTYPE_2HWEAPON", 0, 0, { itemLevel = 600 }),
+      staleOffhand = weapon(1942, "INVTYPE_2HWEAPON", 0, 0, { itemLevel = 600 }),
+    },
+    equipped = { [16] = "current", [17] = "staleOffhand" },
+  })
+  local addon = { Gear_Core = { SLOT_LABEL = { [16] = "Main Hand", [17] = "Off Hand" } } }
+  loadAddonFile("Planning" .. sep .. "PlanBuilder.lua", addon)
+
+  local _, _, plan = addon.Planning.PlanBuilder.Build(result)
+
+  A.equal(result.finalSlots[16] and result.finalSlots[16].itemID, 1941)
+  A.equal(result.finalSlots[17], nil)
+  A.equal(#plan, 1)
+  A.equal(plan[1].action, "unequip")
+  A.equal(plan[1].targetSlot, 17)
+end)
+
 test("planning coordinator closes live runtime when planning throws", function()
   local Bootstrap = dofile(root .. sep .. "tests" .. sep .. "harness" .. sep .. "addon_bootstrap.lua")
   local addon = {

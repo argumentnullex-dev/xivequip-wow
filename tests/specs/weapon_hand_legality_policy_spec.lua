@@ -102,7 +102,7 @@ test("without Titan's Grip, a two-hander may clear an occupied offhand as a game
   A.truthy(ok)
 end)
 
-test("without Titan's Grip, a currently equipped two-hander cannot pretend to clear an occupied offhand", function()
+test("without Titan's Grip, a two-hander with nil offhand may require explicit offhand cleanup", function()
   local addon = newAddon()
   local policy = findPolicy(addon)
   local context = capContext({ ["XIVEquip.allow_two_hand"] = true })
@@ -114,7 +114,7 @@ test("without Titan's Grip, a currently equipped two-hander cannot pretend to cl
     currentBySlot = { [16] = currentMH, [17] = currentOH },
   }, context)
 
-  A.falsy(ok)
+  A.truthy(ok)
 end)
 
 test("nil offhand does not remove an occupied offhand when the mainhand equip will not clear it", function()

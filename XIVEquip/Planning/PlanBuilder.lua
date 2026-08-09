@@ -1,8 +1,9 @@
 -- Planning/PlanBuilder.lua
 -- Converts a RecommendationResult's desired final slot assignment into the
--- existing executor's pick records. It intentionally does not equip
--- anything; Gear/Interface.lua remains responsible for protected actions,
--- retries, verification, BoE handling, and save behavior.
+-- existing executor's pick records. It intentionally does not perform any
+-- protected action itself; Gear/Interface.lua remains responsible for
+-- protected equips/cleanup, retries, verification, BoE handling, and save
+-- behavior.
 local addonName, XIVEquip = ...
 XIVEquip.Planning = XIVEquip.Planning or {}
 local Planning = XIVEquip.Planning
@@ -30,6 +31,14 @@ local function candidateSourceSlot(candidate)
   local source = candidate and candidate.source
   if source and source.kind == "equipped" then return source.slot end
   return nil
+end
+
+local function is2H(candidate)
+  local equipLoc = candidate and (candidate.equipLoc or candidate.equip and candidate.equip.equipLoc)
+  return equipLoc == "INVTYPE_2HWEAPON"
+      or equipLoc == "INVTYPE_RANGED"
+      or equipLoc == "INVTYPE_RANGEDRIGHT"
+      or equipLoc == "INVTYPE_THROWN"
 end
 
 local function candidatePick(slotID, candidate, finalSlotScores)
@@ -85,6 +94,24 @@ local function appendPick(plan, changes, slotID, current, candidate, currentSlot
   changes[#changes + 1] = changeRow(slotID, current, candidate, pick, currentSlotScores, finalSlotScores)
 end
 
+local function appendUnequip(plan, changes, slotID, current, currentSlotScores, finalSlotScores)
+  if not current then return end
+  local pick = {
+    action = "unequip",
+    targetSlot = slotID,
+    oldLink = current.link,
+  }
+  plan[#plan + 1] = pick
+  changes[#changes + 1] = changeRow(slotID, current, nil, pick, currentSlotScores, finalSlotScores)
+end
+
+local function planHasMainhandClear(plan)
+  for _, pick in ipairs(plan or {}) do
+    if pick and pick.targetSlot == 16 and is2H(pick) then return true end
+  end
+  return false
+end
+
 function PlanBuilder.Build(result, opts)
   opts = opts or {}
   result = result or {}
@@ -121,6 +148,10 @@ function PlanBuilder.Build(result, opts)
         appendPick(plan, changes, slotID, current, candidate, currentSlotScores, finalSlotScores)
       end
     end
+  end
+
+  if finalSlots[17] == nil and currentBySlot[17] and is2H(finalSlots[16]) and not planHasMainhandClear(plan) then
+    appendUnequip(plan, changes, 17, currentBySlot[17], currentSlotScores, finalSlotScores)
   end
 
   return changes, result.pending == true, plan
