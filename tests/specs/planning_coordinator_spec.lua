@@ -247,6 +247,8 @@ test("planning coordinator: current 2H item-level baseline uses the same weapon 
   A.equal(result.currentSlotScores[16], 1200)
   A.equal(result.finalSlotScores[16], 1220)
   A.equal(result.finalSlotScores[16] - result.currentSlotScores[16], 20)
+  A.equal(result.currentGroupScores.weapons, 1200)
+  A.equal(result.finalGroupScores.weapons, 1220)
 end)
 
 test("planning coordinator: current slot scores include candidate policy adjustments", function()

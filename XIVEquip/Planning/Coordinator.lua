@@ -176,9 +176,11 @@ end
 
 local function applyAssignments(finalSlots, groups, selected)
   local slotScores = {}
+  local groupScores = {}
   for _, group in ipairs(groups or {}) do
     local assignment = selected and selected[group.id]
     if assignment then
+      groupScores[group.id] = assignment.score or 0
       if group.kind == "singleton" then
         finalSlots[group.slot] = assignment.picks.slot
         slotScores[group.slot] = assignment.scores and assignment.scores.slot
@@ -190,11 +192,12 @@ local function applyAssignments(finalSlots, groups, selected)
       end
     end
   end
-  return slotScores
+  return slotScores, groupScores
 end
 
-local function currentSlotScores(collection, context, runtime)
+local function currentScores(collection, context, runtime)
   local scores = {}
+  local groupScores = {}
   local loadoutState = XIVEquip.Assignments.LoadoutState.New()
   loadoutState:SeedFromEquipped(collection.equippedBySlot)
   local allSlots = copyArray(OPTIMIZED_SLOTS)
@@ -219,6 +222,7 @@ local function currentSlotScores(collection, context, runtime)
       score = scoreFn,
     })
     scores[def.slot] = assignment and assignment.scores and assignment.scores.slot or 0
+    groupScores[def.id] = assignment and assignment.score or 0
   end
 
   local function pairedScores(groupId, roles, slots, currentByRole, emptyAllowed, prepareAssignments)
@@ -244,6 +248,7 @@ local function currentSlotScores(collection, context, runtime)
     for _, role in ipairs(roles) do
       scores[slots[role]] = assignment and assignment.scores and assignment.scores[role] or 0
     end
+    groupScores[groupId] = assignment and assignment.score or 0
   end
 
   pairedScores("rings", { "first", "second" }, { first = 11, second = 12 }, {
@@ -268,7 +273,7 @@ local function currentSlotScores(collection, context, runtime)
     oh = true,
   }, XIVEquip.Assignments.Groups.Weapons.PrepareAssignments)
 
-  return scores
+  return scores, groupScores
 end
 
 local function diagnosticsFor(collection, groups, runtime, context)
@@ -324,13 +329,16 @@ function Coordinator.Plan(opts)
     for _, slotID in ipairs(OPTIMIZED_SLOTS) do
       finalSlots[slotID] = collection.equippedBySlot[slotID]
     end
-    local finalSlotScores = applyAssignments(finalSlots, groups, selected)
+    local finalSlotScores, finalGroupScores = applyAssignments(finalSlots, groups, selected)
+    local currentSlotScores, currentGroupScores = currentScores(collection, context, runtime)
 
     return {
       finalSlots = finalSlots,
       equippedBySlot = collection.equippedBySlot,
       finalSlotScores = finalSlotScores,
-      currentSlotScores = currentSlotScores(collection, context, runtime),
+      currentSlotScores = currentSlotScores,
+      finalGroupScores = finalGroupScores,
+      currentGroupScores = currentGroupScores,
       optimizedSlots = copyArray(OPTIMIZED_SLOTS),
       pending = collection.pending == true,
       score = scoreTotal or 0,

@@ -112,6 +112,24 @@ local function planHasMainhandClear(plan)
   return false
 end
 
+local function applyWeaponGroupDelta(changes, currentGroupScores, finalGroupScores)
+  local oldScore = currentGroupScores and currentGroupScores.weapons
+  local newScore = finalGroupScores and finalGroupScores.weapons
+  if oldScore == nil or newScore == nil then return end
+
+  local applied = false
+  for _, change in ipairs(changes or {}) do
+    if change.slot == 16 or change.slot == 17 then
+      if not applied then
+        change.deltaScore = (tonumber(newScore) or 0) - (tonumber(oldScore) or 0)
+        applied = true
+      else
+        change.deltaScore = 0
+      end
+    end
+  end
+end
+
 function PlanBuilder.Build(result, opts)
   opts = opts or {}
   result = result or {}
@@ -120,6 +138,8 @@ function PlanBuilder.Build(result, opts)
   local finalSlots = result.finalSlots or {}
   local currentSlotScores = result.currentSlotScores or {}
   local finalSlotScores = result.finalSlotScores or {}
+  local currentGroupScores = result.currentGroupScores or {}
+  local finalGroupScores = result.finalGroupScores or {}
   local plan, changes = {}, {}
   local covered = {}
 
@@ -153,6 +173,8 @@ function PlanBuilder.Build(result, opts)
   if finalSlots[17] == nil and currentBySlot[17] and is2H(finalSlots[16]) and not planHasMainhandClear(plan) then
     appendUnequip(plan, changes, 17, currentBySlot[17], currentSlotScores, finalSlotScores)
   end
+
+  applyWeaponGroupDelta(changes, currentGroupScores, finalGroupScores)
 
   return changes, result.pending == true, plan
 end
