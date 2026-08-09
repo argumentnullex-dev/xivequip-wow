@@ -1,5 +1,6 @@
 param(
-    [string]$SavedVariablesPath = "D:\Games\Blizzard\World of Warcraft\_retail_\WTF\Account\<ACCOUNT>\SavedVariables\XIVEquip.lua",
+    [string]$SavedVariablesDir = $env:XIVEQUIP_SAVED_VARIABLES_DIR,
+    [string]$SavedVariablesPath,
     [string]$OutputPath = (Join-Path $PSScriptRoot "..\tests\fixtures\live_capture.lua")
 )
 
@@ -45,6 +46,18 @@ function Find-MatchingBrace {
     }
 
     throw "Could not find the end of TestFixtures.LastCapture."
+}
+
+if ([string]::IsNullOrWhiteSpace($SavedVariablesPath)) {
+    if ([string]::IsNullOrWhiteSpace($SavedVariablesDir)) {
+        $SavedVariablesDir = [Environment]::GetEnvironmentVariable("XIVEQUIP_SAVED_VARIABLES_DIR", "User")
+    }
+
+    if ([string]::IsNullOrWhiteSpace($SavedVariablesDir)) {
+        throw "No SavedVariables folder configured. Set XIVEQUIP_SAVED_VARIABLES_DIR, pass -SavedVariablesDir, pass -SavedVariablesPath, or run .\init-env.ps1."
+    }
+
+    $SavedVariablesPath = Join-Path $SavedVariablesDir "XIVEquip.lua"
 }
 
 if (-not (Test-Path -LiteralPath $SavedVariablesPath)) {

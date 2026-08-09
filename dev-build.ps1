@@ -5,7 +5,7 @@ param(
     [ValidateSet("Copy", "Junction")]
     [string]$Mode = "Copy",
 
-    [string]$WowRetailPath = "D:\Games\Blizzard\World of Warcraft\_retail_",
+    [string]$AddonPath = $env:XIVEQUIP_ADDON_PATH,
 
     [switch]$SkipTests,
     [switch]$RequireTests,
@@ -91,6 +91,10 @@ if (-not (Test-Path -LiteralPath $TocPath)) {
     throw "XIVEquip.toc not found at expected path: $TocPath"
 }
 
+if ([string]::IsNullOrWhiteSpace($AddonPath)) {
+    $AddonPath = [Environment]::GetEnvironmentVariable("XIVEQUIP_ADDON_PATH", "User")
+}
+
 if (-not $SkipTests) {
     $testScript = Join-Path $RepoRoot "tools\test.ps1"
     if (Test-Path -LiteralPath $testScript) {
@@ -113,8 +117,12 @@ Set-TocVersion -Path $TocPath -Version $nextVersion
 Write-Host "Development version: $currentVersion -> $nextVersion" -ForegroundColor Green
 
 if (-not $NoInstall) {
-    $addonRoot = Join-Path $WowRetailPath "Interface\AddOns"
-    $targetDir = Join-Path $addonRoot "XIVEquip"
+    if ([string]::IsNullOrWhiteSpace($AddonPath)) {
+        throw "No addon install path configured. Set XIVEQUIP_ADDON_PATH, pass -AddonPath, or run .\init-env.ps1."
+    }
+
+    $targetDir = $AddonPath
+    $addonRoot = Split-Path -Parent $targetDir
 
     if (-not (Test-Path -LiteralPath $addonRoot)) {
         New-Item -ItemType Directory -Path $addonRoot | Out-Null
