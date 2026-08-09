@@ -28,8 +28,8 @@ local function findPolicy(addon)
   error("policy not registered")
 end
 
-local function weapon(equipLoc)
-  return { equip = { equipLoc = equipLoc } }
+local function weapon(equipLoc, physicalID)
+  return { equip = { equipLoc = equipLoc }, physicalID = physicalID }
 end
 
 local function capContext(overrides)
@@ -87,6 +87,63 @@ test("without Titan's Grip, a two-hander alone (no offhand) is legal", function(
   local ok = policy.apply({ picks = { mh = weapon("INVTYPE_2HWEAPON"), oh = nil } }, context)
 
   A.truthy(ok)
+end)
+
+test("without Titan's Grip, a two-hander may clear an occupied offhand as a game side effect", function()
+  local addon = newAddon()
+  local policy = findPolicy(addon)
+  local context = capContext({ ["XIVEquip.allow_two_hand"] = true })
+
+  local ok = policy.apply({
+    picks = { mh = weapon("INVTYPE_2HWEAPON"), oh = nil },
+    currentBySlot = { [17] = weapon("INVTYPE_SHIELD") },
+  }, context)
+
+  A.truthy(ok)
+end)
+
+test("without Titan's Grip, a two-hander with nil offhand may require explicit offhand cleanup", function()
+  local addon = newAddon()
+  local policy = findPolicy(addon)
+  local context = capContext({ ["XIVEquip.allow_two_hand"] = true })
+  local currentMH = weapon("INVTYPE_2HWEAPON", "mh-current")
+  local currentOH = weapon("INVTYPE_2HWEAPON", "oh-current")
+
+  local ok = policy.apply({
+    picks = { mh = currentMH, oh = nil },
+    currentBySlot = { [16] = currentMH, [17] = currentOH },
+  }, context)
+
+  A.truthy(ok)
+end)
+
+test("nil offhand does not remove an occupied offhand when the mainhand equip will not clear it", function()
+  local addon = newAddon()
+  local policy = findPolicy(addon)
+  local context = capContext({
+    ["XIVEquip.allow_main_hand_one_hand"] = true,
+    ["XIVEquip.allow_dual_wield"] = true,
+  })
+
+  local ok = policy.apply({
+    picks = { mh = weapon("INVTYPE_WEAPON"), oh = nil },
+    currentBySlot = { [17] = weapon("INVTYPE_WEAPON") },
+  }, context)
+
+  A.falsy(ok)
+end)
+
+test("Titan's Grip nil offhand does not remove an occupied offhand", function()
+  local addon = newAddon()
+  local policy = findPolicy(addon)
+  local context = capContext({ ["XIVEquip.allow_two_hand"] = true, ["XIVEquip.titan_grip"] = true })
+
+  local ok = policy.apply({
+    picks = { mh = weapon("INVTYPE_2HWEAPON"), oh = nil },
+    currentBySlot = { [17] = weapon("INVTYPE_2HWEAPON") },
+  }, context)
+
+  A.falsy(ok)
 end)
 
 test("a spec that requires a shield rejects a non-shield offhand", function()

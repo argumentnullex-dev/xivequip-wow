@@ -25,12 +25,11 @@
 -- including the current one. A slot being empty is an ordinary resulting
 -- state, not a special case -- it contributes no candidate, no uniqueness
 -- usage, and a score of 0. Whether an empty resulting state is available
--- to enumerate for a given role, though, depends on whether it's already
--- the current state for that role (see frontierPaired's emptyAllowed
--- doc): Frontier never invents "unequip this" as a new option just
--- because nil is representable -- that's still Paired.Evaluate's
--- exclusive call, and Solve's "worth changing" gate is what actually
--- decides whether change happens at all.
+-- to enumerate for a given role, though, depends on the group's physical
+-- semantics: rings/trinkets only allow emptiness when already empty,
+-- weapons allow an empty offhand when that is a legal weapon loadout.
+-- PlanBuilder decides whether that final empty offhand is already caused
+-- by a mainhand equip side effect or requires an explicit offhand cleanup.
 local addonName, XIVEquip = ...
 XIVEquip.Assignments = XIVEquip.Assignments or {}
 local Assignments = XIVEquip.Assignments
@@ -80,15 +79,12 @@ end
 --   loadoutState, compare,
 --   emptyAllowed = {[roleA]=bool, [roleB]=bool} -- per role: is an EMPTY
 --     RESULTING state for this role legal to ENUMERATE as a candidate
---     transition? Rings and trinkets: always true for both roles --
---     either finger or trinket may legitimately end up empty regardless
---     of what's there now. Weapons: oh is always true (no offhand is an
---     ordinary state); mh is true ONLY when currentA (the current
---     mainhand) is nil -- see Groups.Weapons.Frontier's doc comment for
---     why this can't just default to true the way oh does. Note this
---     governs ENUMERATED transitions only -- the literal current state is
---     always representable regardless of emptyAllowed, via the fallback
---     below.
+--     transition? Rings/trinkets allow emptiness only for roles that are
+--     already empty; weapons allow an empty offhand as a real resulting
+--     state but never manufacture an empty mainhand unless it is already
+--     empty. Note this governs ENUMERATED transitions only -- the literal
+--     current state is always representable regardless of emptyAllowed,
+--     via the fallback below.
 --   currentA, currentB -- the candidates presently occupying roleA/roleB
 --     (or nil). Used for three things: `compare` (an ordinary tiebreak
 --     input, needed only to pick Paired.Solve's own discarded `best`,
@@ -256,6 +252,8 @@ local function prepareWeaponAssignments(frontier, context)
   end
   return frontier
 end
+
+Groups.Weapons.PrepareAssignments = prepareWeaponAssignments
 
 -- Solve(candidates, context, loadoutState, currentMH, currentOH) -> best|nil
 -- currentMH/currentOH: the candidates presently equipped in 16/17 (or nil).
@@ -440,28 +438,29 @@ end
 
 -- solvePaired: the shared body behind Groups.Rings.Solve/Groups.Trinkets.Solve
 -- -- ports Jewelry.lua's solvePair orchestration (lines 313-354) around
--- the one shared Paired.Solve call: current-score computation (legal only
--- if both slots occupied, unique-compatible, and not the same physical
--- item -- Jewelry.lua:321-326), the ilvl-floor-then-unrestricted-retry
--- (Jewelry.lua:328-340), and the final "worth changing" gate.
+-- the one shared Paired.Solve call: current-score computation, the
+-- ilvl-floor-then-unrestricted-retry (Jewelry.lua:328-340), and the final
+-- "worth changing" gate.
 local function solvePaired(groupId, slots, candidates, context, loadoutState, currentA, currentB)
   local roleA, roleB = "first", "second"
   local roles = { roleA, roleB }
 
-  local currentAssignment = (currentA and currentB) and Paired.Evaluate({
+  local emptyAllowed = { [roleA] = currentA == nil, [roleB] = currentB == nil }
+  local currentAssignment = Paired.Evaluate({
     roles = roles, slots = slots, groupId = groupId, context = context, loadoutState = loadoutState,
     picks = { [roleA] = currentA, [roleB] = currentB },
     currentByRole = { [roleA] = currentA, [roleB] = currentB },
     currentBySlot = { [slots[roleA]] = currentA, [slots[roleB]] = currentB },
-  }) or nil
-  local currentScore = currentAssignment and currentAssignment.score or -math.huge
+    isCurrentState = true,
+    emptyAllowed = emptyAllowed,
+  })
 
   local compare = pairedCompare(roleA, roleB, currentA, currentB)
   local floor = emptySlotIlvlFloor(candidates, currentA, currentB)
 
   local function attempt(pool)
     return Paired.Solve({
-      roles = roles, slots = slots, emptyAllowed = { [roleA] = true, [roleB] = true },
+      roles = roles, slots = slots, emptyAllowed = emptyAllowed,
       candidates = pool, context = context, loadoutState = loadoutState, groupId = groupId, compare = compare,
       currentByRole = { [roleA] = currentA, [roleB] = currentB },
       currentBySlot = { [slots[roleA]] = currentA, [slots[roleB]] = currentB },
@@ -476,7 +475,10 @@ local function solvePaired(groupId, slots, candidates, context, loadoutState, cu
     end
   end
 
-  if not best or best.score <= currentScore + EPS then return nil end
+  if not best then return nil end
+  if currentAssignment and currentAssignment.policyValid ~= false and not compare(best, currentAssignment) then
+    return nil
+  end
   return best
 end
 
@@ -493,7 +495,7 @@ function Groups.Rings.Frontier(candidates, context, loadoutState, currentA, curr
     context = context,
     loadoutState = loadoutState,
     compare = pairedCompare("first", "second", currentA, currentB),
-    emptyAllowed = { first = true, second = true },
+    emptyAllowed = { first = currentA == nil, second = currentB == nil },
     currentA = currentA,
     currentB = currentB,
     allSlots = allSlots,
@@ -514,7 +516,7 @@ function Groups.Trinkets.Frontier(candidates, context, loadoutState, currentA, c
     context = context,
     loadoutState = loadoutState,
     compare = pairedCompare("first", "second", currentA, currentB),
-    emptyAllowed = { first = true, second = true },
+    emptyAllowed = { first = currentA == nil, second = currentB == nil },
     currentA = currentA,
     currentB = currentB,
     allSlots = allSlots,

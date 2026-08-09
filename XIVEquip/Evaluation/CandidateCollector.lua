@@ -43,6 +43,14 @@ local function requestLoad(location)
   end
 end
 
+local function locationHasItem(location)
+  if C_Item and type(C_Item.DoesItemExist) == "function" then
+    local ok, exists = pcall(C_Item.DoesItemExist, location)
+    if ok then return exists == true end
+  end
+  return false
+end
+
 local function canNormalize(link, itemID)
   if type(GetItemInfoInstant) ~= "function" then return true end
   local ok, id, _, _, equipLoc = pcall(GetItemInfoInstant, itemID or link)
@@ -64,7 +72,7 @@ local function collectLocation(result, location, source)
   source.guid = source.guid or itemGUID(location)
 
   if not link then
-    if source.kind == "equipped" then return nil end
+    if source.kind == "equipped" and not locationHasItem(location) then return nil end
     requestLoad(location)
     appendUnresolved(result, source, "no-link", nil, itemID)
     return nil

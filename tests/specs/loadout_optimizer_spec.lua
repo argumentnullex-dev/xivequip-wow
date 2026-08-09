@@ -243,6 +243,33 @@ test("a unique-equipped slot's occupant can be handed off to another group later
   A.equal(combination.B.score, 80)
 end)
 
+test("a retained occupied slot still consumes uniqueness capacity", function()
+  local addon = newAddon()
+  local loadoutState = addon.Assignments.LoadoutState.New()
+  local currentRing = candidate("category:kept", 1)
+  local conflictingTrinket = candidate("category:kept", 1)
+  loadoutState:SeedFromEquipped({ [11] = currentRing })
+
+  local groups = {
+    { id = "rings", slots = { 11, 12 }, frontier = { assignment(10, { first = currentRing }) } },
+    {
+      id = "trinkets",
+      slots = { 13, 14 },
+      frontier = {
+        assignment(50, { first = conflictingTrinket }),
+        assignment(0, {}),
+      },
+    },
+  }
+
+  local combination, score = addon.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState)
+
+  A.truthy(combination)
+  A.equal(combination.rings.picks.first, currentRing)
+  A.equal(combination.trinkets.score, 0, "the conflicting trinket must not fit while the ring remains equipped")
+  A.equal(score, 10)
+end)
+
 -- Property-style exactness (doc 36.3): a small brute-force reference
 -- (full cartesian product) must always agree with LoadoutOptimizer.FindBest.
 --

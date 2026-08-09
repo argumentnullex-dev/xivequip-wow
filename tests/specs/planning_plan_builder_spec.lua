@@ -111,4 +111,105 @@ test("PlanBuilder relies on 2H equip side effects instead of emitting an empty o
   A.equal(plan[1].equipLoc, "INVTYPE_2HWEAPON")
 end)
 
+test("PlanBuilder emits an explicit offhand cleanup when the selected 2H is already equipped", function()
+  local addon = newAddon()
+  local staff = equipped(301, 16)
+  staff.equip.equipLoc = "INVTYPE_2HWEAPON"
+  local staleOffhand = equipped(302, 17)
+  staleOffhand.equip.equipLoc = "INVTYPE_2HWEAPON"
+
+  local changes, pending, plan = addon.Planning.PlanBuilder.Build({
+    equippedBySlot = { [16] = staff, [17] = staleOffhand },
+    finalSlots = { [16] = staff, [17] = nil },
+    optimizedSlots = { 16, 17 },
+  })
+
+  A.equal(pending, false)
+  A.equal(#changes, 1)
+  A.equal(#plan, 1)
+  A.equal(plan[1].action, "unequip")
+  A.equal(plan[1].targetSlot, 17)
+  A.equal(changes[1].slot, 17)
+end)
+
+test("PlanBuilder reports weapon pair delta for 1H plus offhand to 2H changes", function()
+  local addon = newAddon()
+  local currentMH = equipped(600, 16)
+  currentMH.equip.equipLoc = "INVTYPE_WEAPON"
+  local currentOH = equipped(601, 17)
+  currentOH.equip.equipLoc = "INVTYPE_HOLDABLE"
+  local twoHand = bag(700, 0, 7)
+  twoHand.equip.equipLoc = "INVTYPE_2HWEAPON"
+
+  local changes, _, plan = addon.Planning.PlanBuilder.Build({
+    equippedBySlot = { [16] = currentMH, [17] = currentOH },
+    finalSlots = { [16] = twoHand, [17] = nil },
+    currentSlotScores = { [16] = 600, [17] = 600 },
+    finalSlotScores = { [16] = 1400, [17] = 0 },
+    currentGroupScores = { weapons = 1200 },
+    finalGroupScores = { weapons = 1400 },
+    optimizedSlots = { 16, 17 },
+  })
+
+  A.equal(#plan, 1)
+  A.equal(changes[1].slot, 16)
+  A.equal(changes[1].deltaScore, 200)
+end)
+
+test("PlanBuilder reports unchanged weapon pair score for stale offhand cleanup", function()
+  local addon = newAddon()
+  local staff = equipped(600, 16)
+  staff.equip.equipLoc = "INVTYPE_2HWEAPON"
+  local staleOffhand = equipped(601, 17)
+  staleOffhand.equip.equipLoc = "INVTYPE_2HWEAPON"
+
+  local changes, _, plan = addon.Planning.PlanBuilder.Build({
+    equippedBySlot = { [16] = staff, [17] = staleOffhand },
+    finalSlots = { [16] = staff, [17] = nil },
+    currentSlotScores = { [16] = 1200, [17] = 0 },
+    finalSlotScores = { [16] = 1200, [17] = 0 },
+    currentGroupScores = { weapons = 1200 },
+    finalGroupScores = { weapons = 1200 },
+    optimizedSlots = { 16, 17 },
+  })
+
+  A.equal(#plan, 1)
+  A.equal(plan[1].action, "unequip")
+  A.equal(changes[1].slot, 17)
+  A.equal(changes[1].deltaScore, 0)
+end)
+
+test("PlanBuilder treats nil recommendation for an ordinary occupied slot as no operation", function()
+  local addon = newAddon()
+  local current = equipped(101, 11)
+
+  local changes, pending, plan = addon.Planning.PlanBuilder.Build({
+    equippedBySlot = { [11] = current },
+    finalSlots = { [11] = nil },
+    optimizedSlots = { 11 },
+  })
+
+  A.equal(pending, false)
+  A.equal(#changes, 0)
+  A.equal(#plan, 0)
+end)
+
+test("PlanBuilder uses native evaluated slot scores when present", function()
+  local addon = newAddon()
+  local current = equipped(101, 11)
+  local upgrade = bag(201, 0, 3)
+
+  local changes, _, plan = addon.Planning.PlanBuilder.Build({
+    equippedBySlot = { [11] = current },
+    finalSlots = { [11] = upgrade },
+    currentSlotScores = { [11] = 10 },
+    finalSlotScores = { [11] = 55 },
+    optimizedSlots = { 11 },
+  })
+
+  A.equal(#plan, 1)
+  A.equal(plan[1].score, 55)
+  A.equal(changes[1].deltaScore, 45)
+end)
+
 return tests

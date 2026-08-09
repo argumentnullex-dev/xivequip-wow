@@ -45,6 +45,43 @@ test("empty equipped slots are not reported as pending item data", function()
   A.equal(#result.candidates, 0)
 end)
 
+test("occupied unresolved equipped slots make the evaluation pending", function()
+  local addon = newAddon()
+  FakeWorld.Install({
+    items = {
+      ring = { itemID = 7151, equipLoc = "INVTYPE_FINGER", itemLevel = 300, loaded = false },
+    },
+    equipped = { [11] = "ring" },
+    bags = {},
+  })
+
+  local result = addon.Evaluation.CandidateCollector.Collect({ slots = { 11, 12 } })
+
+  A.equal(result.pending, true)
+  A.equal(result.equippedBySlot[11], nil, "unresolved equipped item must not masquerade as a complete current slot")
+  A.equal(#result.unresolved, 1)
+  A.equal(result.unresolved[1].kind, "equipped")
+  A.equal(result.unresolved[1].slot, 11)
+end)
+
+test("occupied equipped slot with no link is pending, not empty", function()
+  local addon = newAddon()
+  FakeWorld.Install({
+    items = {
+      trinket = { itemID = 7152, equipLoc = "INVTYPE_TRINKET", itemLevel = 300 },
+    },
+    equipped = { [13] = "trinket" },
+    bags = {},
+  })
+  _G.C_Item.GetItemLink = function() return nil end
+
+  local result = addon.Evaluation.CandidateCollector.Collect({ slots = { 13, 14 } })
+
+  A.equal(result.pending, true)
+  A.equal(#result.unresolved, 1)
+  A.equal(result.unresolved[1].reason, "no-link")
+end)
+
 test("pending bag item data is reported while resolved items still produce a partial candidate set", function()
   local addon = newAddon()
   FakeWorld.Install({

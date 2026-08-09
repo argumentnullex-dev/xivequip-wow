@@ -47,6 +47,7 @@ function Runtime.Live()
   if XIVEquip.Comparers and type(XIVEquip.Comparers.StartPass) == "function" then
     cmp, resolution = XIVEquip.Comparers:StartPass()
   end
+  local closed = false
   local resolvedKey = resolution and resolution.resolved_key
 
   runtime.UnitClass = function(unit) return call(_G.UnitClass, unit) end
@@ -83,6 +84,8 @@ function Runtime.Live()
 
   runtime.Comparer = function() return cmp, resolution end
   runtime.Close = function()
+    if closed then return end
+    closed = true
     if XIVEquip.Comparers and type(XIVEquip.Comparers.EndPass) == "function" then
       XIVEquip.Comparers:EndPass()
     end

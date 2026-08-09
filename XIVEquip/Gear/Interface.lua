@@ -172,6 +172,35 @@ local function logNativePlannerFailure(detail)
   end
 end
 
+local function acquireComparerPass()
+  if not (Comparers and type(Comparers.StartPass) == "function") then return nil end
+  if type(Comparers.AcquirePass) == "function" then return Comparers:AcquirePass() end
+
+  local cmp, resolution = Comparers:StartPass()
+  local closed = false
+  return {
+    comparer = cmp,
+    resolution = resolution,
+    Close = function()
+      if closed then return end
+      closed = true
+      if Comparers and type(Comparers.EndPass) == "function" then Comparers:EndPass() end
+    end,
+    EndPass = function(selfLease)
+      return selfLease:Close()
+    end,
+  }
+end
+
+local function releaseComparerOwner(owner)
+  if not owner then return end
+  if type(owner.Close) == "function" then
+    owner:Close()
+  elseif type(owner.EndPass) == "function" then
+    owner:EndPass()
+  end
+end
+
 -- PlanBest returns (changes, pending, plan)
 -- [XIVEquip-AUTO] C:PlanBest: Helper for Gear module.
 function C:PlanBest(cmp, opts)
@@ -266,6 +295,7 @@ end
 
 local function pickLinkFor(pick)
   pick = pick or {}
+  if pick.action == "unequip" then return "" end
   return pick.newLink
       or (pick.bag and pick.slot and GetContainerItemLink and GetContainerItemLink(pick.bag, pick.slot))
       or (pick.fromSlot and GetInventoryItemLink("player", pick.fromSlot))
@@ -277,6 +307,15 @@ local function pickSlotFor(pick)
   pick = pick or {}
   return pick.targetSlot
       or (pick.equipLoc and Core.INV_BY_EQUIPLOC and Core.INV_BY_EQUIPLOC[pick.equipLoc])
+end
+
+local function unequipSlot(slotID)
+  if not slotID then return nil end
+  if not (PickupInventoryItem and PutItemInBackpack) then error("unequip_api_unavailable") end
+  if ClearCursor then ClearCursor() end
+  PickupInventoryItem(slotID)
+  PutItemInBackpack()
+  if ClearCursor then ClearCursor() end
 end
 
 local function isSlotLocked(slotID)
@@ -315,9 +354,7 @@ function C:_completeEquipRun(result, comparerOwner, showEquip, opts)
     end
   end
 
-  if comparerOwner and type(comparerOwner.EndPass) == "function" then
-    comparerOwner:EndPass()
-  end
+  releaseComparerOwner(comparerOwner)
 
   local autoSave = opts.autoSave
   if autoSave == nil then
@@ -391,7 +428,13 @@ function C:_runEquipPlan(plan, opts)
 
       local oldLink = slotID and GetInventoryItemLink("player", slotID) or nil
       local wasBoEUnbound = isUnboundBoE(pick, pickLink)
-      local ok, err = pcall(function() equipByBasics(pick) end)
+      local ok, err = pcall(function()
+        if pick.action == "unequip" then
+          unequipSlot(slotID)
+        else
+          equipByBasics(pick)
+        end
+      end)
       if not ok then
         result.failed = result.failed + 1
         table.insert(result.steps, { index = index, status = "failed", slot = slotID, reason = tostring(err or "equip_error") })
@@ -479,10 +522,20 @@ function C:EquipBest(opts)
   end
 
   local useNativePlanner = wantsNativePlanner(opts)
+  local comparerOwner = nil
   local cmp = nil
-  if not useNativePlanner then cmp = Comparers:StartPass() end
+  if not useNativePlanner then
+    comparerOwner = acquireComparerPass()
+    cmp = comparerOwner and comparerOwner.comparer
+  end
   local showEquip = not (Settings and Settings.GetMessage) or Settings:GetMessage("Equip")
-  local _, pending, plan, _, nativeFailure = C:PlanBest(cmp, opts)
+  local planOk, changesOrErr, pending, plan, nativeResult, nativeFailure = xpcall(function()
+    return C:PlanBest(cmp, opts)
+  end, nativeFailureDetail)
+  if not planOk then
+    releaseComparerOwner(comparerOwner)
+    error(changesOrErr, 0)
+  end
   plan = plan or {}
 
   if useNativePlanner and nativeFailure then
@@ -504,13 +557,11 @@ function C:EquipBest(opts)
     local result = newEquipRunResult(plan, true)
     C._lastEquipResult = result
     local retrying = attempt < maxDataRetries
-    local comparerOwner = nil
-    if not useNativePlanner then comparerOwner = Comparers end
     if not retrying then
       result.timed_out = result.timed_out + 1
       C:_completeEquipRun(result, comparerOwner, showEquip, opts)
-    elseif (not useNativePlanner) and Comparers and type(Comparers.EndPass) == "function" then
-      Comparers:EndPass()
+    elseif not useNativePlanner then
+      releaseComparerOwner(comparerOwner)
     end
     if retrying then
       C_Timer.After(opts.retryDelay or 0.25, function()
@@ -522,9 +573,6 @@ function C:EquipBest(opts)
     end
     return result
   end
-
-  local comparerOwner = nil
-  if not useNativePlanner then comparerOwner = Comparers end
 
   return C:_runEquipPlan(plan, {
     comparerOwner = comparerOwner,
@@ -569,13 +617,29 @@ end
 -- filled". A fresh PlanBest pass against the now-equipped state should find
 -- nothing left to change; if it does, the equip wasn't actually optimal.
 local function checkFullyOptimal()
-  if not (Comparers and type(Comparers.StartPass) == "function") then
-    return true, {}
+  local useNativePlanner = wantsNativePlanner()
+  if useNativePlanner then
+    local ok, errOrChanges, pending, plan, nativeResult, nativeFailure = xpcall(function()
+      return C:PlanBest(nil, { planner = "native" })
+    end, nativeFailureDetail)
+    if not ok or nativeFailure then
+      return false, plan or {}, false, "failed", nativeFailure or errOrChanges
+    end
+    if pending then return false, plan or {}, true, "pending" end
+    if #(plan or {}) > 0 then return false, plan or {}, false, "remaining" end
+    return true, {}, false, "optimal"
   end
-  local cmp = Comparers:StartPass()
-  local _, pending, plan = C:PlanBest(cmp)
-  if Comparers.EndPass then Comparers:EndPass() end
-  return (not pending) and #(plan or {}) == 0, plan or {}, pending == true
+
+  local comparerOwner = acquireComparerPass()
+  local cmp = comparerOwner and comparerOwner.comparer
+  local ok, errOrChanges, pending, plan = xpcall(function()
+    return C:PlanBest(cmp, { planner = "legacy" })
+  end, nativeFailureDetail)
+  releaseComparerOwner(comparerOwner)
+  if not ok then return false, {}, false, "failed", errOrChanges end
+  if pending then return false, plan or {}, true, "pending" end
+  if #(plan or {}) > 0 then return false, plan or {}, false, "remaining" end
+  return true, {}, false, "optimal"
 end
 
 function C:ValidateNakedEquip(opts)
@@ -613,8 +677,14 @@ function C:ValidateNakedEquip(opts)
         C_Timer.After(opts.validationDelay or 0.2, function()
           local missing = missingValidationSlots(planIncludesSlot(result, 17))
           if #missing == 0 then
-            local optimal, remainingPlan, stillPending = checkFullyOptimal()
-            if stillPending then
+            local optimal, remainingPlan, stillPending, validationStatus, validationError = checkFullyOptimal()
+            if validationStatus == "failed" then
+              print((L.AddonPrefix or "XIVEquip: ") ..
+                "Validation failed: planner failed during post-equip verification; could not confirm equipped gear is optimal.")
+              if XIVEquip.Log and type(XIVEquip.Log.Error) == "function" then
+                XIVEquip.Log.Error("Post-equip validation planner failure: " .. tostring(validationError or "unknown error"))
+              end
+            elseif stillPending then
               print((L.AddonPrefix or "XIVEquip: ") ..
                 "Validation failed: item data is still loading; could not confirm equipped gear is optimal.")
             elseif not optimal then

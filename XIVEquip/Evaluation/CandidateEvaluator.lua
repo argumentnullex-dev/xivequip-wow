@@ -28,6 +28,7 @@ function CandidateEvaluator.FeatureVector(candidate)
   vector.weaponDps = weapon.dps
   vector.weaponMinDamage = weapon.minimumDamage
   vector.weaponMaxDamage = weapon.maximumDamage
+  vector.weaponSwingIntervalSeconds = weapon.swingIntervalSeconds
 
   return vector
 end

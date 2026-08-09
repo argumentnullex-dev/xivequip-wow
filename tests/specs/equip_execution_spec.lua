@@ -349,6 +349,23 @@ test("explicit legacy planner overrides native planner mode", function()
   A.equal(raw.equipped[1], legacyLink)
 end)
 
+test("explicit unequip plan step clears the target slot through the verified executor", function()
+  local oldOffhand = itemLink(317)
+  local addon, raw = newHarness({
+    equipped = { [17] = oldOffhand },
+    plan = { { action = "unequip", targetSlot = 17 } },
+  })
+
+  local result = addon.Gear:EquipBest()
+  raw.runTimers()
+
+  A.equal(result.succeeded, 1)
+  A.equal(result.failed, 0)
+  A.equal(raw.pickups[1], 17)
+  A.equal(raw.backpackMoves(), 1)
+  A.equal(raw.equipped[17], nil)
+end)
+
 test("native planner failure aborts without equipping or invoking legacy planners", function()
   local newLink = itemLink(302)
   local oldLink = itemLink(101)
@@ -401,6 +418,31 @@ test("native planner failure prints even when normal equip messages are disabled
   A.equal(result.completed, true)
   A.equal(result.failed, 1)
   A.truthy(containsMessage(raw.printed, "Native 2.0 planner failed; no gear was equipped."))
+end)
+
+test("legacy StartPass failure does not call EndPass", function()
+  local addon, raw = newHarness({ keepPlanBest = true })
+  addon.Comparers.StartPass = function()
+    error("start failed")
+  end
+
+  local ok = pcall(function() addon.Gear:EquipBest({ planner = "legacy" }) end)
+
+  A.falsy(ok)
+  A.equal(raw.passEnds(), 0)
+end)
+
+test("legacy planning exception after comparer acquisition releases exactly once", function()
+  local addon, raw = newHarness({ keepPlanBest = true })
+  addon.Gear.PlanBest = function()
+    error("planner exploded")
+  end
+
+  local ok = pcall(function() addon.Gear:EquipBest({ planner = "legacy" }) end)
+
+  A.falsy(ok)
+  A.equal(raw.passStarts(), 1)
+  A.equal(raw.passEnds(), 1)
 end)
 
 test("ordinary auto-save does not overwrite an existing set's icon", function()
@@ -570,6 +612,40 @@ test("validation fails and does not save when the post-equip re-plan is still pe
   A.falsy(raw.creates[2], "spec set should not be created while optimality is unconfirmed")
   A.equal(#raw.saves, 1, "only backup.xive should be saved")
   A.truthy(containsMessage(raw.printed, "Validation failed: item data is still loading"))
+  A.falsy(containsMessage(raw.printed, "Validation passed"))
+end)
+
+test("native validation failure is not treated as fully optimal and does not save", function()
+  local plan = {}
+  local equipped = {
+    [4] = itemLink(104),
+    [19] = itemLink(119),
+  }
+  for _, slotID in ipairs({ 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 }) do
+    table.insert(plan, { targetSlot = slotID, link = itemLink(500 + slotID) })
+  end
+
+  local calls = 0
+  local addon, raw = newHarness({
+    keepPlanBest = true,
+    plannerMode = "native",
+    existingSets = { ["Birthday Suit"] = 42 },
+    equipped = equipped,
+  })
+  addon.Gear.PlanBestNative = function()
+    calls = calls + 1
+    if calls == 1 then return {}, false, plan, { score = 1 } end
+    error("native validation failed")
+  end
+
+  addon.Gear:ValidateNakedEquip({ nakedDelay = 0, validationDelay = 0 })
+  raw.runTimers()
+
+  A.equal(calls, 2)
+  A.equal(raw.creates[1], "backup.xive")
+  A.falsy(raw.creates[2], "spec set should not be created when native validation fails")
+  A.equal(#raw.saves, 1, "only backup.xive should be saved")
+  A.truthy(containsMessage(raw.printed, "Validation failed: planner failed during post-equip verification"))
   A.falsy(containsMessage(raw.printed, "Validation passed"))
 end)
 

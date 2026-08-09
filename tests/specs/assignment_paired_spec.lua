@@ -84,6 +84,23 @@ test("the same physical item cannot fill both roles, even as the only candidate"
   end
 end)
 
+test("two distinct physical copies with the same itemID may fill both roles when not unique", function()
+  local addon = newAddon()
+  local a = item("copy-a", 10)
+  local b = item("copy-b", 20)
+  a.itemID = 9001
+  b.itemID = 9001
+
+  local best = addon.Assignments.Paired.Solve(baseSpec(addon, { candidates = { a, b } }))
+
+  A.truthy(best)
+  A.truthy(best.picks.first)
+  A.truthy(best.picks.second)
+  A.equal(best.picks.first.itemID, 9001)
+  A.equal(best.picks.second.itemID, 9001)
+  A.truthy(best.picks.first.physicalID ~= best.picks.second.physicalID)
+end)
+
 test("a candidate with no physicalID or guid still cannot fill both roles", function()
   local addon = newAddon()
   -- CandidateNormalizer.FromLink copies source.guid/source.physicalID
@@ -235,6 +252,27 @@ test("an ineligible literal current state remains representable as policy-invali
   A.truthy(assignment, "frontiers need the literal current state even when a policy now rejects it")
   A.falsy(assignment.policyValid)
   A.equal(assignment.reasons[1], "currently invalid")
+end)
+
+test("Groups.Rings.Solve can replace a higher-scoring policy-invalid current item", function()
+  local addon = newAddon()
+  local current = item("current-invalid", 100)
+  local replacement = item("replacement-valid", 90)
+  local policy = {
+    id = "Test.exclude_current",
+    groups = { "rings" },
+    apply = function(candidate)
+      if candidate == current then return { allow = false, reason = "currently invalid" } end
+    end,
+  }
+  local context = { policies = { candidate = { policy }, assignment = {}, preference = {} } }
+  local loadoutState = addon.Assignments.LoadoutState.New()
+  addon.Evaluation.CandidateEvaluator.Score = fakeScore
+
+  local best = addon.Assignments.Groups.Rings.Solve({ replacement }, context, loadoutState, current, nil)
+
+  A.truthy(best)
+  A.equal(best.picks.first, replacement)
 end)
 
 test("a role that disallows empty never receives a nil pick", function()

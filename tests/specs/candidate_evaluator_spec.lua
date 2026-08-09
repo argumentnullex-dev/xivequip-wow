@@ -26,7 +26,7 @@ test("FeatureVector translates candidate.weapon's human-oriented names to the XI
   local addon = newAddon()
   local candidate = {
     stats = { strength = 10 },
-    weapon = { dps = 20, minimumDamage = 30, maximumDamage = 40 },
+    weapon = { dps = 20, minimumDamage = 30, maximumDamage = 40, swingIntervalSeconds = 2.6 },
   }
 
   local vector = addon.Evaluation.CandidateEvaluator.FeatureVector(candidate)
@@ -35,6 +35,7 @@ test("FeatureVector translates candidate.weapon's human-oriented names to the XI
   A.equal(vector.weaponDps, 20)
   A.equal(vector.weaponMinDamage, 30)
   A.equal(vector.weaponMaxDamage, 40)
+  A.equal(vector.weaponSwingIntervalSeconds, 2.6)
 end)
 
 test("Score matches a manual weighted sum against a hand-built scale", function()
@@ -199,6 +200,33 @@ test("integration: Pawn Provider -> Resolver.Resolve -> normalized candidate -> 
   -- 1.0; MinDamage/MaxDamage (1.0 each) normalize to 1.0/200 = 0.005 each.
   local expected = 200 * 1.0 + 50 * (1.0 / 200) + 100 * (1.0 / 200)
   A.equal(score, expected)
+end)
+
+test("integration: native Pawn Speed weight reaches the scorer", function()
+  local addon = newAddon()
+  _G.XIVEquip = addon
+
+  FakeWorld.Install({
+    items = {
+      fast = { itemID = 7002, equipLoc = "INVTYPE_WEAPON", stats = { Speed = 1.8 } },
+      slow = { itemID = 7003, equipLoc = "INVTYPE_WEAPON", stats = { Speed = 3.6 } },
+    },
+  })
+
+  local pawnAdapter = {
+    ListScales = function() return {} end,
+    ResolveValues = function()
+      return { Speed = 100 }, { key = "speed-scale", name = "Speed Scale" }
+    end,
+  }
+  local provider = addon.XIVWeights.Providers.Pawn.New(pawnAdapter)
+  local scale = addon.XIVWeights.Resolver.Resolve(provider:Resolve(nil, {}), nil)
+
+  local fast = addon.Evaluation.CandidateNormalizer.FromLink(FakeWorld.ItemLink(7002), {})
+  local slow = addon.Evaluation.CandidateNormalizer.FromLink(FakeWorld.ItemLink(7003), {})
+
+  A.equal(addon.Evaluation.CandidateEvaluator.Score(fast, { weights = scale }), 1.8)
+  A.equal(addon.Evaluation.CandidateEvaluator.Score(slow, { weights = scale }), 3.6)
 end)
 
 return tests

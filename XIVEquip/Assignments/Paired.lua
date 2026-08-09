@@ -221,7 +221,12 @@ function Paired.Evaluate(spec)
   local removalSlots = spec.removalSlots or { slotA, slotB }
   if not spec.loadoutState:CheckAssignment(additions, removalSlots) then return nil end
 
-  local assignment = { groupId = spec.groupId, picks = { [roleA] = pickA, [roleB] = pickB } }
+  local assignment = {
+    groupId = spec.groupId,
+    picks = { [roleA] = pickA, [roleB] = pickB },
+    currentByRole = spec.currentByRole,
+    currentBySlot = spec.currentBySlot,
+  }
   -- emptyAllowed is only ever consulted during this policy check (see
   -- this function's doc comment) -- not left on the returned assignment,
   -- which otherwise has the exact same shape regardless of isCurrentState.
@@ -229,6 +234,8 @@ function Paired.Evaluate(spec)
   local policies = assignmentPoliciesFor(spec.context, spec.groupId)
   local policyValid = policiesAllow(policies, assignment, spec.context)
   assignment.emptyAllowed = nil
+  assignment.currentByRole = nil
+  assignment.currentBySlot = nil
   local finalPolicyValid = policyValid and candidatesEligible
   if not finalPolicyValid and not spec.isCurrentState then return nil end
   assignment.policyValid = finalPolicyValid

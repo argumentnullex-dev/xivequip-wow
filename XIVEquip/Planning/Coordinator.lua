@@ -175,18 +175,105 @@ local function buildGroups(collection, context, loadoutState, allSlots, score)
 end
 
 local function applyAssignments(finalSlots, groups, selected)
+  local slotScores = {}
+  local groupScores = {}
   for _, group in ipairs(groups or {}) do
     local assignment = selected and selected[group.id]
     if assignment then
+      groupScores[group.id] = assignment.score or 0
       if group.kind == "singleton" then
         finalSlots[group.slot] = assignment.picks.slot
+        slotScores[group.slot] = assignment.scores and assignment.scores.slot
       else
         for role, slotID in pairs(group.roles or {}) do
           finalSlots[slotID] = assignment.picks[role]
+          slotScores[slotID] = assignment.scores and assignment.scores[role]
         end
       end
     end
   end
+  return slotScores, groupScores
+end
+
+local function currentScores(collection, context, runtime)
+  local scores = {}
+  local groupScores = {}
+  local loadoutState = XIVEquip.Assignments.LoadoutState.New()
+  loadoutState:SeedFromEquipped(collection.equippedBySlot)
+  local allSlots = copyArray(OPTIMIZED_SLOTS)
+
+  local function scoreFn(candidate, scoreContext, slot, role)
+    if runtime and type(runtime.ScoreCandidate) == "function" then
+      return runtime.ScoreCandidate(candidate, scoreContext, slot, role)
+    end
+    return XIVEquip.Evaluation.CandidateEvaluator.Score(candidate, scoreContext)
+  end
+
+  for _, def in ipairs(SINGLETON_SLOTS) do
+    local current = collection.equippedBySlot and collection.equippedBySlot[def.slot]
+    local assignment = XIVEquip.Assignments.Singleton.Evaluate({
+      groupId = def.id,
+      slot = def.slot,
+      pick = current,
+      current = current,
+      context = context,
+      loadoutState = loadoutState,
+      allSlots = allSlots,
+      score = scoreFn,
+    })
+    scores[def.slot] = assignment and assignment.scores and assignment.scores.slot or 0
+    groupScores[def.id] = assignment and assignment.score or 0
+  end
+
+  local function pairedScores(groupId, roles, slots, currentByRole, emptyAllowed, prepareAssignments)
+    local currentBySlot = {}
+    for _, role in ipairs(roles) do currentBySlot[slots[role]] = currentByRole[role] end
+    local assignment = XIVEquip.Assignments.Paired.Evaluate({
+      roles = roles,
+      slots = slots,
+      groupId = groupId,
+      context = context,
+      loadoutState = loadoutState,
+      score = scoreFn,
+      picks = currentByRole,
+      removalSlots = allSlots,
+      currentByRole = currentByRole,
+      currentBySlot = currentBySlot,
+      emptyAllowed = emptyAllowed,
+      isCurrentState = true,
+    })
+    if assignment and type(prepareAssignments) == "function" then
+      prepareAssignments({ assignment }, context)
+    end
+    for _, role in ipairs(roles) do
+      scores[slots[role]] = assignment and assignment.scores and assignment.scores[role] or 0
+    end
+    groupScores[groupId] = assignment and assignment.score or 0
+  end
+
+  pairedScores("rings", { "first", "second" }, { first = 11, second = 12 }, {
+    first = collection.equippedBySlot and collection.equippedBySlot[11],
+    second = collection.equippedBySlot and collection.equippedBySlot[12],
+  }, {
+    first = not (collection.equippedBySlot and collection.equippedBySlot[11]),
+    second = not (collection.equippedBySlot and collection.equippedBySlot[12]),
+  })
+  pairedScores("trinkets", { "first", "second" }, { first = 13, second = 14 }, {
+    first = collection.equippedBySlot and collection.equippedBySlot[13],
+    second = collection.equippedBySlot and collection.equippedBySlot[14],
+  }, {
+    first = not (collection.equippedBySlot and collection.equippedBySlot[13]),
+    second = not (collection.equippedBySlot and collection.equippedBySlot[14]),
+  })
+  pairedScores("weapons", { "mh", "oh" }, { mh = 16, oh = 17 }, {
+    mh = collection.equippedBySlot and collection.equippedBySlot[16],
+    oh = collection.equippedBySlot and collection.equippedBySlot[17],
+  }, {
+    mh = not (collection.equippedBySlot and collection.equippedBySlot[16]),
+    oh = true,
+  }, XIVEquip.Assignments.Groups.Weapons.PrepareAssignments)
+
+  return scores, groupScores
 end
 
 local function diagnosticsFor(collection, groups, runtime, context)
@@ -242,11 +329,16 @@ function Coordinator.Plan(opts)
     for _, slotID in ipairs(OPTIMIZED_SLOTS) do
       finalSlots[slotID] = collection.equippedBySlot[slotID]
     end
-    applyAssignments(finalSlots, groups, selected)
+    local finalSlotScores, finalGroupScores = applyAssignments(finalSlots, groups, selected)
+    local currentSlotScores, currentGroupScores = currentScores(collection, context, runtime)
 
     return {
       finalSlots = finalSlots,
       equippedBySlot = collection.equippedBySlot,
+      finalSlotScores = finalSlotScores,
+      currentSlotScores = currentSlotScores,
+      finalGroupScores = finalGroupScores,
+      currentGroupScores = currentGroupScores,
       optimizedSlots = copyArray(OPTIMIZED_SLOTS),
       pending = collection.pending == true,
       score = scoreTotal or 0,
