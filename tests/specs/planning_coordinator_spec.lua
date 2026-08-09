@@ -327,16 +327,23 @@ test("planning coordinator closes live runtime when planning throws", function()
     IsAvailable = function() return true end,
   })
 
-  local passStarts, passEnds = 0, 0
-  local startPass = addon.Comparers.StartPass
-  local endPass = addon.Comparers.EndPass
-  addon.Comparers.StartPass = function(self)
+  local passStarts, passEnds, runtimeCloses = 0, 0, 0
+  addon.Comparers.StartPass = function()
     passStarts = passStarts + 1
-    return startPass(self)
   end
-  addon.Comparers.EndPass = function(self)
+  addon.Comparers.EndPass = function()
     passEnds = passEnds + 1
-    return endPass(self)
+  end
+
+  local realLive = addon.Planning.Runtime.Live
+  addon.Planning.Runtime.Live = function(...)
+    local runtime = realLive(...)
+    local realClose = runtime.Close
+    runtime.Close = function()
+      runtimeCloses = runtimeCloses + 1
+      return realClose()
+    end
+    return runtime
   end
 
   local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
@@ -350,8 +357,9 @@ test("planning coordinator closes live runtime when planning throws", function()
 
   A.equal(ok, false)
   A.truthy(tostring(err):find("collector exploded", 1, true), "original native planner error should be preserved")
-  A.equal(passStarts, 1)
-  A.equal(passEnds, 1)
+  A.equal(passStarts, 0)
+  A.equal(passEnds, 0)
+  A.equal(runtimeCloses, 1)
 end)
 
 return tests
