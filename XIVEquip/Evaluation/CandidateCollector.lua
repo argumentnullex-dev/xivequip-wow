@@ -84,7 +84,12 @@ local function collectLocation(result, location, source)
     return nil
   end
 
-  local candidate = Evaluation.CandidateNormalizer.FromLink(link, source)
+  local candidate, normalizeReason = Evaluation.CandidateNormalizer.FromLink(link, source)
+  if not candidate then
+    requestLoad(location)
+    appendUnresolved(result, source, normalizeReason or "pending-item-data", link, itemID)
+    return nil
+  end
   result.candidates[#result.candidates + 1] = candidate
   return candidate
 end

@@ -77,6 +77,29 @@ test("passes caller-supplied source metadata through verbatim", function()
   A.same(candidate.source, source)
 end)
 
+test("uses source itemID when the item link identity is not parseable", function()
+  local addon = newAddon()
+  FakeWorld.Install({ items = { ring = { itemID = 3002, equipLoc = "INVTYPE_FINGER" } } })
+  _G.GetItemInfo = function() return "ring", "opaque-link", nil, 450, 1 end
+  _G.GetDetailedItemLevelInfo = function() return nil end
+
+  local candidate = addon.Evaluation.CandidateNormalizer.FromLink("opaque-link", { itemID = 3002 })
+
+  A.truthy(candidate)
+  A.equal(candidate.itemID, 3002)
+  A.equal(candidate.equip.equipLoc, "INVTYPE_FINGER")
+end)
+
+test("returns pending instead of throwing when item info cannot be normalized", function()
+  local addon = newAddon()
+  FakeWorld.Install({})
+
+  local candidate, reason = addon.Evaluation.CandidateNormalizer.FromLink("not-an-item-link", {})
+
+  A.falsy(candidate)
+  A.equal(reason, "pending-item-data")
+end)
+
 -- These uniqueness tests deliberately do NOT use fake_world.lua's
 -- uniqueKey/uniqueLimit scenario fields -- that fake returns an
 -- already-normalized string as the "key" directly, which isn't what
