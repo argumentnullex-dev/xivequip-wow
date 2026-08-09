@@ -1,0 +1,8 @@
+# .pkgmeta
+package-as: XIVEquip
+
+ignore:
+  - .github
+  - .gitignore
+  - /screenshots
+  - Curse.md

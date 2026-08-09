@@ -1,0 +1,310 @@
+# XIVEquip – “Equip Recommended Gear” for WoW
+
+**XIVEquip** brings the FFXIV-style “Equip Recommended Gear” button to World of Warcraft.
+
+- Click one button → it **plans** the best upgrades in your bags and **equips** them.
+- Uses **Pawn** weights when available; falls back to a clear **stat/ilvl** score when not.
+- Handles **armor**, **jewelry** (rings/trinkets are solved as pairs), and **weapons** (legal combos only).
+- Optional: **Auto‑equip on spec change** and **auto‑save equipment sets** named **`Spec.xive`**.
+
+> MIT-style license. Not affiliated with Square Enix or Pawn; big thanks to the Pawn authors ♥.
+
+---
+
+## Features
+
+- **Planner-first flow**
+  - `PlanBest` computes the full list of items to equip; `EquipBest` applies and verifies that plan.
+  - If item data is still loading, XIVEquip retries briefly instead of treating unknown items as non-upgrades.
+- **Pawn integration**
+  - If Pawn is installed and a scale is active, XIVEquip scores with your **current spec’s** scale.
+  - If Pawn isn’t available or returns no value, XIVEquip falls back to a transparent **stat/ilvl** score (with debug so you can see each stat’s contribution).
+- **Weapons done right**
+  - Legal combos only, scored via your comparer.
+  - Fury supports Titan's Grip two-handed pairs. Protection specs keep shield requirements. Your weights decide winners inside legal loadouts.
+- **Rings & Trinkets**
+  - Solves each pair as one loadout, so a strong currently equipped ring/trinket can be retained while the weaker slot is upgraded.
+  - Rejects duplicate physical items and unique-equipped conflicts before attempting to equip.
+- **Auto-equip on spec change (optional)**
+  - When you swap specs, XIVEquip can equip your best gear for that spec.
+- **Auto-save spec equipment sets (optional)**
+  - When enabled, verified successful equip operations save a set **`Spec.xive`** (e.g., `Protection.xive`).
+  - Failed, timed-out, manual BoE, or zero-change runs do not auto-save.
+- **Predictable debug**
+  - Slot-filtered logs with a “force” bypass; detailed fallback scoring traces when wanted.
+
+---
+
+## Installation
+
+1. Copy the **XIVEquip** folder into `World of Warcraft/_retail_/Interface/AddOns/`.
+2. (Optional) Install **Pawn** to use your custom scales for scoring.
+3. Launch the game and enable **XIVEquip** in the AddOns list.
+
+---
+
+## Development Builds
+
+The repo has two build paths: one for fast in-game testing and one for release archives.
+
+### Version scheme
+
+XIVEquip uses semantic-ish addon versions:
+
+- **Major** (`+1.0.0`) — huge overhauls.
+- **Minor** (`+0.1.0`) — breaking changes.
+- **Patch** (`+0.0.1`) — incremental releases.
+- **Development builds** append `-dev.N`.
+
+When starting a development branch, bump the intended release version and append `-dev.1`.
+For example:
+
+```text
+1.1.4 -> 1.1.5-dev.1
+```
+
+Each later development build increments only the final dev number:
+
+```text
+1.1.5-dev.1 -> 1.1.5-dev.2
+```
+
+### Dev build
+
+Run this from the repo root:
+
+```powershell
+.\dev-build.ps1
+```
+
+From Git Bash, run the same script through PowerShell:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./dev-build.ps1
+```
+
+The dev build script:
+
+1. Reads `## Version:` from `XIVEquip/XIVEquip.toc`.
+2. If the version is a release version, bumps patch by default and appends `-dev.1`.
+3. If the version is already `-dev.N`, increments `N`.
+4. Copies the addon folder to:
+
+```text
+D:\Games\Blizzard\World of Warcraft\_retail_\Interface\AddOns\XIVEquip
+```
+
+After it runs, reload the UI in-game and the AddOns list/TOC version should show the new dev build.
+
+Optional bump choices when starting a new dev line:
+
+```powershell
+.\dev-build.ps1 -Bump Patch
+.\dev-build.ps1 -Bump Minor
+.\dev-build.ps1 -Bump Major
+```
+
+Optional install modes:
+
+```powershell
+.\dev-build.ps1 -Mode Copy
+.\dev-build.ps1 -Mode Junction
+.\dev-build.ps1 -SkipTests
+.\dev-build.ps1 -RequireTests
+.\dev-build.ps1 -NoInstall
+```
+
+`Copy` is the default because it works without special Windows permissions. `Junction` links the live AddOns folder back to the repo's `XIVEquip` folder. By default, the dev build runs offline tests when a local Lua runtime is available and warns/skips when it is not. `RequireTests` makes a missing Lua runtime fail the build. `SkipTests` bypasses the offline test step entirely.
+
+### Fixture import
+
+After running `/xive fixture capture` in game, run `/reload` or log out so WoW writes SavedVariables. Then import the capture into the offline fixture suite:
+
+```powershell
+.\tools\import-fixture.ps1
+```
+
+The importer reads:
+
+```text
+D:\Games\Blizzard\World of Warcraft\_retail_\WTF\Account\<ACCOUNT>\SavedVariables\XIVEquip.lua
+```
+
+and writes a redacted fixture to:
+
+```text
+tests\fixtures\live_capture.lua
+```
+
+Character name, realm, and item GUIDs are redacted. Item IDs, links, equipment locations, item levels, slot assignments, and active Pawn scale metadata are retained so offline tests can replay realistic item data.
+
+### Publish build
+
+Run this from the repo root:
+
+```powershell
+.\publish-build.ps1
+```
+
+The publish build script:
+
+1. Reads the current TOC version.
+2. Removes a trailing `-dev.N`, if present.
+3. Writes the release version back to `XIVEquip/XIVEquip.toc`.
+4. Creates `XIVEquip-<version>.zip` in the archive folder:
+
+```text
+E:\eng\src\XIVEquipArchives
+```
+
+For example:
+
+```text
+1.1.5-dev.7 -> 1.1.5
+XIVEquip-1.1.5.zip
+```
+
+`build.ps1` remains as a compatibility wrapper for `publish-build.ps1`.
+
+Publish builds should be created only from a reviewed release or RC branch. After publishing a stable release, tag the commit so the addon can be reset to that known-good point.
+
+---
+
+## Regression Testing
+
+Run the offline regression suite from the repo root:
+
+```powershell
+.\tools\test.ps1
+```
+
+From Git Bash:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./tools/test.ps1
+```
+
+The suite loads addon modules with mocked WoW APIs and covers comparer fallback, settings migration, weapon legality, ring/trinket pair planning, unique-equipped rules, fixture replay, and equip execution semantics. It cannot replace live testing for protected WoW behavior, but it should pass before every PR and build.
+
+---
+
+## Usage
+
+- Open your **Character panel** and click the **XIVEquip** button to plan & equip upgrades.
+- To enable **auto-equip on spec change**, open **Game Menu → Options → AddOns → XIVEquip** and tick
+  **“Auto‑equip on spec change”.**
+- To let XIVEquip update equipment sets after successful equips, tick
+  **“Auto‑save spec equipment sets”.**
+
+### Slash commands
+
+- `/xiveauto` — toggle auto‑equip on spec change
+- `/xiveauto test` — run a one‑off auto‑equip (useful for testing)
+- `/xive status` — print settings schema, comparer resolution/fallback, auto-equip state, and auto-save state
+- `/xive diag` — score currently equipped items with the resolved comparer
+- `/xive score <itemLink> [scaleName]` — score one linked item; optional scale name uses Pawn when available
+- `/xive planner status` — show whether normal equip uses the legacy planner or native 2.0 planner
+- `/xive planner legacy` — use the legacy planner for normal button, `/xivequip`, and automation equips
+- `/xive planner native` — use the native 2.0 planner for normal button, `/xivequip`, and automation equips
+- `/xive plan [legacy|native]` — print the current equip plan; optional mode overrides the setting for this command only
+- `/xive equip [legacy|native]` — equip recommendations; optional mode overrides the setting for this command only
+- `/xive compare` — compare legacy and native planner output, capture a fixture, and save a diagnostic log to `XIVEquip_Settings.Diagnostics.PlannerCompare`
+- `/xive test` — run in-game regression checks that do not equip gear
+- `/xive fixture capture` — save current character, equipped item, bag item, and active Pawn scale data to `XIVEquip_Settings.TestFixtures.LastCapture`
+- `/xive fixture clear` — remove captured fixture data
+
+The fixture capture and compare commands are intended for building realistic offline test cases. Run them on useful scenarios before logging out or reloading so the SavedVariables file is written.
+
+---
+
+## Settings
+
+Open **Game Menu → Options → AddOns → XIVEquip**:
+
+- **Active comparer** – How items are scored.
+  *Default:* **Auto (Pawn → ilvl)** — use Pawn if available; otherwise a safe fallback.
+- **Planner mode** – Which planner normal equip paths use.
+  *Default:* **legacy**. Use `/xive planner native` to opt into the native 2.0 planner for normal equips, or use `/xive plan native` and `/xive equip native` for one-off native checks without changing the saved setting.
+- **Messages** – Toggle login and equip change messages.
+- **Debug logging** – Developer‑oriented logs (see debug toggles below).
+- **Auto‑equip on spec change** – Equip recommended gear after changing specs.
+- **Auto‑save spec equipment sets** – After a successful equip, save the active spec's *Spec.xive* set. This is opt-in for fresh installs and ambiguous legacy settings; users who previously enabled `/xive auto sets on` keep that choice during migration.
+
+---
+
+## Release Candidate Smoke Checklist
+
+Before cutting an RC or stable archive, perform a quick live-client pass:
+
+1. `/reload`, then confirm the expected version in the AddOns list.
+2. Run `/xive test`.
+3. With Pawn disabled or unavailable, confirm `/xive status`, `/xive diag`, preview, and equip use Item Level fallback.
+4. With Pawn enabled and an active scale, confirm those same paths use Pawn.
+5. Test Fury Warrior with Titan's Grip two-handed weapons.
+6. Test a shield spec, such as Protection Warrior or Protection Paladin.
+7. Test a one-ring or one-trinket upgrade where the stronger currently equipped item should be retained.
+8. Test a normal equip with auto-save off, then with auto-save on.
+9. If practical, test an unbound BoE candidate and confirm it is reported as manual-required rather than silently completed.
+10. Capture one useful fixture with `/xive fixture capture`, then reload and import it for offline replay.
+
+---
+
+## Debugging (optional)
+
+Enable logging from the in‑game console:
+
+```text
+/xive debug on                           -- master debug on
+/xive debug slot 6                       -- only log Waist (slot 6)
+/xive debug slot clear                   -- log all slots
+/run XIVEquip_DebugAutoSpec = true       -- verbose auto-spec logs
+```
+
+Passing "force" as the first argument to `Log.Debugf("force", ...)` bypasses the slot filter; the addon uses this for a few global lines already.
+
+---
+
+## File Structure (for devs)
+
+- **Global/Settings.lua** — Canonical saved-variable schema, migrations, and settings getters/setters.
+- **Global/Constants.lua / Localization.lua / Logger.lua** — Shared slot constants, user-facing strings, and slot-filtered debug logging.
+- **Core/GearCore.lua** — Public gear helpers: item/slot maps, link helpers, uniqueness helpers, equipped item basics, scoring calls, single-slot candidate selection, and plan row construction.
+- **Core/ComparerBootstrapper.lua** — Comparer registry and resolution contract. Handles Auto/Pawn/item-level fallback and `StartPass`/`EndPass`.
+- **Core/CommandRouter.lua** — Slash command routing for `/xive`, `/xivequip`, diagnostics, fixture capture, and settings commands.
+- **Planning/Runtime.lua / Coordinator.lua / PlanBuilder.lua** — Native 2.0 planner runtime, whole-loadout coordinator, and executor-compatible plan construction.
+- **Comparers/ilvl/** — Item-level comparer implementation and export.
+- **Comparers/Pawn/** — Pawn adapter, export, settings glue, and Pawn-specific command helpers.
+- **Gear/Armor.lua / Jewelry.lua / Weapons.lua** — Legacy slot planners. Each exports `:PlanBest(cmp, opts, used)` and returns `(changes, pending, plan)`.
+- **Gear/Interface.lua** — Gear orchestrator and equip executor. Merges planner results, can opt into the native planner, applies plans with bounded verification, and auto-saves only after verified success with no hard execution problems.
+- **Automation/SpecSwitch.lua** — Spec-change listener and `/xiveauto` command; throttled and combat-safe; calls `Gear:EquipBest()` when enabled.
+- **Settings/Settings.lua** — Options panel controls and settings UI wiring.
+- **UI/UI.lua** — Character panel button and preview tooltip.
+- **Tests/Regression.lua** — In-game `/xive test` checks.
+
+---
+
+## FAQ
+
+**Do I need Pawn?**
+No, but it’s recommended. Without Pawn, XIVEquip uses a transparent stat/ilvl fallback that you can debug in logs.
+
+**Why did it pick a lower item level?**
+Because your **weights** said it’s better (e.g., a haste/vers piece may beat crit/mastery at lower ilvl for your spec). Turn on debug to see the exact score breakdown.
+
+**It saved the set under the wrong spec name.**
+We defer the save and re-read the active spec after swap. If you still see odd timing on your client, capture the behavior with `/xive status`, `/xive diag`, and a fixture capture so it can be reproduced.
+
+---
+
+## Contributing
+
+- Issues and PRs welcome—please keep changes **surgical** and split by file (Core vs planners vs UI).
+- Keep **Core/GearCore.lua** backward-compatible; it is the public gear-helper surface.
+
+---
+
+## License
+
+MIT-style. See the file headers or `LICENSE` for details.
+
+**Credits:** Inspired by the FFXIV “Equip Recommended Gear” feature and Pawn © their authors. Thanks to everyone who helped test and iterate.

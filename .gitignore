@@ -1,0 +1,34 @@
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor/IDE junk
+*.swp
+*.swo
+*.bak
+*.tmp
+*.log
+.vscode/
+.idea/
+*.iml
+
+# Lua rocks / package manager cache (if you experiment locally)
+.rocks/
+luac.out
+
+# Build artifacts
+*.zip
+*.tar.gz
+*.rar
+dist/
+build/
+release/
+
+# WoW Addon packager (if using BigWigs packager or similar)
+pkgmeta.yaml
+.toc.bak
+
+# Misc
+*.orig
+*~
