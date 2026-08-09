@@ -175,18 +175,32 @@ local function buildGroups(collection, context, loadoutState, allSlots, score)
 end
 
 local function applyAssignments(finalSlots, groups, selected)
+  local slotScores = {}
   for _, group in ipairs(groups or {}) do
     local assignment = selected and selected[group.id]
     if assignment then
       if group.kind == "singleton" then
         finalSlots[group.slot] = assignment.picks.slot
+        slotScores[group.slot] = assignment.scores and assignment.scores.slot
       else
         for role, slotID in pairs(group.roles or {}) do
           finalSlots[slotID] = assignment.picks[role]
+          slotScores[slotID] = assignment.scores and assignment.scores[role]
         end
       end
     end
   end
+  return slotScores
+end
+
+local function currentSlotScores(collection, context, runtime)
+  local scores = {}
+  for _, slotID in ipairs(OPTIMIZED_SLOTS) do
+    local candidate = collection.equippedBySlot and collection.equippedBySlot[slotID]
+    scores[slotID] = candidate and (runtime and runtime.ScoreCandidate and runtime.ScoreCandidate(candidate, context, slotID)
+        or XIVEquip.Evaluation.CandidateEvaluator.Score(candidate, context)) or 0
+  end
+  return scores
 end
 
 local function diagnosticsFor(collection, groups, runtime, context)
@@ -242,11 +256,13 @@ function Coordinator.Plan(opts)
     for _, slotID in ipairs(OPTIMIZED_SLOTS) do
       finalSlots[slotID] = collection.equippedBySlot[slotID]
     end
-    applyAssignments(finalSlots, groups, selected)
+    local finalSlotScores = applyAssignments(finalSlots, groups, selected)
 
     return {
       finalSlots = finalSlots,
       equippedBySlot = collection.equippedBySlot,
+      finalSlotScores = finalSlotScores,
+      currentSlotScores = currentSlotScores(collection, context, runtime),
       optimizedSlots = copyArray(OPTIMIZED_SLOTS),
       pending = collection.pending == true,
       score = scoreTotal or 0,

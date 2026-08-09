@@ -137,7 +137,7 @@ end
 -- [XIVEquip-AUTO] ensureDeltas: Helper for UI module.
 local function ensureDeltas(c)
   -- score delta (Pawn helpers from Pawn.lua)
-  if (not c.deltaScore) or c.deltaScore == 0 then
+  if c.deltaScore == nil then
     local newV
     local oldV
     if XIVEquip.Pawn and type(XIVEquip.Pawn.ScoreItemLink) == "function" then

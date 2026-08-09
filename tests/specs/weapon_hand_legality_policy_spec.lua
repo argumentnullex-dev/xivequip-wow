@@ -28,8 +28,8 @@ local function findPolicy(addon)
   error("policy not registered")
 end
 
-local function weapon(equipLoc)
-  return { equip = { equipLoc = equipLoc } }
+local function weapon(equipLoc, physicalID)
+  return { equip = { equipLoc = equipLoc }, physicalID = physicalID }
 end
 
 local function capContext(overrides)
@@ -100,6 +100,21 @@ test("without Titan's Grip, a two-hander may clear an occupied offhand as a game
   }, context)
 
   A.truthy(ok)
+end)
+
+test("without Titan's Grip, a currently equipped two-hander cannot pretend to clear an occupied offhand", function()
+  local addon = newAddon()
+  local policy = findPolicy(addon)
+  local context = capContext({ ["XIVEquip.allow_two_hand"] = true })
+  local currentMH = weapon("INVTYPE_2HWEAPON", "mh-current")
+  local currentOH = weapon("INVTYPE_2HWEAPON", "oh-current")
+
+  local ok = policy.apply({
+    picks = { mh = currentMH, oh = nil },
+    currentBySlot = { [16] = currentMH, [17] = currentOH },
+  }, context)
+
+  A.falsy(ok)
 end)
 
 test("nil offhand does not remove an occupied offhand when the mainhand equip will not clear it", function()

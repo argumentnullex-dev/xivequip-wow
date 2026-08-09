@@ -254,6 +254,27 @@ test("an ineligible literal current state remains representable as policy-invali
   A.equal(assignment.reasons[1], "currently invalid")
 end)
 
+test("Groups.Rings.Solve can replace a higher-scoring policy-invalid current item", function()
+  local addon = newAddon()
+  local current = item("current-invalid", 100)
+  local replacement = item("replacement-valid", 90)
+  local policy = {
+    id = "Test.exclude_current",
+    groups = { "rings" },
+    apply = function(candidate)
+      if candidate == current then return { allow = false, reason = "currently invalid" } end
+    end,
+  }
+  local context = { policies = { candidate = { policy }, assignment = {}, preference = {} } }
+  local loadoutState = addon.Assignments.LoadoutState.New()
+  addon.Evaluation.CandidateEvaluator.Score = fakeScore
+
+  local best = addon.Assignments.Groups.Rings.Solve({ replacement }, context, loadoutState, current, nil)
+
+  A.truthy(best)
+  A.equal(best.picks.first, replacement)
+end)
+
 test("a role that disallows empty never receives a nil pick", function()
   local addon = newAddon()
   local a = item("a", 10)

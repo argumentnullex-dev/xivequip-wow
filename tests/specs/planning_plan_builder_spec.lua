@@ -126,4 +126,22 @@ test("PlanBuilder treats nil recommendation for an occupied slot as no operation
   A.equal(#plan, 0)
 end)
 
+test("PlanBuilder uses native evaluated slot scores when present", function()
+  local addon = newAddon()
+  local current = equipped(101, 11)
+  local upgrade = bag(201, 0, 3)
+
+  local changes, _, plan = addon.Planning.PlanBuilder.Build({
+    equippedBySlot = { [11] = current },
+    finalSlots = { [11] = upgrade },
+    currentSlotScores = { [11] = 10 },
+    finalSlotScores = { [11] = 55 },
+    optimizedSlots = { 11 },
+  })
+
+  A.equal(#plan, 1)
+  A.equal(plan[1].score, 55)
+  A.equal(changes[1].deltaScore, 45)
+end)
+
 return tests

@@ -80,15 +80,12 @@ end
 --   loadoutState, compare,
 --   emptyAllowed = {[roleA]=bool, [roleB]=bool} -- per role: is an EMPTY
 --     RESULTING state for this role legal to ENUMERATE as a candidate
---     transition? Rings and trinkets: always true for both roles --
---     either finger or trinket may legitimately end up empty regardless
---     of what's there now. Weapons: oh is always true (no offhand is an
---     ordinary state); mh is true ONLY when currentA (the current
---     mainhand) is nil -- see Groups.Weapons.Frontier's doc comment for
---     why this can't just default to true the way oh does. Note this
---     governs ENUMERATED transitions only -- the literal current state is
---     always representable regardless of emptyAllowed, via the fallback
---     below.
+--     transition? Rings/trinkets allow emptiness only for roles that are
+--     already empty; weapons allow an empty offhand as a real resulting
+--     state but never manufacture an empty mainhand unless it is already
+--     empty. Note this governs ENUMERATED transitions only -- the literal
+--     current state is always representable regardless of emptyAllowed,
+--     via the fallback below.
 --   currentA, currentB -- the candidates presently occupying roleA/roleB
 --     (or nil). Used for three things: `compare` (an ordinary tiebreak
 --     input, needed only to pick Paired.Solve's own discarded `best`,
@@ -478,7 +475,9 @@ local function solvePaired(groupId, slots, candidates, context, loadoutState, cu
   end
 
   if not best then return nil end
-  if currentAssignment and not compare(best, currentAssignment) then return nil end
+  if currentAssignment and currentAssignment.policyValid ~= false and not compare(best, currentAssignment) then
+    return nil
+  end
   return best
 end
 

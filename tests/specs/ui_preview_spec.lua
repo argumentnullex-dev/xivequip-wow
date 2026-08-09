@@ -53,8 +53,9 @@ local function frame()
   return f
 end
 
-local function newHarness(mode)
-  local calls = { passStarts = 0, passEnds = 0, plan = {}, weapons = 0 }
+local function newHarness(mode, overrides)
+  overrides = overrides or {}
+  local calls = { passStarts = 0, passEnds = 0, plan = {}, weapons = 0, pawnScores = 0 }
   local eventFrame, button
   local paperDoll = frame()
   paperDoll.GetName = function() return "PaperDollFrame" end
@@ -70,10 +71,11 @@ local function newHarness(mode)
   _G.GameTooltip = {
     SetOwner = function() end,
     ClearLines = function() end,
-    AddLine = function() end,
+    AddLine = function(_, line) calls.tooltipLines[#calls.tooltipLines + 1] = line end,
     Show = function() end,
     Hide = function() end,
   }
+  calls.tooltipLines = {}
   _G.CreateFrame = function(_, name, parent)
     local f = frame()
     f.parent = parent
@@ -94,7 +96,14 @@ local function newHarness(mode)
     Gear = {
       PlanBest = function(_, cmp, opts)
         calls.plan[#calls.plan + 1] = { cmp = cmp, opts = opts }
+        if overrides.planReturn then return overrides.planReturn(cmp, opts, calls) end
         return {}, false, {}, { diagnostics = { scoreSource = "Item Level" } }
+      end,
+    },
+    Pawn = {
+      ScoreItemLink = function()
+        calls.pawnScores = calls.pawnScores + 1
+        return 999
       end,
     },
     Comparers = {
@@ -140,6 +149,26 @@ test("legacy hover preview uses one legacy comparer pass", function()
   A.equal(calls.passStarts, 1)
   A.equal(calls.passEnds, 1)
   A.equal(calls.weapons, 0)
+end)
+
+test("native hover preview preserves explicit zero score deltas instead of recomputing with Pawn", function()
+  local _, calls, button = newHarness("native", {
+    planReturn = function()
+      return {
+        {
+          slotName = "Ring 1",
+          oldLink = "|Hitem:101::::::::::::|h[old]|h",
+          newLink = "|Hitem:201::::::::::::|h[new]|h",
+          deltaScore = 0,
+          deltaIlvl = 0,
+        },
+      }, false, {}, { diagnostics = { scoreSource = "Item Level" } }
+    end,
+  })
+
+  button.scripts.OnEnter(button)
+
+  A.equal(calls.pawnScores, 0)
 end)
 
 return tests
