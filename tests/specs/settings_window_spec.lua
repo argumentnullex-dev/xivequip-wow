@@ -12,6 +12,7 @@ local FALLBACK_MACRO_ICON = "INV_Misc_Gear_01"
 local function loadWindow(addon, calls)
   local function texture()
     return {
+      SetAllPoints = function() end,
       SetPoint = function() end,
       SetSize = function() end,
       SetTexture = function() end,
@@ -68,6 +69,7 @@ local function loadWindow(addon, calls)
   _G.CreateFrame = function(_, name)
     return frame(name)
   end
+  _G.GetCursorPosition = function() return 100, 200 end
   _G.print = function() end
   _G.PickupMacro = calls.pickupFn or function(index) calls.pickup = index end
   _G.GetFileIDFromPath = calls.getFileIDFromPath or function(path)
@@ -184,6 +186,29 @@ test("Create Macro falls back from macro index pickup to name pickup", function(
   A.equal(pickupAttempts[1], 7, "macro pickup should try by index first")
   A.equal(pickupAttempts[2], "XIVEquip", "macro pickup should fall back to name")
   A.equal(calls.pickup, "XIVEquip", "fallback macro name should be the final pickup")
+end)
+
+test("Create Macro shows and hides a XIVEquip cursor ghost for custom icon pickup", function()
+  local addon, calls = harness()
+  local cursorKind, cursorID = "macro", 42
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.CreateMacro = function() return 42 end
+  _G.EditMacro = nil
+  _G.GetCursorInfo = function() return cursorKind, cursorID end
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
+
+  A.truthy(Window.CursorGhost, "custom-icon pickup should create a cursor ghost")
+  A.truthy(Window.CursorGhost.scripts.OnUpdate, "cursor ghost should follow while macro is on cursor")
+  Window.CursorGhost.scripts.OnUpdate(Window.CursorGhost)
+  A.truthy(Window.CursorGhost:IsShown(), "cursor ghost should be visible while matching macro is on cursor")
+
+  cursorKind, cursorID = nil, nil
+  Window.CursorGhost.scripts.OnUpdate(Window.CursorGhost)
+  A.falsy(Window.CursorGhost:IsShown(), "cursor ghost should hide after cursor no longer has the macro")
+  A.falsy(Window.CursorGhost.scripts.OnUpdate, "cursor ghost should stop updating after cursor clears")
 end)
 
 test("settings window registers once for Escape close", function()

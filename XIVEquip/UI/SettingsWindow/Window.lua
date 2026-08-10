@@ -8,6 +8,7 @@ local PREFIX = (XIVEquip.L and XIVEquip.L.AddonPrefix) or "XIVEquip: "
 local ADDON_ICON_PATH = "Interface/AddOns/XIVEquip/Assets/icon_blue_128.tga"
 local FALLBACK_MACRO_ICON = "INV_Misc_Gear_01"
 local WINDOW_NAME = "XIVEquipSettingsWindow"
+local CURSOR_GHOST_NAME = "XIVEquipMacroCursorGhost"
 
 local tabs = { "General", "XIVWeights Scales", "XIVEquip Core" }
 
@@ -95,6 +96,47 @@ local function cursorHasPickedMacro(index, name)
     return false
   end
   return not CursorHasMacro or CursorHasMacro()
+end
+
+local function macroCursorMatches(index, name)
+  if not GetCursorInfo then return false end
+  local kind, id = GetCursorInfo()
+  return kind == "macro" and (id == index or id == name)
+end
+
+local function ensureCursorGhost()
+  if Window.CursorGhost then return Window.CursorGhost end
+  if not CreateFrame or not UIParent then return nil end
+  local ghost = CreateFrame("Frame", CURSOR_GHOST_NAME, UIParent)
+  ghost:SetSize(32, 32)
+  ghost:SetFrameStrata("TOOLTIP")
+  ghost:EnableMouse(false)
+  local tex = ghost:CreateTexture(nil, "OVERLAY")
+  tex:SetAllPoints(ghost)
+  tex:SetTexture(ADDON_ICON_PATH)
+  tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  ghost.Icon = tex
+  ghost:Hide()
+  Window.CursorGhost = ghost
+  return ghost
+end
+
+local function showCursorGhostForMacro(index, name)
+  local ghost = ensureCursorGhost()
+  if not ghost then return end
+  ghost:SetScript("OnUpdate", function(self)
+    if not macroCursorMatches(index, name) then
+      self:Hide()
+      self:SetScript("OnUpdate", nil)
+      return
+    end
+    local x, y = 0, 0
+    if GetCursorPosition then x, y = GetCursorPosition() end
+    local scale = UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+    self:ClearAllPoints()
+    self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", (x / scale) + 18, (y / scale) - 18)
+    self:Show()
+  end)
 end
 
 local function resolveMacroIcon()
@@ -355,6 +397,7 @@ local function createEquipMacro()
     end
   end
   if ok and index and index > 0 and pickedUp then
+    if customIcon then showCursorGhostForMacro(index, name) end
     if customIcon then
       print(PREFIX .. "Created /xivequip macro with XIVEquip icon and placed it on your cursor.")
     else
