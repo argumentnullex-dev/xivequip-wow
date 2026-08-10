@@ -12,6 +12,10 @@ local function settings()
   return XIVEquip.Settings and XIVEquip.Settings:Get() or _G.XIVEquip_Settings or {}
 end
 
+local function Config()
+  return XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
+end
+
 local function currentSpecID()
   local index = GetSpecialization and GetSpecialization()
   if not index then return nil end
@@ -45,7 +49,11 @@ local function checkbox(parent, text, checked, onClick)
 end
 
 local function clearContent(frame)
-  for _, child in ipairs({ frame:GetChildren() }) do child:Hide() end
+  if frame.page then frame.page:Hide() end
+  local page = CreateFrame("Frame", nil, frame)
+  page:SetAllPoints(frame)
+  frame.page = page
+  return page
 end
 
 local function savePosition(frame)
@@ -78,12 +86,10 @@ end
 
 local function specRows()
   local classFile = currentClassFile()
-  if XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config then
-    XIVEquip.XIVWeights.Config.EnsureClassSpecScales(classFile)
-  end
+  local C = Config()
+  if C then C.EnsureClassSpecScales(classFile) end
   local defaults = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Builtin and XIVEquip.XIVWeights.Builtin.Defaults
-  local specs = defaults and defaults.SpecsForClass(classFile) or {}
-  return specs
+  return defaults and defaults.SpecsForClass(classFile) or {}
 end
 
 local featureGroups = {
@@ -115,43 +121,131 @@ local featureLabels = {
   weaponSwingIntervalSeconds = "Weapon Swing Interval / Speed",
 }
 
-local function addScaleEditor(content, scale, x, y)
+local function listScales()
+  local C = Config()
+  if not C then return {} end
+  local list = C.ListManualScales()
+  table.sort(list, function(a, b)
+    local at = a.meta and a.meta.tiedToSpecID and 0 or 1
+    local bt = b.meta and b.meta.tiedToSpecID and 0 or 1
+    if at ~= bt then return at < bt end
+    return tostring(a.name or a.id) < tostring(b.name or b.id)
+  end)
+  return list
+end
+
+local function pawnAdapter()
+  return {
+    ListScales = function()
+      return XIVEquip.Pawn and XIVEquip.Pawn.GetActiveScales and XIVEquip.Pawn.GetActiveScales() or {}
+    end,
+    ResolveValues = function(selection)
+      if XIVEquip.Pawn and XIVEquip.Pawn.GetScaleValues then
+        return XIVEquip.Pawn.GetScaleValues(selection)
+      end
+      for _, entry in ipairs(XIVEquip.Pawn and XIVEquip.Pawn.GetActiveScales and XIVEquip.Pawn.GetActiveScales() or {}) do
+        if entry.key == selection or entry.name == selection then return entry.values, entry end
+      end
+      return nil, nil
+    end,
+  }
+end
+
+local function uniqueScaleID(prefix)
+  local C = Config()
+  local repo = C and C.Repository()
+  Window.NextScaleID = (Window.NextScaleID or 0) + 1
+  for i = 1, 200 do
+    local id = tostring(prefix or "manual") .. ":" .. tostring(time and time() or 0) .. ":" .. tostring(Window.NextScaleID + i)
+    if not repo or not repo:Get(id) then
+      Window.NextScaleID = Window.NextScaleID + i
+      return id
+    end
+  end
+  return tostring(prefix or "manual") .. ":" .. tostring(Window.NextScaleID)
+end
+
+local function selectedScaleID()
+  local C = Config()
+  local current = currentSpecID()
+  if not Window.SelectedScaleID and C and current then
+    local sel = C.GetSpecSelection(current)
+    Window.SelectedScaleID = sel and sel.scale or C.GeneratedScaleID(current)
+  end
+  if C and Window.SelectedScaleID and C.Repository():Get(Window.SelectedScaleID) then
+    return Window.SelectedScaleID
+  end
+  local list = listScales()
+  return list[1] and list[1].id or nil
+end
+
+local function createScroll(parent, x, y, width, height)
+  local scroll = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", x, y)
+  scroll:SetSize(width, height)
+  local child = CreateFrame("Frame", nil, scroll)
+  child:SetSize(width - 24, height)
+  scroll:SetScrollChild(child)
+  return scroll, child
+end
+
+local function addScaleEditor(content, scale, x, y, width)
   if not scale then return y end
-  local Config = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
+  local C = Config()
   local working = {}
   for k, v in pairs(scale.weights or {}) do working[k] = tonumber(v) or 0 end
 
-  local header = font(content, "GameFontNormal", "Edit current spec scale: " .. tostring(scale.name or scale.id))
+  local header = font(content, "GameFontNormal", "Edit scale")
   header:SetPoint("TOPLEFT", x, y)
-  y = y - 24
+  y = y - 26
+
+  local nameLabel = font(content, "GameFontHighlightSmall", "Name")
+  nameLabel:SetPoint("TOPLEFT", x, y + 2)
+  local nameEdit = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
+  nameEdit:SetSize(width - 76, 20)
+  nameEdit:SetPoint("TOPLEFT", x + 58, y + 4)
+  nameEdit:SetAutoFocus(false)
+  nameEdit:SetText(tostring(scale.name or scale.id))
+  y = y - 30
+
+  local specNote = font(content, "GameFontHighlightSmall", "Spec: " .. tostring((scale.meta and scale.meta.specName) or "None"))
+  specNote:SetPoint("TOPLEFT", x, y)
+  specNote:SetWidth(width)
+  y = y - 26
 
   local function addRow(feature)
     local label = font(content, "GameFontHighlightSmall", featureLabels[feature] or feature)
     label:SetPoint("TOPLEFT", x, y)
 
     local edit = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
-    edit:SetSize(44, 20)
-    edit:SetPoint("TOPLEFT", x + 170, y + 4)
+    edit:SetSize(56, 20)
+    edit:SetPoint("TOPLEFT", x + 175, y + 4)
     edit:SetAutoFocus(false)
-    edit:SetText(string.format("%.1f", tonumber(working[feature]) or 0))
+    edit:SetText(string.format("%.2f", tonumber(working[feature]) or 0))
 
     local slider = CreateFrame("Slider", nil, content, "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", x + 226, y + 1)
-    slider:SetWidth(140)
+    slider:SetPoint("TOPLEFT", x + 244, y + 1)
+    slider:SetWidth(160)
     slider:SetMinMaxValues(0, 1)
     slider:SetValueStep(0.1)
     if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+    local suppress = true
     slider:SetValue(tonumber(working[feature]) or 0)
+    suppress = false
     slider:SetScript("OnValueChanged", function(_, value)
+      if suppress then return end
       local rounded = math.floor((tonumber(value) or 0) * 10 + 0.5) / 10
       working[feature] = rounded
-      edit:SetText(string.format("%.1f", rounded))
+      edit:SetText(string.format("%.2f", rounded))
     end)
     edit:SetScript("OnEnterPressed", function(self)
       local value = tonumber(self:GetText())
       if value and value >= 0 and value <= 1 then
         working[feature] = value
+        suppress = true
         slider:SetValue(value)
+        suppress = false
+        self:SetText(string.format("%.2f", value))
         self:ClearFocus()
       else
         print(PREFIX .. "Weight must be between 0 and 1.")
@@ -165,27 +259,64 @@ local function addScaleEditor(content, scale, x, y)
     groupLabel:SetPoint("TOPLEFT", x, y)
     y = y - 18
     for _, feature in ipairs(group[2]) do addRow(feature) end
+    y = y - 4
   end
 
-  local save = button(content, "Save Scale", 100, 22)
+  local save = button(content, "Save", 82, 22)
   save:SetPoint("TOPLEFT", x, y - 4)
   save:SetScript("OnClick", function()
+    scale.name = nameEdit:GetText()
     scale.weights = working
-    local ok, err = Config.ValidateAuthoredWeights(scale)
+    local ok, err = C.ValidateAuthoredWeights(scale)
     if not ok then
       print(PREFIX .. tostring(err))
       return
     end
-    Config.SaveScale(scale)
+    C.SaveScale(scale)
     print(PREFIX .. "Saved " .. tostring(scale.name or scale.id) .. " weights.")
+    Window.ShowTab(2)
   end)
-  return y - 34
+
+  local tiedSpecID = scale.meta and scale.meta.tiedToSpecID
+  if tiedSpecID then
+    local reset = button(content, "Reset", 82, 22)
+    reset:SetPoint("LEFT", save, "RIGHT", 8, 0)
+    reset:SetScript("OnClick", function()
+      local newScale = C.ResetSpecScale(tiedSpecID)
+      if newScale then
+        Window.SelectedScaleID = newScale.id
+        print(PREFIX .. "Reset " .. tostring(newScale.name or scale.name or scale.id) .. " weights to XIVEquip defaults.")
+      end
+      Window.ShowTab(2)
+    end)
+  end
+  return y - 36
+end
+
+local function createEquipMacro()
+  local st = settings()
+  local name = "XIVEquip"
+  local body = "/xivequip"
+  local icon = "INV_Misc_Gear_01"
+  local index = GetMacroIndexByName and GetMacroIndexByName(name) or 0
+  if index and index > 0 then
+    if EditMacro then EditMacro(index, name, icon, body, true, true) end
+  elseif CreateMacro then
+    index = CreateMacro(name, icon, body, true)
+  end
+  st.MacroID = index or 0
+  if index and index > 0 and PickupMacro then PickupMacro(index) end
+  if index and index > 0 then
+    print(PREFIX .. "Created /xivequip macro and placed it on your cursor.")
+  else
+    print(PREFIX .. "Unable to create macro.")
+  end
 end
 
 local function showGeneral(content)
-  clearContent(content)
+  local page = clearContent(content)
   local S = XIVEquip.Settings
-  local title = font(content, "GameFontNormalLarge", "General")
+  local title = font(page, "GameFontNormalLarge", "General")
   title:SetPoint("TOPLEFT", 0, 0)
 
   local y = -28
@@ -201,90 +332,223 @@ local function showGeneral(content)
     end },
   }
   for _, row in ipairs(rows) do
-    local cb = checkbox(content, row[1], row[2](), row[3])
+    local cb = checkbox(page, row[1], row[2](), row[3])
     cb:SetPoint("TOPLEFT", 4, y)
     y = y - 30
   end
+
+  local macroTitle = font(page, "GameFontNormal", "Macro")
+  macroTitle:SetPoint("TOPLEFT", 4, y - 12)
+  local macroNote = font(page, "GameFontHighlightSmall", "Create a draggable /xivequip macro for your bars.")
+  macroNote:SetPoint("TOPLEFT", 4, y - 34)
+  macroNote:SetWidth(420)
+  local macro = button(page, "Create Macro", 120, 24)
+  macro:SetPoint("TOPLEFT", 4, y - 62)
+  macro:SetScript("OnClick", createEquipMacro)
 end
 
 local function showScales(content)
-  clearContent(content)
-  local Config = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
-  local title = font(content, "GameFontNormalLarge", "XIVWeights Scales")
+  local page = clearContent(content)
+  local C = Config()
+  local title = font(page, "GameFontNormalLarge", "XIVWeights Scales")
   title:SetPoint("TOPLEFT", 0, 0)
-  local note = font(content, "GameFontHighlightSmall", "Generated spec scales are editable copies of XIVEquip defaults.")
+  local note = font(page, "GameFontHighlightSmall", "Generated spec scales are editable copies. Hard-coded defaults are restored by Reset.")
   note:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-  note:SetWidth(560)
+  note:SetWidth(640)
 
-  local current = currentSpecID()
-  local y = -54
-  for _, spec in ipairs(specRows()) do
-    local scale = Config and Config.EnsureSpecScale(spec.id)
-    local label = font(content, "GameFontNormal", tostring(spec.name))
-    label:SetPoint("TOPLEFT", 6, y)
-    if spec.id == current then label:SetText(tostring(spec.name) .. "  (current spec)") end
+  if not C then return end
+  specRows()
+  local scales = listScales()
+  local selected = selectedScaleID()
+  Window.SelectedScaleID = selected
 
-    local tied = font(content, "GameFontHighlightSmall", "Tied to spec ID " .. tostring(spec.id))
-    tied:SetPoint("TOPLEFT", 160, y - 1)
+  local left = CreateFrame("Frame", nil, page)
+  left:SetPoint("TOPLEFT", 0, -48)
+  left:SetSize(230, 610)
+  local leftTitle = font(left, "GameFontNormal", "Scales")
+  leftTitle:SetPoint("TOPLEFT", 0, 0)
 
-    local reset = button(content, "Reset to Default", 125, 22)
-    reset:SetPoint("TOPRIGHT", -4, y + 4)
-    reset:SetScript("OnClick", function()
-      local newScale = Config.ResetSpecScale(spec.id)
-      print(PREFIX .. "Reset " .. tostring(spec.name) .. " weights to XIVEquip defaults.")
+  local newButton = button(left, "Create", 70, 22)
+  newButton:SetPoint("TOPLEFT", 0, -24)
+  newButton:SetScript("OnClick", function()
+    local scale = C.CreateManualScale(uniqueScaleID("manual"), "New Scale", { strength = 1 })
+    if scale then Window.SelectedScaleID = scale.id end
+    Window.ShowTab(2)
+  end)
+  local duplicate = button(left, "Duplicate", 82, 22)
+  duplicate:SetPoint("LEFT", newButton, "RIGHT", 4, 0)
+  duplicate:SetScript("OnClick", function()
+    if not Window.SelectedScaleID then return end
+    local source = C.Repository():Get(Window.SelectedScaleID)
+    if not source then return end
+    local scale = C.DuplicateScale(source.id, uniqueScaleID("manual"), tostring(source.name or "Scale") .. " Copy")
+    if scale then Window.SelectedScaleID = scale.id end
+    Window.ShowTab(2)
+  end)
+  local delete = button(left, "Delete", 64, 22)
+  delete:SetPoint("TOPLEFT", 0, -52)
+  delete:SetScript("OnClick", function()
+    local source = Window.SelectedScaleID and C.Repository():Get(Window.SelectedScaleID)
+    if not source then return end
+    if source.meta and source.meta.tiedToSpecID then
+      print(PREFIX .. "Spec scales cannot be deleted. Use Reset to restore defaults.")
+      return
+    end
+    C.DeleteScale(source.id)
+    Window.SelectedScaleID = nil
+    Window.ShowTab(2)
+  end)
+
+  local y = -86
+  for _, scale in ipairs(scales) do
+    local label = tostring(scale.name or scale.id)
+    if scale.meta and scale.meta.tiedToSpecID then label = label .. " *" end
+    local pick = button(left, label, 214, 22)
+    pick:SetPoint("TOPLEFT", 0, y)
+    if scale.id == selected then pick:Disable() end
+    pick:SetScript("OnClick", function()
+      Window.SelectedScaleID = scale.id
       Window.ShowTab(2)
     end)
-
-    y = y - 34
+    y = y - 25
   end
 
-  local currentScale = current and Config and Config.EnsureSpecScale(current)
-  addScaleEditor(content, currentScale, 6, y - 8)
+  local importTitle = font(left, "GameFontNormalSmall", "Pawn import")
+  importTitle:SetPoint("TOPLEFT", 0, y - 10)
+  y = y - 32
+  local pawnEntries = pawnAdapter().ListScales()
+  if #pawnEntries == 0 then
+    local empty = font(left, "GameFontDisableSmall", "No active Pawn scales found.")
+    empty:SetPoint("TOPLEFT", 0, y)
+  else
+    for _, entry in ipairs(pawnEntries) do
+      local import = button(left, tostring(entry.name or entry.key), 214, 22)
+      import:SetPoint("TOPLEFT", 0, y)
+      import:SetScript("OnClick", function()
+        local ok, imported = pcall(function()
+          return XIVEquip.XIVWeights.Import.Pawn.Import(
+              pawnAdapter(), entry.key or entry.name, uniqueScaleID("manual:pawn"), "Imported: " .. tostring(entry.name or entry.key))
+        end)
+        if ok and imported then
+          Window.SelectedScaleID = imported.id
+          print(PREFIX .. "Imported Pawn scale " .. tostring(entry.name or entry.key) .. ".")
+          Window.ShowTab(2)
+        else
+          print(PREFIX .. "Pawn import failed: " .. tostring(imported))
+        end
+      end)
+      y = y - 25
+    end
+  end
+
+  local scroll, editor = createScroll(page, 250, -48, 455, 610)
+  local selectedScale = selected and C.Repository():Get(selected)
+  if selectedScale then
+    local bottom = addScaleEditor(editor, selectedScale, 0, 0, 410)
+    editor:SetHeight(math.max(610, -bottom + 24))
+  else
+    local empty = font(editor, "GameFontHighlight", "Create or import a scale to begin.")
+    empty:SetPoint("TOPLEFT", 0, 0)
+  end
 end
 
 local function showCore(content)
-  clearContent(content)
+  local page = clearContent(content)
   local S = XIVEquip.Settings
-  local Config = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
-  local title = font(content, "GameFontNormalLarge", "XIVEquip Core")
+  local C = Config()
+  local title = font(page, "GameFontNormalLarge", "XIVEquip Core")
   title:SetPoint("TOPLEFT", 0, 0)
 
-  local mode = font(content, "GameFontNormal", "Planner mode: " .. tostring(S:GetPlannerMode()))
+  local mode = font(page, "GameFontNormal", "Planner mode: " .. tostring(S:GetPlannerMode()))
   mode:SetPoint("TOPLEFT", 4, -32)
 
-  local legacy = button(content, "Use Legacy", 110, 24)
+  local legacy = button(page, "Use Legacy", 110, 24)
   legacy:SetPoint("TOPLEFT", 4, -58)
   legacy:SetScript("OnClick", function()
     S:SetPlannerMode("legacy")
     Window.ShowTab(3)
   end)
 
-  local native = button(content, "Use Native 2.0", 130, 24)
+  local native = button(page, "Use Native 2.0", 130, 24)
   native:SetPoint("LEFT", legacy, "RIGHT", 10, 0)
   native:SetScript("OnClick", function()
     S:SetPlannerMode("native")
     Window.ShowTab(3)
   end)
 
+  if not C then return end
   local specID = currentSpecID()
-  local selection = specID and Config and Config.GetSpecSelection(specID)
+  local selection = specID and C.GetSpecSelection(specID)
   local specText = "Current specialization: " .. tostring(specID or "unknown")
   if selection then
-    specText = specText .. "  |  Source: " .. tostring(selection.provider) .. "  |  Scale: " .. tostring(selection.scale)
+    specText = specText .. "  |  Source: " .. tostring(selection.provider) .. "  |  Scale: " .. tostring(selection.scale or "spec default")
   end
-  local specLine = font(content, "GameFontHighlight", specText)
-  specLine:SetPoint("TOPLEFT", 4, -98)
-  specLine:SetWidth(560)
+  local specLine = font(page, "GameFontHighlight", specText)
+  specLine:SetPoint("TOPLEFT", 4, -100)
+  specLine:SetWidth(660)
 
-  local default = button(content, "Use XIVEquip Default", 160, 24)
-  default:SetPoint("TOPLEFT", 4, -130)
-  default:SetScript("OnClick", function()
-    if specID and Config then
-      Config.EnsureSpecScale(specID)
-      Config.SetSpecSelection(specID, "default", Config.GeneratedScaleID(specID))
-      Window.ShowTab(3)
-    end
+  local sourceTitle = font(page, "GameFontNormal", "Native weight source")
+  sourceTitle:SetPoint("TOPLEFT", 4, -138)
+
+  local builtin = button(page, "Built-in Default", 135, 24)
+  builtin:SetPoint("TOPLEFT", 4, -164)
+  builtin:SetScript("OnClick", function()
+    if specID then C.SetSpecSelection(specID, "default", nil) end
+    Window.ShowTab(3)
   end)
+
+  local generated = button(page, "Generated Spec Scale", 160, 24)
+  generated:SetPoint("LEFT", builtin, "RIGHT", 10, 0)
+  generated:SetScript("OnClick", function()
+    if specID then
+      C.EnsureSpecScale(specID)
+      C.SetSpecSelection(specID, "manual", C.GeneratedScaleID(specID))
+    end
+    Window.ShowTab(3)
+  end)
+
+  local y = -204
+  local manualTitle = font(page, "GameFontNormalSmall", "Manual scales")
+  manualTitle:SetPoint("TOPLEFT", 4, y)
+  y = y - 24
+  for _, scale in ipairs(listScales()) do
+    local use = button(page, "Use", 50, 22)
+    use:SetPoint("TOPLEFT", 4, y)
+    use:SetScript("OnClick", function()
+      if specID then C.SetSpecSelection(specID, "manual", scale.id) end
+      Window.ShowTab(3)
+    end)
+    local label = font(page, "GameFontHighlightSmall", tostring(scale.name or scale.id))
+    label:SetPoint("LEFT", use, "RIGHT", 8, 0)
+    label:SetWidth(260)
+    y = y - 25
+    if y < -446 then break end
+  end
+
+  local pawnX = 365
+  local pawnY = -204
+  local pawnTitle = font(page, "GameFontNormalSmall", "Pawn scales")
+  pawnTitle:SetPoint("TOPLEFT", pawnX, pawnY)
+  pawnY = pawnY - 24
+  local pawnEntries = pawnAdapter().ListScales()
+  if #pawnEntries == 0 then
+    local none = font(page, "GameFontDisableSmall", "No active Pawn scales found.")
+    none:SetPoint("TOPLEFT", pawnX, pawnY)
+  else
+    for _, entry in ipairs(pawnEntries) do
+      local use = button(page, "Use", 50, 22)
+      use:SetPoint("TOPLEFT", pawnX, pawnY)
+      use:SetScript("OnClick", function()
+        if specID then C.SetSpecSelection(specID, "pawn", entry.key or entry.name) end
+        Window.ShowTab(3)
+      end)
+      local label = font(page, "GameFontHighlightSmall", tostring(entry.name or entry.key))
+      label:SetPoint("LEFT", use, "RIGHT", 8, 0)
+      label:SetWidth(260)
+      pawnY = pawnY - 25
+      if pawnY < -560 then break end
+    end
+  end
 end
 
 local renderers = { showGeneral, showScales, showCore }

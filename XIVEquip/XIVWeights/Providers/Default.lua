@@ -25,10 +25,9 @@ end
 
 function Methods:Resolve(selection, context)
   local specID = context and context.specID
-  if selection then
-    local scale = XIVWeights.Config.Repository():Get(selection)
+  if specID and XIVWeights.Builtin and XIVWeights.Builtin.Defaults then
+    local scale = XIVWeights.Builtin.Defaults.Get(specID)
     if scale then return scale end
   end
-  if specID then return self.config.EnsureSpecScale(specID) end
   error("Default provider: specID is required")
 end

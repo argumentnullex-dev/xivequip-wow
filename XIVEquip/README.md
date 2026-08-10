@@ -241,9 +241,9 @@ The fixture capture and compare commands are intended for building realistic off
 
 Open `/xive` or `/xive settings`.
 
-- **General** – Login/equip messages, debug logging, auto-equip, auto-save, and minimap button visibility.
-- **XIVWeights Scales** – Generated per-spec scales, spec binding indicators, sliders/numeric fields for each weight, and reset-to-default controls.
-- **XIVEquip Core** – Planner mode and per-spec XIVWeights source/scale selection.
+- **General** – Login/equip messages, debug logging, auto-equip, auto-save, minimap button visibility, and a draggable `/xivequip` macro helper.
+- **XIVWeights Scales** – Generated per-spec scales, custom scale create/duplicate/delete, Pawn import, editable scale names, sliders/numeric fields for each weight, and reset-to-default controls for spec scales.
+- **XIVEquip Core** – Planner mode and per-spec source selection for built-in defaults, manual XIVWeights scales, or active Pawn scales.
 - **Planner mode** – Which planner normal equip paths use.
   *Default:* **legacy**. Use `/xive planner native` to opt into the native 2.0 planner for normal equips, or use `/xive plan native` and `/xive equip native` for one-off native checks without changing the saved setting.
 

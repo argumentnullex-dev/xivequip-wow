@@ -81,7 +81,7 @@ function Config.EnsureSpecScale(specID)
   local scale, reason = Config.CreateSpecScale(specID)
   if not scale then return nil, reason end
   xw.Scales[id] = scale
-  xw.Specs[tonumber(specID)] = xw.Specs[tonumber(specID)] or { provider = "default", scale = id }
+  xw.Specs[tonumber(specID)] = xw.Specs[tonumber(specID)] or { provider = "manual", scale = id }
   return scale
 end
 
@@ -101,7 +101,7 @@ function Config.ResetSpecScale(specID)
   local scale, reason = Config.CreateSpecScale(specID)
   if not scale then return nil, reason end
   xw.Scales[scale.id] = scale
-  xw.Specs[tonumber(specID)] = { provider = "default", scale = scale.id }
+  xw.Specs[tonumber(specID)] = { provider = "manual", scale = scale.id }
   return scale
 end
 
@@ -115,11 +115,11 @@ function Config.GetSpecSelection(specID)
   local sel = type(xw.Specs[key]) == "table" and xw.Specs[key] or nil
   if not sel then
     local scale = Config.EnsureSpecScale(key)
-    sel = { provider = "default", scale = scale and scale.id or generatedID(key) }
+    sel = { provider = "manual", scale = scale and scale.id or generatedID(key) }
     xw.Specs[key] = sel
   end
   sel.provider = normalizeProvider(sel.provider)
-  if sel.provider == "default" and not sel.scale then sel.scale = generatedID(key) end
+  if sel.provider == "manual" and not sel.scale then sel.scale = generatedID(key) end
   return sel
 end
 
@@ -177,7 +177,11 @@ function Config.ResolveForSpec(specID, runtime)
   local provider = sel.provider
   local scale
 
-  if provider == "pawn" then
+  if provider == "default" then
+    local defaultProvider = XIVWeights.Providers.Default.New(Config)
+    local ok, resolved = pcall(function() return defaultProvider:Resolve(nil, { specID = specID }) end)
+    if ok and resolved then scale = resolved end
+  elseif provider == "pawn" then
     local pawnProvider = runtime and runtime.PawnProvider and runtime.PawnProvider()
     if pawnProvider then
       local ok, resolved = pcall(function() return pawnProvider:Resolve(sel.scale, { specID = specID }) end)
@@ -187,10 +191,7 @@ function Config.ResolveForSpec(specID, runtime)
     local repo = Config.Repository()
     local manualProvider = XIVWeights.Providers.Manual.New(repo)
     local id = sel.scale
-    if provider == "default" then
-      id = id or generatedID(specID)
-      Config.EnsureSpecScale(specID)
-    end
+    id = id or generatedID(specID)
     local ok, resolved = pcall(function() return manualProvider:Resolve(id, { specID = specID }) end)
     if ok and resolved then scale = resolved end
   end

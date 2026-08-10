@@ -42,6 +42,39 @@ test("every built-in supported spec has a default scale with valid normalized we
   end
 end)
 
+test("Demon Hunter defaults include Midnight Devourer", function()
+  local addon = newAddon({})
+  local defaults = addon.XIVWeights.Builtin.Defaults
+  local specs = defaults.SpecsForClass("DEMONHUNTER")
+
+  A.equal(#specs, 3)
+  A.equal(specs[3].id, 1480)
+  A.equal(specs[3].name, "Devourer")
+
+  local scale = defaults.Get(1480)
+  A.truthy(scale)
+  A.equal(scale.weights.intellect, 1)
+  A.equal(scale.weights.haste, 0.5)
+  A.equal(scale.weights.mastery, 0.4)
+  A.equal(scale.weights.criticalStrike, 0.3)
+  A.equal(scale.weights.versatility, 0.2)
+  A.equal(scale.source.specID, 1480)
+  A.truthy(scale.source.guide:find("devourer", 1, true))
+  A.equal(scale.source.reviewedAt, "2026-08-09")
+end)
+
+test("Protection Paladin default uses survivability stat order", function()
+  local addon = newAddon({})
+  local scale = addon.XIVWeights.Builtin.Defaults.Get(66)
+
+  A.equal(scale.weights.strength, 1)
+  A.equal(scale.weights.haste, 0.5)
+  A.equal(scale.weights.versatility, 0.4)
+  A.equal(scale.weights.mastery, 0.3)
+  A.equal(scale.weights.criticalStrike, 0.2)
+  A.truthy(scale.source.guide:find("paladin/protection", 1, true))
+end)
+
 test("class login generation creates editable spec scale copies for every class spec", function()
   local addon = newAddon({})
 
@@ -53,6 +86,7 @@ test("class login generation creates editable spec scale copies for every class 
   A.truthy(_G.XIVEquip_Settings.XIVWeights.Scales["spec:70"])
   A.equal(_G.XIVEquip_Settings.XIVWeights.Scales["spec:70"].name, "Retribution")
   A.equal(_G.XIVEquip_Settings.XIVWeights.Scales["spec:70"].meta.tiedToSpecID, 70)
+  A.equal(_G.XIVEquip_Settings.XIVWeights.Specs[70].provider, "manual")
 end)
 
 test("reset spec scale restores the hard-coded default copy", function()
@@ -67,6 +101,37 @@ test("reset spec scale restores the hard-coded default copy", function()
   A.equal(reset.weights.haste, 0.3)
   A.equal(reset.source.kind, "xivequip-default-copy")
   A.equal(reset.meta.tiedToSpecID, 70)
+  A.equal(Config.GetSpecSelection(70).provider, "manual")
+  A.equal(Config.GetSpecSelection(70).scale, "spec:70")
+end)
+
+test("built-in default resolution ignores edited generated spec copy", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+  local generated = Config.EnsureSpecScale(66)
+  generated.weights.haste = 0.01
+  generated.weights.versatility = 0.02
+  Config.SaveScale(generated)
+
+  Config.SetSpecSelection(66, "default", nil)
+  local resolved = Config.ResolveForSpec(66)
+
+  A.equal(resolved.source.kind, "xivequip-default")
+  A.equal(resolved.weights.haste, 1)
+  A.equal(resolved.weights.versatility, 0.8)
+  A.equal(resolved.weights.mastery, 0.6)
+end)
+
+test("generated spec selection defaults to editable manual copy", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+
+  local selection = Config.GetSpecSelection(70)
+  local resolved = Config.ResolveForSpec(70)
+
+  A.equal(selection.provider, "manual")
+  A.equal(selection.scale, "spec:70")
+  A.equal(resolved.source.kind, "xivequip-default-copy")
 end)
 
 test("manual scale validation enforces name, range, and 1.0 anchor", function()
