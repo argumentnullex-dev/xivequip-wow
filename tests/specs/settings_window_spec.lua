@@ -5,16 +5,7 @@ local A = dofile(root .. sep .. "tests" .. sep .. "assertions.lua")
 local tests = {}
 local function test(name, fn) tests[#tests + 1] = { name = name, fn = fn } end
 
-local ADDON_ICON_PATH = "Interface/AddOns/XIVEquip/Assets/icon_blue_128.tga"
-local ADDON_ICON_FILE_ID = -12345
-local FALLBACK_MACRO_ICON = "INV_Misc_Gear_01"
-local ICON_TEST_VARIANTS = {
-  ["XIVE Upgrade"] = "UI_ItemUpgrade",
-  ["XIVE Equipped"] = "UI_Transmog_ShowEquippedGear",
-  ["XIVE Gear"] = "INV_Misc_Gear_01",
-  ["XIVE Armor"] = "Garrison_ArmorUpgrade",
-  ["XIVE Repair"] = "Ability_Repair",
-}
+local MACRO_ICON = "Garrison_ArmorUpgrade"
 
 local function loadWindow(addon, calls)
   local function texture()
@@ -85,10 +76,6 @@ local function loadWindow(addon, calls)
     end,
   }
   _G.GetActionInfo = calls.getActionInfo or function() return nil end
-  _G.GetFileIDFromPath = calls.getFileIDFromPath or function(path)
-    calls.fileIDPaths[#calls.fileIDPaths + 1] = path
-    return ADDON_ICON_FILE_ID
-  end
 
   local chunk = assert(loadfile(root .. sep .. "XIVEquip" .. sep .. "UI" .. sep .. "SettingsWindow" .. sep .. "Window.lua"))
   chunk("XIVEquip", addon)
@@ -97,7 +84,7 @@ end
 
 local function harness()
   local settingsTable = { UI = { SettingsWindow = {} } }
-  local calls = { buttons = {}, created = nil, createdList = {}, edited = nil, pickup = nil, fileIDPaths = {}, settings = settingsTable }
+  local calls = { buttons = {}, created = nil, edited = nil, pickup = nil, settings = settingsTable }
   local addon = {
     UI = {},
     L = { AddonPrefix = "XIVEquip: " },
@@ -118,7 +105,7 @@ local function harness()
   return addon, calls
 end
 
-test("Create Macro uses the XIVEquip addon icon FileID", function()
+test("Create Macro uses the built-in armor upgrade icon", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 0 end
   _G.CreateMacro = function(name, icon, body, perCharacter)
@@ -132,14 +119,13 @@ test("Create Macro uses the XIVEquip addon icon FileID", function()
   Window.Open()
   calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
 
-  A.equal(calls.fileIDPaths[1], ADDON_ICON_PATH, "macro should resolve addon icon path")
-  A.equal(calls.created.icon, ADDON_ICON_FILE_ID, "macro should use resolved addon icon FileID")
+  A.equal(calls.created.icon, MACRO_ICON, "macro should use the chosen built-in armor upgrade icon")
   A.equal(calls.created.body, "/xivequip", "macro should run /xivequip")
   A.falsy(calls.created.perCharacter, "new macro should be created in General Macros")
   A.equal(calls.pickup, 42, "new macro should be picked up by index")
 end)
 
-test("Create Macro refreshes an existing macro with the XIVEquip addon icon FileID", function()
+test("Create Macro refreshes an existing macro with the built-in armor upgrade icon", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 7 end
   _G.EditMacro = function(index, name, icon, body)
@@ -153,7 +139,7 @@ test("Create Macro refreshes an existing macro with the XIVEquip addon icon File
   calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
 
   A.equal(calls.edited.index, 7, "existing macro should be edited")
-  A.equal(calls.edited.icon, ADDON_ICON_FILE_ID, "existing macro should use resolved addon icon FileID")
+  A.equal(calls.edited.icon, MACRO_ICON, "existing macro should use the chosen built-in armor upgrade icon")
   A.equal(calls.pickup, 7, "existing macro should be picked up by index")
 end)
 
@@ -207,53 +193,6 @@ test("Create Macro ignores character-specific XIVEquip macros and creates a Gene
   A.equal(calls.settings.MacroID, 42, "saved macro id should point at the General Macro")
 end)
 
-test("Create Macro falls back to a built-in icon when addon icon FileID is unavailable", function()
-  local addon, calls = harness()
-  calls.getFileIDFromPath = function(path)
-    calls.fileIDPaths[#calls.fileIDPaths + 1] = path
-    return nil
-  end
-  _G.GetMacroIndexByName = function() return 0 end
-  _G.CreateMacro = function(name, icon, body, perCharacter)
-    calls.created = { name = name, icon = icon, body = body, perCharacter = perCharacter }
-    return 42
-  end
-  _G.EditMacro = nil
-  _G.GetCursorInfo = function() return "macro", "XIVEquip" end
-
-  local Window = loadWindow(addon, calls)
-  Window.Open()
-  calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
-
-  A.equal(calls.fileIDPaths[1], ADDON_ICON_PATH, "fallback should still try the addon icon path first")
-  A.equal(calls.created.icon, FALLBACK_MACRO_ICON, "macro should use built-in fallback icon")
-end)
-
-test("Create Icon Test Macros creates built-in icon variants in General Macros", function()
-  local addon, calls = harness()
-  local nextIndex = 20
-  _G.GetMacroIndexByName = function() return 0 end
-  _G.CreateMacro = function(name, icon, body, perCharacter)
-    calls.createdList[#calls.createdList + 1] = { name = name, icon = icon, body = body, perCharacter = perCharacter }
-    nextIndex = nextIndex + 1
-    return nextIndex
-  end
-  _G.EditMacro = nil
-  _G.GetCursorInfo = function() return nil end
-
-  local Window = loadWindow(addon, calls)
-  Window.Open()
-  calls.buttons["Create Icon Test Macros"].scripts.OnClick(calls.buttons["Create Icon Test Macros"])
-
-  A.equal(#calls.createdList, 5, "tester should create every built-in icon variant")
-  for _, created in ipairs(calls.createdList) do
-    A.equal(created.body, "/xivequip", "test macro should run /xivequip")
-    A.falsy(created.perCharacter, "test macro should be created in General Macros")
-    A.equal(created.icon, ICON_TEST_VARIANTS[created.name], "test macro should use the configured built-in icon")
-  end
-  A.falsy(calls.pickup, "icon test macros should not place any macro on the cursor")
-end)
-
 test("Create Macro falls back from macro index pickup to name pickup", function()
   local addon, calls = harness()
   local pickupAttempts = {}
@@ -276,29 +215,6 @@ test("Create Macro falls back from macro index pickup to name pickup", function(
   A.equal(pickupAttempts[1], 7, "macro pickup should try by index first")
   A.equal(pickupAttempts[2], "XIVEquip", "macro pickup should fall back to name")
   A.equal(calls.pickup, "XIVEquip", "fallback macro name should be the final pickup")
-end)
-
-test("Create Macro shows and hides a XIVEquip cursor ghost for custom icon pickup", function()
-  local addon, calls = harness()
-  local cursorKind, cursorID = "macro", 42
-  _G.GetMacroIndexByName = function() return 0 end
-  _G.CreateMacro = function() return 42 end
-  _G.EditMacro = nil
-  _G.GetCursorInfo = function() return cursorKind, cursorID end
-
-  local Window = loadWindow(addon, calls)
-  Window.Open()
-  calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
-
-  A.truthy(Window.CursorGhost, "custom-icon pickup should create a cursor ghost")
-  A.truthy(Window.CursorGhost.scripts.OnUpdate, "cursor ghost should follow while macro is on cursor")
-  Window.CursorGhost.scripts.OnUpdate(Window.CursorGhost)
-  A.truthy(Window.CursorGhost:IsShown(), "cursor ghost should be visible while matching macro is on cursor")
-
-  cursorKind, cursorID = nil, nil
-  Window.CursorGhost.scripts.OnUpdate(Window.CursorGhost)
-  A.falsy(Window.CursorGhost:IsShown(), "cursor ghost should hide after cursor no longer has the macro")
-  A.falsy(Window.CursorGhost.scripts.OnUpdate, "cursor ghost should stop updating after cursor clears")
 end)
 
 test("settings window registers once for Escape close", function()
