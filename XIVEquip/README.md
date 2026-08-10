@@ -3,7 +3,7 @@
 **XIVEquip** brings the FFXIV-style “Equip Recommended Gear” button to World of Warcraft.
 
 - Click one button → it **plans** the best upgrades in your bags and **equips** them.
-- Uses **Pawn** weights when available; falls back to a clear **stat/ilvl** score when not.
+- Native 2.0 uses built-in **XIVWeights** spec defaults out of the box; Pawn remains optional.
 - Handles **armor**, **jewelry** (rings/trinkets are solved as pairs), and **weapons** (legal combos only).
 - Optional: **Auto‑equip on spec change** and **auto‑save equipment sets** named **`Spec.xive`**.
 
@@ -16,9 +16,10 @@
 - **Planner-first flow**
   - `PlanBest` computes the full list of items to equip; `EquipBest` applies and verifies that plan.
   - If item data is still loading, XIVEquip retries briefly instead of treating unknown items as non-upgrades.
-- **Pawn integration**
-  - If Pawn is installed and a scale is active, XIVEquip scores with your **current spec’s** scale.
-  - If Pawn isn’t available or returns no value, XIVEquip falls back to a transparent **stat/ilvl** score (with debug so you can see each stat’s contribution).
+- **XIVWeights**
+  - Fresh characters use source-controlled XIVEquip defaults for each spec.
+  - Customizing a spec creates an editable SavedVariables copy that can be reset to the shipped default.
+  - Pawn can still be used live or imported into a manual XIVWeights scale.
 - **Weapons done right**
   - Legal combos only, scored via your comparer.
   - Fury supports Titan's Grip two-handed pairs. Protection specs keep shield requirements. Your weights decide winners inside legal loadouts.
@@ -209,15 +210,16 @@ The suite loads addon modules with mocked WoW APIs and covers comparer fallback,
 ## Usage
 
 - Open your **Character panel** and click the **XIVEquip** button to plan & equip upgrades.
-- To enable **auto-equip on spec change**, open **Game Menu → Options → AddOns → XIVEquip** and tick
-  **“Auto‑equip on spec change”.**
-- To let XIVEquip update equipment sets after successful equips, tick
-  **“Auto‑save spec equipment sets”.**
+- Open `/xive` or `/xive settings` for the custom XIVEquip settings window.
+- To enable **auto-equip on spec change**, use the General tab and tick **Auto-equip on spec change**.
+- To let XIVEquip update equipment sets after successful equips, tick **Auto-save spec equipment set after equip**.
 
 ### Slash commands
 
 - `/xiveauto` — toggle auto‑equip on spec change
 - `/xiveauto test` — run a one‑off auto‑equip (useful for testing)
+- `/xive` — open the XIVEquip settings window
+- `/xive settings` — open the XIVEquip settings window
 - `/xive status` — print settings schema, comparer resolution/fallback, auto-equip state, and auto-save state
 - `/xive diag` — score currently equipped items with the resolved comparer
 - `/xive score <itemLink> [scaleName]` — score one linked item; optional scale name uses Pawn when available
@@ -237,16 +239,15 @@ The fixture capture and compare commands are intended for building realistic off
 
 ## Settings
 
-Open **Game Menu → Options → AddOns → XIVEquip**:
+Open `/xive` or `/xive settings`.
 
-- **Active comparer** – How items are scored.
-  *Default:* **Auto (Pawn → ilvl)** — use Pawn if available; otherwise a safe fallback.
+- **General** – Login/equip messages, debug logging, auto-equip, auto-save, minimap button visibility, and a draggable `/xivequip` macro helper.
+- **XIVWeights Scales** – Built-in spec defaults, custom scale create/duplicate/delete, Pawn import, editable scale names, sliders/numeric fields for each weight, and reset-to-default controls for customized spec scales.
+- **XIVEquip Core** – Planner mode and per-spec source selection for built-in defaults, manual XIVWeights scales, or active Pawn scales.
 - **Planner mode** – Which planner normal equip paths use.
   *Default:* **legacy**. Use `/xive planner native` to opt into the native 2.0 planner for normal equips, or use `/xive plan native` and `/xive equip native` for one-off native checks without changing the saved setting.
-- **Messages** – Toggle login and equip change messages.
-- **Debug logging** – Developer‑oriented logs (see debug toggles below).
-- **Auto‑equip on spec change** – Equip recommended gear after changing specs.
-- **Auto‑save spec equipment sets** – After a successful equip, save the active spec's *Spec.xive* set. This is opt-in for fresh installs and ambiguous legacy settings; users who previously enabled `/xive auto sets on` keep that choice during migration.
+
+Fresh specs use immutable built-in defaults. Choosing to customize a spec creates a normal SavedVariables scale named after the spec, such as `Protection`, `Retribution`, or `Holy`. Resetting a customized spec scale replaces your copy with a fresh copy of the shipped default for that spec.
 
 ---
 
@@ -289,13 +290,15 @@ Passing "force" as the first argument to `Log.Debugf("force", ...)` bypasses the
 - **Core/GearCore.lua** — Public gear helpers: item/slot maps, link helpers, uniqueness helpers, equipped item basics, scoring calls, single-slot candidate selection, and plan row construction.
 - **Core/ComparerBootstrapper.lua** — Comparer registry and resolution contract. Handles Auto/Pawn/item-level fallback and `StartPass`/`EndPass`.
 - **Core/CommandRouter.lua** — Slash command routing for `/xive`, `/xivequip`, diagnostics, fixture capture, and settings commands.
-- **Planning/Runtime.lua / Coordinator.lua / PlanBuilder.lua** — Native 2.0 planner runtime, whole-loadout coordinator, and executor-compatible plan construction.
+- **XIVWeights/** — Native weights model, built-in spec defaults, SavedVariables-backed scale config, providers, importers, resolver, and scorer.
+- **Planning/Runtime.lua / Coordinator.lua / PlanBuilder.lua** — Native 2.0 planner runtime, whole-loadout coordinator, and executor-compatible plan construction. Native runtime resolves XIVWeights directly and does not use the legacy comparer selector.
 - **Comparers/ilvl/** — Item-level comparer implementation and export.
 - **Comparers/Pawn/** — Pawn adapter, export, settings glue, and Pawn-specific command helpers.
 - **Gear/Armor.lua / Jewelry.lua / Weapons.lua** — Legacy slot planners. Each exports `:PlanBest(cmp, opts, used)` and returns `(changes, pending, plan)`.
 - **Gear/Interface.lua** — Gear orchestrator and equip executor. Merges planner results, can opt into the native planner, applies plans with bounded verification, and auto-saves only after verified success with no hard execution problems.
 - **Automation/SpecSwitch.lua** — Spec-change listener and `/xiveauto` command; throttled and combat-safe; calls `Gear:EquipBest()` when enabled.
-- **Settings/Settings.lua** — Options panel controls and settings UI wiring.
+- **UI/SettingsWindow/** — Custom XIVEquip settings window.
+- **UI/MinimapButton.lua** — Draggable minimap launcher for the custom settings window.
 - **UI/UI.lua** — Character panel button and preview tooltip.
 - **Tests/Regression.lua** — In-game `/xive test` checks.
 

@@ -44,41 +44,56 @@ local function registerComparers(addon, pawnUsable)
   })
 end
 
-test("live runtime honors explicit item-level comparer even when Pawn data exists", function()
+test("live runtime uses built-in spec defaults without starting a legacy comparer", function()
   local addon = newAddon()
   registerComparers(addon, true)
-  _G.XIVEquip_Settings = { SelectedComparer = "ilvl" }
-  addon.Pawn = {
-    GetBestScaleValuesForPlayer = function()
-      return { Strength = 100 }, { key = "pawn-scale", name = "Pawn Scale" }
-    end,
-    GetActiveScales = function() return { { key = "pawn-scale" } } end,
-  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.XIVEquip_Settings = { SelectedComparer = "pawn" }
+
+  local starts = 0
+  addon.Comparers.StartPass = function()
+    starts = starts + 1
+  end
 
   local runtime = addon.Planning.Runtime.Live()
   local scale = runtime.ResolveWeights()
 
-  A.equal(scale.source.kind, "ilvl")
-  A.equal(runtime.ScoreSource({ weights = scale }), "Item Level")
-  A.equal(runtime.ScoreCandidate({ itemLevel = 612 }, { weights = scale }, 16), 612)
+  A.equal(starts, 0)
+  A.equal(scale.source.kind, "xivequip-default")
+  A.equal(scale.meta.specID, 70)
+  A.equal(scale.weights.strength, 1)
+  A.equal(runtime.ScoreSource({ weights = scale }), "XIVWeights/Default")
   runtime.Close()
 end)
 
-test("live runtime falls back to item level when Pawn resolves but has no scale values", function()
+test("live runtime resolves exact configured Pawn scale without legacy comparer selection", function()
   local addon = newAddon()
   registerComparers(addon, true)
-  _G.XIVEquip_Settings = { SelectedComparer = "default" }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.XIVEquip_Settings = {
+    XIVWeights = {
+      Scales = {},
+      Specs = { [70] = { provider = "pawn", scale = "pawn-ret" } },
+    },
+  }
   addon.Pawn = {
-    GetBestScaleValuesForPlayer = function() return nil, nil end,
-    GetActiveScales = function() return { { key = "missing-scale" } } end,
+    GetScaleValues = function(key)
+      if key == "pawn-ret" then return { Strength = 10, HasteRating = 5 }, { key = key, name = "Pawn Ret" } end
+    end,
+    GetActiveScales = function() return { { key = "pawn-ret", name = "Pawn Ret" } } end,
   }
 
   local runtime = addon.Planning.Runtime.Live()
   local ok, scale = pcall(runtime.ResolveWeights)
 
-  A.truthy(ok, "Pawn without values should not crash runtime weight resolution")
-  A.equal(scale.source.kind, "ilvl")
-  A.equal(runtime.ScoreSource({ weights = scale }), "item-level fallback")
+  A.truthy(ok)
+  A.equal(scale.source.kind, "pawn")
+  A.equal(scale.source.key, "pawn-ret")
+  A.equal(scale.weights.strength, 1)
+  A.equal(scale.weights.haste, 0.5)
+  A.equal(runtime.ScoreSource({ weights = scale }), "XIVWeights/Pawn")
   runtime.Close()
 end)
 

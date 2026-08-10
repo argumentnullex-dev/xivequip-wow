@@ -91,13 +91,16 @@ test("fresh settings produce canonical schema", function()
   local addon = newAddon(nil)
   local st = addon.Settings:Get()
 
-  A.equal(st.SchemaVersion, 2)
+  A.equal(st.SchemaVersion, 3)
   A.equal(st.Comparer.Selected, "default")
   A.equal(st.Automation.SpecEquip, false)
   A.equal(st.Automation.SaveSpecSet, false)
   A.equal(st.Messages.Preview, true)
   A.equal(st.Planner.Mode, "legacy")
   A.equal(type(st.Debug), "table")
+  A.equal(type(st.XIVWeights), "table")
+  A.equal(type(st.XIVWeights.Scales), "table")
+  A.equal(st.UI.Minimap.Hidden, false)
 end)
 
 test("legacy AutoSpecEquip migrates to SpecEquip", function()
@@ -268,6 +271,17 @@ test("/xive equip2 is no longer a registered or documented command", function()
   local body = readme:read("*a")
   readme:close()
   A.equal(body:find("/xive equip2", 1, true), nil)
+end)
+
+test("/xive with no arguments and /xive settings open the custom settings window", function()
+  local addon = newAddon({})
+  local opens = 0
+  addon.UI = { SettingsWindow = { Open = function() opens = opens + 1 end } }
+
+  SlashCmdList.XIVE("")
+  SlashCmdList.XIVE("settings")
+
+  A.equal(opens, 2)
 end)
 
 test("initialization is idempotent", function()

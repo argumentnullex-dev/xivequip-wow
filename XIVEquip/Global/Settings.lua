@@ -4,7 +4,7 @@ XIVEquip = XIVEquip or _G.XIVEquip or {}
 XIVEquip.Settings = XIVEquip.Settings or {}
 
 local S = XIVEquip.Settings
-local SCHEMA_VERSION = 2
+local SCHEMA_VERSION = 3
 
 local function normalizeComparer(value)
   local v = tostring(value or "default")
@@ -66,6 +66,15 @@ local function migrateDebug(st)
   return enabled, slot
 end
 
+local function ensureXIVWeights(st)
+  st.XIVWeights = type(st.XIVWeights) == "table" and st.XIVWeights or {}
+  st.XIVWeights.Scales = type(st.XIVWeights.Scales) == "table" and st.XIVWeights.Scales or {}
+  st.XIVWeights.Specs = type(st.XIVWeights.Specs) == "table" and st.XIVWeights.Specs or {}
+  st.XIVWeights.Integrations = type(st.XIVWeights.Integrations) == "table" and st.XIVWeights.Integrations or {}
+  st.XIVWeights.Integrations.Pawn = type(st.XIVWeights.Integrations.Pawn) == "table"
+      and st.XIVWeights.Integrations.Pawn or {}
+end
+
 local function ensure()
   _G.XIVEquip_Settings = _G.XIVEquip_Settings or {}
   local st = _G.XIVEquip_Settings
@@ -108,8 +117,14 @@ local function ensure()
   st.Planner.Mode = normalizePlannerMode(st.Planner.Mode or st.PlannerMode or "legacy")
 
   st.UI = type(st.UI) == "table" and st.UI or {}
+  st.UI.SettingsWindow = type(st.UI.SettingsWindow) == "table" and st.UI.SettingsWindow or {}
+  st.UI.Minimap = type(st.UI.Minimap) == "table" and st.UI.Minimap or {}
+  if st.UI.Minimap.Hidden == nil then st.UI.Minimap.Hidden = false end
+  st.UI.Minimap.Angle = tonumber(st.UI.Minimap.Angle) or 220
   st.AutoSpecMap = type(st.AutoSpecMap) == "table" and st.AutoSpecMap or {}
   st.MacroID = st.MacroID or 0
+
+  ensureXIVWeights(st)
 
   st.SelectedComparer = nil
   st.AutoSpecEquip = nil
@@ -189,3 +204,19 @@ function S:SetPlannerMode(mode)
 end
 
 function S:GetPlannerMode() return ensure().Planner.Mode end
+
+function S:GetMinimapHidden()
+  return ensure().UI.Minimap.Hidden == true
+end
+
+function S:SetMinimapHidden(val)
+  ensure().UI.Minimap.Hidden = val == true
+end
+
+function S:GetMinimapAngle()
+  return ensure().UI.Minimap.Angle
+end
+
+function S:SetMinimapAngle(angle)
+  ensure().UI.Minimap.Angle = tonumber(angle) or 220
+end

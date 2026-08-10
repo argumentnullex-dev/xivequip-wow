@@ -44,8 +44,12 @@ XIVWeights/Normalizer.lua
 XIVWeights/Scorer.lua
 XIVWeights/Repository.lua
 XIVWeights/Resolver.lua
+XIVWeights/Builtin/Defaults.lua
+XIVWeights/Config.lua
+XIVWeights/Providers/Default.lua
 XIVWeights/Providers/Manual.lua
 XIVWeights/Providers/Pawn.lua
+XIVWeights/Import/Pawn.lua
 
 # Policy registry (native evaluation architecture -- see Policies/*.lua doc comments)
 Policies/Registry.lua
@@ -103,10 +107,9 @@ Gear/Interface.lua
 Automation/SpecSwitch.lua
 
 # UI Modules
+UI/SettingsWindow/Window.lua
+UI/MinimapButton.lua
 UI/UI.lua
-
-# Settings Modules
-Settings/Settings.lua
 
 # Test and diagnostics
 Tests/Regression.lua

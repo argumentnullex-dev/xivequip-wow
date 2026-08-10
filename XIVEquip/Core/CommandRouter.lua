@@ -151,7 +151,8 @@ C.Help(" /xive status – print selected settings and resolved runtime comparer"
 -- print_help: Core addon plumbing: print help.
 local function print_help()
   print(PREFIX .. "Commands:")
-  print("  /xive                            – show this help")
+  print("  /xive                            – open settings")
+  print("  /xive settings                   – open settings")
   print("  /xivequip                        – equip recommended gear")
   print("  /xive equip [legacy|native]      – equip recommended gear")
   print("  /xive use <comparer>             – set comparer by key or label (default, Pawn, ilvl)")
@@ -172,6 +173,14 @@ local function print_help()
   print("  /xive smoke                      – run test, then validation if tests pass")
   print("  /xive score <link> [scale]       – score; [scale] uses Pawn if available")
   for _, line in ipairs(helplines) do print("  " .. line) end
+end
+
+local function openSettings()
+  if XIVEquip.UI and XIVEquip.UI.SettingsWindow and XIVEquip.UI.SettingsWindow.Open then
+    XIVEquip.UI.SettingsWindow.Open()
+  else
+    print(PREFIX .. "Settings window not available yet.")
+  end
 end
 
 -- command framework (hardened)
@@ -234,7 +243,7 @@ local function dispatch(msg)
   local tokens = {}
   for w in string.gmatch(tostring(msg or ""), "%S+") do tokens[#tokens + 1] = w end
   if #tokens == 0 then
-    print_help(); return
+    openSettings(); return
   end
 
   -- 1) namespace
@@ -312,6 +321,10 @@ C.RegisterRoot("use", function(rest)
   else
     print(PREFIX .. "Comparer set to: " .. tostring(active))
   end
+end)
+
+C.RegisterRoot("settings", function(_)
+  openSettings()
 end)
 
 -- /xive planner <legacy|native|status>

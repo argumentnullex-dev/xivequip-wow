@@ -445,6 +445,21 @@ function Pawn.GetBestScaleValuesForPlayer()
     return nil, entry
 end
 
+function Pawn.GetScaleValues(keyOrName)
+    if not keyOrName then return Pawn.GetBestScaleValuesForPlayer() end
+    for _, entry in ipairs(Pawn.GetActiveScales() or {}) do
+        if entry and (entry.key == keyOrName or entry.name == keyOrName) then
+            if entry.type == "custom" and type(entry.values) == "table" then
+                return entry.values, entry
+            end
+            local vals = tryGetProviderValues(entry.key or entry.name)
+            if type(vals) == "table" then return vals, entry end
+            return nil, entry
+        end
+    end
+    return nil, nil
+end
+
 -- Public: baseline assumption for "what is a gem worth" when estimating empty-socket potential.
 -- User configurable via XIVEquip_Settings.SocketAssumption.SecondaryAmount.
 function Pawn.GetSocketAssumptionSecondaryAmount()

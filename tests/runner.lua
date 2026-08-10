@@ -48,6 +48,7 @@ local specs = {
   "xivweights_scorer_spec",
   "xivweights_repository_spec",
   "xivweights_resolver_spec",
+  "xivweights_config_spec",
   "xivweights_manual_provider_spec",
   "xivweights_pawn_provider_spec",
   "policy_registry_spec",

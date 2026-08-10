@@ -484,6 +484,11 @@ local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
 -- Callback used in UI.lua to run inline logic.
 f:SetScript("OnEvent", function()
+  if XIVEquip.Settings and XIVEquip.Settings.Initialize then XIVEquip.Settings:Initialize() end
+  if XIVEquip.UI and XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Create then
+    XIVEquip.UI.MinimapButton.Create()
+  end
+
   if PaperDollFrame then
     if not PaperDollFrame.__XIVEquipHook then
       PaperDollFrame:HookScript("OnShow", onPaperDollShow)

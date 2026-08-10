@@ -49,8 +49,12 @@ function Bootstrap.LoadWeights(root, addon)
   loadAddonFile(root, { "XIVWeights", "Scorer.lua" }, addon)
   loadAddonFile(root, { "XIVWeights", "Repository.lua" }, addon)
   loadAddonFile(root, { "XIVWeights", "Resolver.lua" }, addon)
+  loadAddonFile(root, { "XIVWeights", "Builtin", "Defaults.lua" }, addon)
+  loadAddonFile(root, { "XIVWeights", "Config.lua" }, addon)
+  loadAddonFile(root, { "XIVWeights", "Providers", "Default.lua" }, addon)
   loadAddonFile(root, { "XIVWeights", "Providers", "Manual.lua" }, addon)
   loadAddonFile(root, { "XIVWeights", "Providers", "Pawn.lua" }, addon)
+  loadAddonFile(root, { "XIVWeights", "Import", "Pawn.lua" }, addon)
 end
 
 -- The policy registry + EvaluationContext + candidate normalization tree.

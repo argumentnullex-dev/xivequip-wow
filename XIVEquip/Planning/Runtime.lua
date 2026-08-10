@@ -16,39 +16,9 @@ local function call(fn, ...)
   return nil
 end
 
-local function resolvePawnWeights()
-  local Pawn = XIVEquip.Pawn
-  local XIVWeights = XIVEquip.XIVWeights
-  if not (Pawn and type(Pawn.GetBestScaleValuesForPlayer) == "function" and XIVWeights and XIVWeights.Providers) then
-    return nil
-  end
-
-  local rawValues, entry = Pawn.GetBestScaleValuesForPlayer()
-  if type(rawValues) ~= "table" then return nil end
-
-  local adapter = {
-    ListScales = function()
-      if type(Pawn.GetActiveScales) == "function" then return Pawn.GetActiveScales() end
-      return {}
-    end,
-    ResolveValues = function()
-      return rawValues, entry
-    end,
-  }
-
-  local provider = XIVWeights.Providers.Pawn.New(adapter)
-  local providerScale = provider:Resolve(nil, nil)
-  return XIVWeights.Resolver.Resolve(providerScale, nil)
-end
-
 function Runtime.Live()
   local runtime = {}
-  local cmp, resolution
-  if XIVEquip.Comparers and type(XIVEquip.Comparers.StartPass) == "function" then
-    cmp, resolution = XIVEquip.Comparers:StartPass()
-  end
   local closed = false
-  local resolvedKey = resolution and resolution.resolved_key
 
   runtime.UnitClass = function(unit) return call(_G.UnitClass, unit) end
   runtime.GetSpecialization = function() return call(_G.GetSpecialization) end
@@ -56,39 +26,62 @@ function Runtime.Live()
   runtime.UnitLevel = function(unit) return call(_G.UnitLevel, unit) end
   runtime.IsDualWielding = function() return call(_G.IsDualWielding) end
 
+  runtime.PawnProvider = function()
+    local Pawn = XIVEquip.Pawn
+    local XIVWeights = XIVEquip.XIVWeights
+    if not (Pawn and XIVWeights and XIVWeights.Providers and XIVWeights.Providers.Pawn) then return nil end
+    local adapter = {
+      ListScales = function()
+        if type(Pawn.GetActiveScales) == "function" then return Pawn.GetActiveScales() end
+        return {}
+      end,
+      ResolveValues = function(selection)
+        if selection and type(Pawn.GetScaleValues) == "function" then
+          local values, entry = Pawn.GetScaleValues(selection)
+          if type(values) == "table" then return values, entry end
+        end
+        if not selection and type(Pawn.GetBestScaleValuesForPlayer) == "function" then
+          return Pawn.GetBestScaleValuesForPlayer()
+        end
+        if type(Pawn.GetActiveScales) == "function" then
+          for _, entry in ipairs(Pawn.GetActiveScales() or {}) do
+            if entry and (entry.key == selection or entry.name == selection) then
+              return entry.values, entry
+            end
+          end
+        end
+        return nil, nil
+      end,
+    }
+    return XIVWeights.Providers.Pawn.New(adapter)
+  end
+
   runtime.ResolveWeights = function()
-    if resolvedKey == "pawn" then
-      local scale = resolvePawnWeights()
-      if scale then return scale end
+    local specIndex = runtime.GetSpecialization()
+    local specID = specIndex and runtime.GetSpecializationInfo(specIndex)
+    if specID and XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config then
+      return XIVEquip.XIVWeights.Config.ResolveForSpec(specID, runtime)
     end
-    return XIVEquip.XIVWeights.NewScale({ id = "fallback:ilvl", source = { kind = "ilvl" }, weights = {} })
+    return XIVEquip.XIVWeights.NewScale({ id = "fallback:empty", source = { kind = "empty" }, weights = {} })
   end
 
   runtime.ScoreCandidate = function(candidate, context, slot)
-    if context and context.weights and context.weights.source and context.weights.source.kind == "pawn" then
-      return XIVEquip.Evaluation.CandidateEvaluator.Score(candidate, context)
-    end
-    return tonumber(candidate and candidate.itemLevel) or 0
+    if context and context.weights then return XIVEquip.Evaluation.CandidateEvaluator.Score(candidate, context) end
+    return 0
   end
 
   runtime.ScoreSource = function(context)
-    if context and context.weights and context.weights.source and context.weights.source.kind == "pawn" then
-      return "XIVWeights/Pawn"
-    end
-    if resolution and resolution.fallback_used then
-      return "item-level fallback"
-    end
-    if resolvedKey == "ilvl" then return "Item Level" end
-    return "item-level fallback"
+    local source = context and context.weights and context.weights.source
+    if source and source.kind == "pawn" then return "XIVWeights/Pawn" end
+    if source and (source.kind == "xivequip-default" or source.kind == "xivequip-default-copy") then return "XIVWeights/Default" end
+    if source and source.kind == "manual" then return "XIVWeights/Manual" end
+    return "XIVWeights"
   end
 
-  runtime.Comparer = function() return cmp, resolution end
+  runtime.Comparer = function() return nil, nil end
   runtime.Close = function()
     if closed then return end
     closed = true
-    if XIVEquip.Comparers and type(XIVEquip.Comparers.EndPass) == "function" then
-      XIVEquip.Comparers:EndPass()
-    end
   end
 
   return runtime
