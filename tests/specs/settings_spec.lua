@@ -123,6 +123,15 @@ test("pre-profile settings migrate to a v2 model with Automatic as the default",
   A.equal(addon.Settings:GetPlannerMode(), "native")
 end)
 
+test("older v1/v2 settings are marked as pre-profile rather than fresh", function()
+  local addon = newAddon({ SchemaVersion = 2 })
+  local st = addon.Settings:Get()
+
+  A.equal(st.Migration.SourceSchemaVersion, 2)
+  A.equal(st.Migration.SourceModel, "pre-profile-v2")
+  A.equal(st.Migration.AutomaticDefaulted, true)
+end)
+
 test("class Default Profile is lazy, class-specific, and assigned per character", function()
   local addon = newAddon({})
   local Profiles = addon.Profiles.Config

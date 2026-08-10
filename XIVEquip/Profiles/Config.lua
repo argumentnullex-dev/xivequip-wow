@@ -285,4 +285,97 @@ function Profiles.Usage(classFile, profileIDValue)
   return { count = #characters, characters = characters }
 end
 
+local function manualState(profile)
+  if type(profile) ~= "table" then return nil end
+  profile.manual = type(profile.manual) == "table" and profile.manual or {}
+  profile.manual.customOverrides = type(profile.manual.customOverrides) == "table"
+      and profile.manual.customOverrides or {}
+  profile.manual.integration = type(profile.manual.integration) == "table"
+      and profile.manual.integration or {}
+  profile.manual.integration.provider = profile.manual.integration.provider or "pawn"
+  profile.manual.integration.overrides = type(profile.manual.integration.overrides) == "table"
+      and profile.manual.integration.overrides or {}
+  return profile.manual
+end
+
+function Profiles.SetAutomatic(profile, enabled)
+  if type(profile) ~= "table" then return nil, "profile-required" end
+  profile.automatic = enabled == true
+  return profile
+end
+
+function Profiles.SetManualMode(profile, mode)
+  local manual = manualState(profile)
+  mode = string.lower(tostring(mode or ""))
+  if not manual then return nil, "profile-required" end
+  if mode ~= "default" and mode ~= "custom" and mode ~= "integration" then
+    return nil, "invalid-manual-mode"
+  end
+  manual.mode = mode
+  return profile
+end
+
+function Profiles.SetCustomOverride(profile, specID, scaleID)
+  local manual = manualState(profile)
+  if not manual then return nil, "profile-required" end
+  specID = tonumber(specID)
+  if not specID then return nil, "spec-required" end
+  local config = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
+  local scale = config and config.Repository and config.Repository():Get(scaleID)
+  if not scale then return nil, "unknown-scale" end
+  local owner = config.GetScaleSpecID and config.GetScaleSpecID(scale)
+  if owner ~= specID then return nil, "scale-spec-mismatch" end
+  manual.customOverrides[specID] = scaleID
+  return profile
+end
+
+function Profiles.ClearCustomOverride(profile, specID)
+  local manual = manualState(profile)
+  if not manual then return nil, "profile-required" end
+  manual.customOverrides[tonumber(specID)] = nil
+  return profile
+end
+
+function Profiles.ClearCustomScaleReferences(scaleID)
+  local profiles = store()
+  for _, classStore in pairs(profiles.ByClass) do
+    for _, profile in pairs((classStore and classStore.Items) or {}) do
+      local manual = manualState(profile)
+      for specID, selectedID in pairs(manual.customOverrides) do
+        if selectedID == scaleID then manual.customOverrides[specID] = nil end
+      end
+    end
+  end
+end
+
+function Profiles.SetIntegrationProvider(profile, providerID)
+  local manual = manualState(profile)
+  if not manual then return nil, "profile-required" end
+  providerID = tostring(providerID or "")
+  local registry = XIVEquip.Integrations and XIVEquip.Integrations.Registry
+  if providerID == "" or not (registry and registry:Get(providerID)) then
+    return nil, "unknown-integration"
+  end
+  manual.integration.provider = providerID
+  return profile
+end
+
+function Profiles.SetIntegrationOverride(profile, specID, externalScaleID)
+  local manual = manualState(profile)
+  if not manual then return nil, "profile-required" end
+  specID = tonumber(specID)
+  externalScaleID = tostring(externalScaleID or "")
+  if not specID then return nil, "spec-required" end
+  if externalScaleID == "" then return nil, "scale-required" end
+  manual.integration.overrides[specID] = externalScaleID
+  return profile
+end
+
+function Profiles.ClearIntegrationOverride(profile, specID)
+  local manual = manualState(profile)
+  if not manual then return nil, "profile-required" end
+  manual.integration.overrides[tonumber(specID)] = nil
+  return profile
+end
+
 return Profiles

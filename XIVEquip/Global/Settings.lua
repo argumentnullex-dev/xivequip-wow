@@ -86,7 +86,7 @@ local function ensureProfiles(st, sourceVersion)
     }
     st.Migration = {
       SourceSchemaVersion = sourceVersion,
-      SourceModel = sourceVersion >= 3 and "pre-profile-v2" or "fresh",
+      SourceModel = sourceVersion > 0 and "pre-profile-v2" or "fresh",
       AutomaticDefaulted = true,
     }
   else

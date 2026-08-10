@@ -74,6 +74,8 @@ Registry:Register({
   label = "Pawn",
   automaticPriority = 1000,
   IsAvailable = function(context)
+    local runtime = contextRuntime(context)
+    if runtime and runtime.IsAddOnLoaded and not runtime.IsAddOnLoaded("Pawn") then return false end
     return pawnEntry(context) ~= nil
   end,
   ListScales = function(context)

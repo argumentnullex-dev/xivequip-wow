@@ -203,6 +203,19 @@ function Config.SetSpecSelection(specID, provider, scaleID)
   }
 end
 
+function Config.GetScaleSpecID(scale)
+  if type(scale) ~= "table" then return nil end
+  local meta = type(scale.meta) == "table" and scale.meta or {}
+  local source = type(scale.source) == "table" and scale.source or {}
+  return tonumber(meta.specID or meta.tiedToSpecID or source.specID)
+end
+
+local function normalizeProfileIntegration(provider)
+  local value = tostring(provider or "pawn")
+  if value == "" then return "pawn" end
+  return value
+end
+
 function Config.GetProfileSelection(specID, runtime)
   local Profiles = profilesConfig()
   if not Profiles then return nil, nil end
@@ -236,7 +249,7 @@ function Config.GetProfileSelection(specID, runtime)
     local integration = type(manual.integration) == "table" and manual.integration or {}
     local overrides = type(integration.overrides) == "table" and integration.overrides or {}
     return {
-      provider = normalizeProvider(integration.provider or "pawn"),
+      provider = normalizeProfileIntegration(integration.provider or "pawn"),
       scale = overrides[tonumber(specID)],
       mode = "integration",
       profile = profile,
@@ -258,21 +271,41 @@ end
 
 function Config.SaveScale(scale)
   assert(scale and scale.id, "XIVWeights.Config.SaveScale requires a scale id")
+  local sourceKind = scale.source and scale.source.kind
+  if sourceKind == "manual" or sourceKind == "xivequip-default-copy" then
+    local specID = Config.GetScaleSpecID(scale)
+    if not specID then return nil, "scale-spec-required" end
+    scale.meta = scale.meta or {}
+    scale.meta.specID = specID
+  end
   local repo = Config.Repository()
   return repo:Save(normalizeScale(scale))
 end
 
 function Config.DeleteScale(id)
-  return Config.Repository():Delete(id)
+  local deleted = Config.Repository():Delete(id)
+  if deleted and XIVEquip.Profiles and XIVEquip.Profiles.Config
+      and XIVEquip.Profiles.Config.ClearCustomScaleReferences then
+    XIVEquip.Profiles.Config.ClearCustomScaleReferences(id)
+  end
+  return deleted
 end
 
-function Config.CreateManualScale(id, name, weights)
+function Config.CreateManualScale(id, name, weights, specID)
+  specID = tonumber(specID)
+  if not specID then return nil, "spec-required" end
+  local default = builtinForSpec(specID)
   local scale = XIVWeights.NewScale({
     id = id,
     name = name,
     source = { kind = "manual" },
     weights = weights or { strength = 1.0 },
-    meta = { userEditable = true },
+    meta = {
+      userEditable = true,
+      specID = specID,
+      classFile = default and default.meta and default.meta.classFile or nil,
+      specName = default and default.meta and default.meta.specName or nil,
+    },
   })
   local ok, err = Config.ValidateAuthoredWeights(scale)
   if not ok then return nil, err end
@@ -282,6 +315,8 @@ end
 function Config.DuplicateScale(sourceID, newID, newName)
   local source = Config.Repository():Get(sourceID)
   if not source then return nil, "Source scale not found." end
+  local specID = Config.GetScaleSpecID(source)
+  if not specID then return nil, "Source scale has no specialization owner." end
   local copyScale = copy(source)
   copyScale.id = newID
   copyScale.name = newName
@@ -289,6 +324,7 @@ function Config.DuplicateScale(sourceID, newID, newName)
   copyScale.meta = copyScale.meta or {}
   copyScale.meta.userEditable = true
   copyScale.meta.duplicatedFrom = sourceID
+  copyScale.meta.specID = specID
   return Config.SaveScale(copyScale)
 end
 
@@ -340,7 +376,9 @@ function Config.ResolveResultForSpec(specID, runtime)
   if sel.provider == "automatic" then
     local registry = integrationsRegistry()
     if registry then
-      scale, integrationEntry = registry:ResolveAutomatic({ specID = specID, runtime = runtime })
+      local automaticEntry
+      scale, automaticEntry = registry:ResolveAutomatic({ specID = specID, runtime = runtime })
+      integrationEntry = type(automaticEntry) == "table" and automaticEntry or nil
     else
       local pawnProvider = runtime and runtime.PawnProvider and runtime.PawnProvider()
       if pawnProvider then
@@ -349,8 +387,10 @@ function Config.ResolveResultForSpec(specID, runtime)
       end
     end
     if not scale then
-      fallback = true
-      fallbackReason = "no-suitable-integration-scale"
+      -- Default is the final legitimate member of Automatic's hierarchy.
+      -- Reaching it is normal and must not create a warning state.
+      fallback = false
+      fallbackReason = nil
       sel = { provider = "default", scale = nil, mode = "automatic", profile = sel.profile }
     end
   end
@@ -370,17 +410,6 @@ function Config.ResolveResultForSpec(specID, runtime)
 
   local sourceKind = "default"
   local sourceLabel = "Default"
-  if scale and scale.source and scale.source.kind == "pawn" then
-    sourceKind = "integration"
-    sourceLabel = integrationEntry and integrationEntry.label or "Pawn"
-  elseif scale and scale.source and scale.source.kind == "manual" then
-    sourceKind = "custom"
-    sourceLabel = "Custom"
-  elseif scale and scale.source and scale.source.kind == "xivequip-default-copy" then
-    sourceKind = "custom"
-    sourceLabel = "Custom"
-  end
-
   if not scale then
     scale = XIVWeights.Builtin and XIVWeights.Builtin.Defaults and XIVWeights.Builtin.Defaults.Get(specID)
     fallback = true
@@ -394,6 +423,22 @@ function Config.ResolveResultForSpec(specID, runtime)
     sourceLabel = "Default"
   end
 
+  -- Resolve the source label after fallback selection so automatic default
+  -- resolution is visible to callers instead of inheriting a nil label.
+  if integrationEntry then
+    sourceKind = "integration"
+    sourceLabel = integrationEntry.label or integrationEntry.id
+  elseif scale and scale.source and scale.source.kind == "pawn" then
+    sourceKind = "integration"
+    sourceLabel = "Pawn"
+  elseif scale and scale.source and scale.source.kind == "manual" then
+    sourceKind = "custom"
+    sourceLabel = "Custom"
+  elseif scale and scale.source and scale.source.kind == "xivequip-default-copy" then
+    sourceKind = "custom"
+    sourceLabel = "Custom"
+  end
+
   local default = XIVWeights.Builtin and XIVWeights.Builtin.Defaults and XIVWeights.Builtin.Defaults.Get(specID)
   local effective = XIVWeights.Resolver.Resolve(scale, default)
   effective.resolution = {
@@ -403,6 +448,7 @@ function Config.ResolveResultForSpec(specID, runtime)
     automatic = sel.mode == "automatic",
     fallback = fallback,
     fallbackReason = fallbackReason,
+    automaticResolution = sel.mode == "automatic" and sourceKind or nil,
     profileID = sel.profile and sel.profile.id or nil,
   }
   return {

@@ -239,15 +239,80 @@ test("Automatic Profile falls back to the spec Default when no Integration is us
   A.equal(result.scale.source.kind, "xivequip-default")
   A.equal(result.scale.resolution.sourceLabel, "Default")
   A.equal(result.scale.resolution.scaleLabel, "Protection")
-  A.equal(result.fallback, true)
-  A.equal(result.fallbackReason, "no-suitable-integration-scale")
+  A.equal(result.fallback, false)
+  A.equal(result.fallbackReason, nil)
+end)
+
+test("Profile Integration resolution preserves opaque provider ids and source labels", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+  local Profiles = addon.Profiles.Config
+  local registry = addon.Integrations.Registry
+  local integrationScale = addon.XIVWeights.NewScale({
+    id = "hypothetical:protection",
+    name = "Hypothetical Protection",
+    source = { kind = "hypothetical" },
+    weights = { strength = 1, haste = 0.8 },
+  })
+  registry:Register({
+    id = "hypotheticalA",
+    label = "Hypothetical A",
+    automaticPriority = 10,
+    IsAvailable = function() return true end,
+    Resolve = function(_, selection)
+      A.equal(selection, "hypothetical:protection")
+      return integrationScale
+    end,
+  })
+
+  local profile = Profiles.GetDefault("PALADIN")
+  A.truthy(Profiles.SetAutomatic(profile, false))
+  A.truthy(Profiles.SetManualMode(profile, "integration"))
+  A.truthy(Profiles.SetIntegrationProvider(profile, "hypotheticalA"))
+  A.truthy(Profiles.SetIntegrationOverride(profile, 66, "hypothetical:protection"))
+
+  local result = Config.ResolveResultForSpec(66, {
+    UnitClass = function() return "Paladin", "PALADIN" end,
+    UnitName = function() return "Daedric", "Area 52" end,
+  })
+
+  A.equal(result.selection.provider, "hypotheticalA")
+  A.equal(result.scale.resolution.sourceKind, "integration")
+  A.equal(result.scale.resolution.sourceLabel, "Hypothetical A")
+  A.equal(result.scale.resolution.scaleLabel, "Hypothetical Protection")
+  A.falsy(result.fallback)
+end)
+
+test("Profile mutation APIs enforce spec ownership for Custom scales", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+  local Profiles = addon.Profiles.Config
+  local profile = Profiles.GetDefault("PALADIN")
+  local holy = Config.CreateManualScale("custom:holy", "Holy Custom", { intellect = 1 }, 65)
+
+  local selected, reason = Profiles.SetCustomOverride(profile, 66, holy.id)
+  A.equal(selected, nil)
+  A.equal(reason, "scale-spec-mismatch")
+
+  selected = Profiles.SetCustomOverride(profile, 65, holy.id)
+  A.equal(selected, profile)
+  A.equal(profile.manual.customOverrides[65], holy.id)
+  A.equal(Profiles.ClearCustomOverride(profile, 65), profile)
+end)
+
+test("Custom scale creation requires a specialization owner", function()
+  local addon = newAddon({})
+  local created, reason = addon.XIVWeights.Config.CreateManualScale("custom:unscoped", "Unscoped", { strength = 1 })
+
+  A.equal(created, nil)
+  A.equal(reason, "spec-required")
 end)
 
 test("Custom Profile mode uses a spec-matching override and leaves other specs on Default", function()
   local addon = newAddon({})
   local Config = addon.XIVWeights.Config
   local Profiles = addon.Profiles.Config
-  local custom = Config.CreateManualScale("custom:protection", "Protection Raid", { strength = 1, haste = 0.9 })
+  local custom = Config.CreateManualScale("custom:protection", "Protection Raid", { strength = 1, haste = 0.9 }, 66)
   local profile = Profiles.GetDefault("PALADIN")
   profile.automatic = false
   profile.manual.mode = "custom"
@@ -307,7 +372,7 @@ test("manual scales can be created duplicated and deleted", function()
   local addon = newAddon({})
   local Config = addon.XIVWeights.Config
 
-  local created = Config.CreateManualScale("manual:one", "One", { agility = 1, haste = 0.5 })
+  local created = Config.CreateManualScale("manual:one", "One", { agility = 1, haste = 0.5 }, 260)
   A.truthy(created)
   A.equal(Config.Repository():Get("manual:one").name, "One")
 
@@ -324,7 +389,7 @@ test("explicit per-spec selection persists without changing generated defaults",
   local addon = newAddon({})
   local Config = addon.XIVWeights.Config
   Config.EnsureSpecScale(70)
-  Config.CreateManualScale("manual:ret-custom", "Ret Custom", { strength = 1, mastery = 0.8 })
+  Config.CreateManualScale("manual:ret-custom", "Ret Custom", { strength = 1, mastery = 0.8 }, 70)
 
   Config.SetSpecSelection(70, "manual", "manual:ret-custom")
   local selection = Config.GetSpecSelection(70)
@@ -344,7 +409,7 @@ test("imported Pawn scale becomes independent manual XIVWeights scale", function
     end,
   }
 
-  local imported = addon.XIVWeights.Import.Pawn.Import(adapter, "pawn-ret", "manual:pawn-ret-copy", "Pawn Ret Copy")
+  local imported = addon.XIVWeights.Import.Pawn.Import(adapter, "pawn-ret", "manual:pawn-ret-copy", "Pawn Ret Copy", 70)
   adapterValues.Strength = 1
 
   local saved = addon.XIVWeights.Config.Repository():Get("manual:pawn-ret-copy")

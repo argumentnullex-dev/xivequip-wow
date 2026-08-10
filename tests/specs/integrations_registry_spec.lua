@@ -76,4 +76,20 @@ test("Automatic integrations return a stable fallback reason when none can resol
   A.equal(reason, "no-suitable-integration-scale")
 end)
 
+test("Pawn is unavailable when its addon is not loaded even if the live-shaped runtime has a provider hook", function()
+  local addon = newAddon()
+  local registry = addon.Integrations.Registry
+  local runtime = {
+    IsAddOnLoaded = function(name) return name ~= "Pawn" end,
+    PawnProvider = function()
+      return { Resolve = function() return scale(addon, "pawn:scale", "pawn") end }
+    end,
+  }
+
+  A.falsy(registry:IsAvailable("pawn", { specID = 66, runtime = runtime }))
+
+  runtime.IsAddOnLoaded = function() return true end
+  A.truthy(registry:IsAvailable("pawn", { specID = 66, runtime = runtime }))
+end)
+
 return tests
