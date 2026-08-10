@@ -5,7 +5,7 @@ XIVEquip.UI.SettingsWindow = XIVEquip.UI.SettingsWindow or {}
 
 local Window = XIVEquip.UI.SettingsWindow
 local PREFIX = (XIVEquip.L and XIVEquip.L.AddonPrefix) or "XIVEquip: "
-local ADDON_ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128.tga"
+local ADDON_ICON = "Interface/AddOns/XIVEquip/Assets/icon_blue_128.tga"
 local WINDOW_NAME = "XIVEquipSettingsWindow"
 
 local tabs = { "General", "XIVWeights Scales", "XIVEquip Core" }
@@ -85,6 +85,15 @@ local function registerEscapeClose(frameName)
     if name == frameName then return end
   end
   table.insert(UISpecialFrames, frameName)
+end
+
+local function cursorHasPickedMacro(index, name)
+  if GetCursorInfo then
+    local kind, id = GetCursorInfo()
+    if kind == "macro" then return id == index or id == name end
+    return false
+  end
+  return not CursorHasMacro or CursorHasMacro()
 end
 
 local function makeContent(parent)
@@ -327,8 +336,12 @@ local function createEquipMacro()
   st.MacroID = index or 0
   local pickedUp = false
   if ok and index and index > 0 and PickupMacro then
-    local pickupOk = pcall(PickupMacro, index)
-    pickedUp = pickupOk and (not CursorHasMacro or CursorHasMacro())
+    local pickupOk = pcall(PickupMacro, name)
+    pickedUp = pickupOk and cursorHasPickedMacro(index, name)
+    if not pickedUp then
+      pickupOk = pcall(PickupMacro, index)
+      pickedUp = pickupOk and cursorHasPickedMacro(index, name)
+    end
   end
   if ok and index and index > 0 and pickedUp then
     print(PREFIX .. "Created /xivequip macro and placed it on your cursor.")

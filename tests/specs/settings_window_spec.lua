@@ -5,7 +5,7 @@ local A = dofile(root .. sep .. "tests" .. sep .. "assertions.lua")
 local tests = {}
 local function test(name, fn) tests[#tests + 1] = { name = name, fn = fn } end
 
-local ADDON_ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128.tga"
+local ADDON_ICON = "Interface/AddOns/XIVEquip/Assets/icon_blue_128.tga"
 
 local function loadWindow(addon, calls)
   local function texture()
@@ -67,7 +67,7 @@ local function loadWindow(addon, calls)
     return frame(name)
   end
   _G.print = function() end
-  _G.PickupMacro = function(index) calls.pickup = index end
+  _G.PickupMacro = calls.pickupFn or function(index) calls.pickup = index end
 
   local chunk = assert(loadfile(root .. sep .. "XIVEquip" .. sep .. "UI" .. sep .. "SettingsWindow" .. sep .. "Window.lua"))
   chunk("XIVEquip", addon)
@@ -104,6 +104,7 @@ test("Create Macro uses the XIVEquip addon icon", function()
     return 42
   end
   _G.EditMacro = nil
+  _G.GetCursorInfo = function() return "macro", "XIVEquip" end
 
   local Window = loadWindow(addon, calls)
   Window.Open()
@@ -111,7 +112,7 @@ test("Create Macro uses the XIVEquip addon icon", function()
 
   A.equal(calls.created.icon, ADDON_ICON, "macro should use addon icon")
   A.equal(calls.created.body, "/xivequip", "macro should run /xivequip")
-  A.equal(calls.pickup, 42, "new macro should be placed on the cursor")
+  A.equal(calls.pickup, "XIVEquip", "new macro should be picked up by name")
 end)
 
 test("Create Macro refreshes an existing macro with the XIVEquip addon icon", function()
@@ -121,6 +122,7 @@ test("Create Macro refreshes an existing macro with the XIVEquip addon icon", fu
     calls.edited = { index = index, name = name, icon = icon, body = body }
   end
   _G.CreateMacro = nil
+  _G.GetCursorInfo = function() return "macro", "XIVEquip" end
 
   local Window = loadWindow(addon, calls)
   Window.Open()
@@ -128,7 +130,31 @@ test("Create Macro refreshes an existing macro with the XIVEquip addon icon", fu
 
   A.equal(calls.edited.index, 7, "existing macro should be edited")
   A.equal(calls.edited.icon, ADDON_ICON, "existing macro should use addon icon")
-  A.equal(calls.pickup, 7, "existing macro should be placed on the cursor")
+  A.equal(calls.pickup, "XIVEquip", "existing macro should be picked up by name")
+end)
+
+test("Create Macro falls back from name pickup to macro index pickup", function()
+  local addon, calls = harness()
+  local pickupAttempts = {}
+  _G.GetMacroIndexByName = function() return 7 end
+  _G.EditMacro = function() end
+  _G.CreateMacro = nil
+  calls.pickupFn = function(id)
+    pickupAttempts[#pickupAttempts + 1] = id
+    calls.pickup = id
+  end
+  _G.GetCursorInfo = function()
+    if pickupAttempts[#pickupAttempts] == 7 then return "macro", 7 end
+    return nil
+  end
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
+
+  A.equal(pickupAttempts[1], "XIVEquip", "macro pickup should try by name first")
+  A.equal(pickupAttempts[2], 7, "macro pickup should fall back to index")
+  A.equal(calls.pickup, 7, "fallback macro index should be the final pickup")
 end)
 
 test("settings window registers once for Escape close", function()
