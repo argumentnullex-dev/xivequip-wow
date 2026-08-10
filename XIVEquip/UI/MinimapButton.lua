@@ -5,7 +5,7 @@ XIVEquip.UI.MinimapButton = XIVEquip.UI.MinimapButton or {}
 
 local Button = XIVEquip.UI.MinimapButton
 local ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128"
-local BUTTON_RADIUS = 92
+local BUTTON_EDGE_OFFSET = 5
 local BUTTON_SIZE = 31
 local BORDER_SIZE = 50
 local BACKGROUND_SIZE = 24
@@ -15,7 +15,8 @@ local function settingsApi() return XIVEquip.Settings end
 
 local function minimapPoint(angle)
   local rad = math.rad(tonumber(angle) or 220)
-  return math.cos(rad) * BUTTON_RADIUS, math.sin(rad) * BUTTON_RADIUS
+  local radius = ((Minimap and Minimap.GetWidth and Minimap:GetWidth() or 174) / 2) + BUTTON_EDGE_OFFSET
+  return math.cos(rad) * radius, math.sin(rad) * radius
 end
 
 local function place(btn)
