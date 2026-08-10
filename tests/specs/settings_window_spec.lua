@@ -8,6 +8,13 @@ local function test(name, fn) tests[#tests + 1] = { name = name, fn = fn } end
 local ADDON_ICON_PATH = "Interface/AddOns/XIVEquip/Assets/icon_blue_128.tga"
 local ADDON_ICON_FILE_ID = -12345
 local FALLBACK_MACRO_ICON = "INV_Misc_Gear_01"
+local ICON_TEST_VARIANTS = {
+  ["XIVE Upgrade"] = "UI_ItemUpgrade",
+  ["XIVE Equipped"] = "UI_Transmog_ShowEquippedGear",
+  ["XIVE Gear"] = "INV_Misc_Gear_01",
+  ["XIVE Armor"] = "Garrison_ArmorUpgrade",
+  ["XIVE Repair"] = "Ability_Repair",
+}
 
 local function loadWindow(addon, calls)
   local function texture()
@@ -90,7 +97,7 @@ end
 
 local function harness()
   local settingsTable = { UI = { SettingsWindow = {} } }
-  local calls = { buttons = {}, created = nil, edited = nil, pickup = nil, fileIDPaths = {}, settings = settingsTable }
+  local calls = { buttons = {}, created = nil, createdList = {}, edited = nil, pickup = nil, fileIDPaths = {}, settings = settingsTable }
   local addon = {
     UI = {},
     L = { AddonPrefix = "XIVEquip: " },
@@ -220,6 +227,31 @@ test("Create Macro falls back to a built-in icon when addon icon FileID is unava
 
   A.equal(calls.fileIDPaths[1], ADDON_ICON_PATH, "fallback should still try the addon icon path first")
   A.equal(calls.created.icon, FALLBACK_MACRO_ICON, "macro should use built-in fallback icon")
+end)
+
+test("Create Icon Test Macros creates built-in icon variants in General Macros", function()
+  local addon, calls = harness()
+  local nextIndex = 20
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.CreateMacro = function(name, icon, body, perCharacter)
+    calls.createdList[#calls.createdList + 1] = { name = name, icon = icon, body = body, perCharacter = perCharacter }
+    nextIndex = nextIndex + 1
+    return nextIndex
+  end
+  _G.EditMacro = nil
+  _G.GetCursorInfo = function() return nil end
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  calls.buttons["Create Icon Test Macros"].scripts.OnClick(calls.buttons["Create Icon Test Macros"])
+
+  A.equal(#calls.createdList, 5, "tester should create every built-in icon variant")
+  for _, created in ipairs(calls.createdList) do
+    A.equal(created.body, "/xivequip", "test macro should run /xivequip")
+    A.falsy(created.perCharacter, "test macro should be created in General Macros")
+    A.equal(created.icon, ICON_TEST_VARIANTS[created.name], "test macro should use the configured built-in icon")
+  end
+  A.falsy(calls.pickup, "icon test macros should not place any macro on the cursor")
 end)
 
 test("Create Macro falls back from macro index pickup to name pickup", function()

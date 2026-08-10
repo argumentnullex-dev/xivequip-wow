@@ -10,6 +10,15 @@ local FALLBACK_MACRO_ICON = "INV_Misc_Gear_01"
 local WINDOW_NAME = "XIVEquipSettingsWindow"
 local CURSOR_GHOST_NAME = "XIVEquipMacroCursorGhost"
 local GENERAL_MACRO_MAX = 120
+local MACRO_BODY = "/xivequip"
+
+local macroIconVariants = {
+  { name = "XIVE Upgrade", icon = "UI_ItemUpgrade" },
+  { name = "XIVE Equipped", icon = "UI_Transmog_ShowEquippedGear" },
+  { name = "XIVE Gear", icon = "INV_Misc_Gear_01" },
+  { name = "XIVE Armor", icon = "Garrison_ArmorUpgrade" },
+  { name = "XIVE Repair", icon = "Ability_Repair" },
+}
 
 local tabs = { "General", "XIVWeights Scales", "XIVEquip Core" }
 
@@ -417,7 +426,7 @@ end
 local function createEquipMacro()
   local st = settings()
   local name = "XIVEquip"
-  local body = "/xivequip"
+  local body = MACRO_BODY
   local icon, customIcon = resolveMacroIcon()
   local index = findNamedMacro(name, st.MacroID)
   local ok = true
@@ -461,6 +470,31 @@ local function createEquipMacro()
   end
 end
 
+local function createOrUpdateGeneralMacro(name, icon, body)
+  local index = findNamedMacro(name, nil)
+  local ok = true
+  if index and index > 0 then
+    if EditMacro then ok = pcall(EditMacro, index, name, icon, body) end
+  elseif CreateMacro then
+    ok, index = pcall(CreateMacro, name, icon, body, nil)
+    if not ok then index = 0 end
+  end
+  return ok == true and index and index > 0, index
+end
+
+local function createIconTestMacros()
+  local created = 0
+  for _, variant in ipairs(macroIconVariants) do
+    local ok = createOrUpdateGeneralMacro(variant.name, variant.icon, MACRO_BODY)
+    if ok then created = created + 1 end
+  end
+  if created == #macroIconVariants then
+    print(PREFIX .. "Created icon test macros in General Macros.")
+  else
+    print(PREFIX .. "Created " .. tostring(created) .. " of " .. tostring(#macroIconVariants) .. " icon test macros in General Macros.")
+  end
+end
+
 local function showGeneral(content)
   local page = clearContent(content)
   local S = XIVEquip.Settings
@@ -493,6 +527,10 @@ local function showGeneral(content)
   local macro = button(page, "Create Macro", 120, 24)
   macro:SetPoint("TOPLEFT", 4, y - 62)
   macro:SetScript("OnClick", createEquipMacro)
+
+  local iconTests = button(page, "Create Icon Test Macros", 180, 24)
+  iconTests:SetPoint("LEFT", macro, "RIGHT", 8, 0)
+  iconTests:SetScript("OnClick", createIconTestMacros)
 end
 
 local function showScales(content)
