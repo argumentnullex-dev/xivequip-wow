@@ -128,6 +128,7 @@ test("Create Macro uses the XIVEquip addon icon FileID", function()
   A.equal(calls.fileIDPaths[1], ADDON_ICON_PATH, "macro should resolve addon icon path")
   A.equal(calls.created.icon, ADDON_ICON_FILE_ID, "macro should use resolved addon icon FileID")
   A.equal(calls.created.body, "/xivequip", "macro should run /xivequip")
+  A.falsy(calls.created.perCharacter, "new macro should be created in General Macros")
   A.equal(calls.pickup, 42, "new macro should be picked up by index")
 end)
 
@@ -170,6 +171,33 @@ test("Create Macro refreshes the XIVEquip macro already placed on an action bar"
   A.equal(calls.edited.index, 42, "placed action-bar macro should be edited before same-name fallback")
   A.equal(calls.pickup, 42, "placed action-bar macro should be picked up")
   A.equal(calls.settings.MacroID, 42, "saved macro id should follow the refreshed placed macro")
+end)
+
+test("Create Macro ignores character-specific XIVEquip macros and creates a General Macro", function()
+  local addon, calls = harness()
+  calls.settings.MacroID = 121
+  calls.macroNames = { [121] = "XIVEquip" }
+  calls.getActionInfo = function(slot)
+    if slot == 3 then return "macro", 121 end
+    return nil
+  end
+  _G.GetMacroIndexByName = function() return 121 end
+  _G.CreateMacro = function(name, icon, body, perCharacter)
+    calls.created = { name = name, icon = icon, body = body, perCharacter = perCharacter }
+    return 42
+  end
+  _G.EditMacro = function(index) calls.edited = { index = index } end
+  _G.GetCursorInfo = function() return "macro", 42 end
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
+
+  A.falsy(calls.edited, "character-specific same-name macro should not be edited")
+  A.equal(calls.created.name, "XIVEquip", "missing General Macro should be created")
+  A.falsy(calls.created.perCharacter, "created macro should land in General Macros")
+  A.equal(calls.pickup, 42, "new General Macro should be picked up")
+  A.equal(calls.settings.MacroID, 42, "saved macro id should point at the General Macro")
 end)
 
 test("Create Macro falls back to a built-in icon when addon icon FileID is unavailable", function()

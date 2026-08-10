@@ -9,6 +9,7 @@ local ADDON_ICON_PATH = "Interface/AddOns/XIVEquip/Assets/icon_blue_128.tga"
 local FALLBACK_MACRO_ICON = "INV_Misc_Gear_01"
 local WINDOW_NAME = "XIVEquipSettingsWindow"
 local CURSOR_GHOST_NAME = "XIVEquipMacroCursorGhost"
+local GENERAL_MACRO_MAX = 120
 
 local tabs = { "General", "XIVWeights Scales", "XIVEquip Core" }
 
@@ -161,11 +162,16 @@ local function macroSlotName(index)
   return nil
 end
 
+local function isGeneralMacroIndex(index)
+  index = tonumber(index)
+  return index and index >= 1 and index <= GENERAL_MACRO_MAX
+end
+
 local function findActionBarMacro(name)
   if not GetActionInfo then return nil end
   for slot = 1, 180 do
     local actionType, macroID = GetActionInfo(slot)
-    if actionType == "macro" and macroSlotName(macroID) == name then
+    if actionType == "macro" and isGeneralMacroIndex(macroID) and macroSlotName(macroID) == name then
       return macroID
     end
   end
@@ -177,14 +183,14 @@ local function findNamedMacro(name, savedID)
   if placed then return placed end
 
   local saved = tonumber(savedID)
-  if saved and saved > 0 and macroSlotName(saved) == name then
+  if isGeneralMacroIndex(saved) and macroSlotName(saved) == name then
     return saved
   end
 
   local index = GetMacroIndexByName and GetMacroIndexByName(name) or 0
-  if index and index > 0 then return index end
+  if isGeneralMacroIndex(index) then return index end
 
-  for i = 1, 120 do
+  for i = 1, GENERAL_MACRO_MAX do
     if macroSlotName(i) == name then return i end
   end
   return 0
@@ -420,12 +426,12 @@ local function createEquipMacro()
       ok = pcall(EditMacro, index, name, icon, body)
     end
   elseif CreateMacro then
-    ok, index = pcall(CreateMacro, name, icon, body, true)
+    ok, index = pcall(CreateMacro, name, icon, body, nil)
     if not ok then index = 0 end
   end
   if (not index or index <= 0) and GetMacroIndexByName then
     local resolved = GetMacroIndexByName(name)
-    if resolved and resolved > 0 then index = resolved end
+    if isGeneralMacroIndex(resolved) then index = resolved end
   end
   st.MacroID = index or 0
   local pickedUp = false
