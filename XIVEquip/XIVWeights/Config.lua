@@ -296,11 +296,12 @@ function Config.CreateManualScale(id, name, weights, specID)
   if not specID then return nil, "spec-required" end
   local default = builtinForSpec(specID)
   if not default then return nil, "unknown-spec" end
+  weights = weights or copy(default.weights)
   local scale = XIVWeights.NewScale({
     id = id,
     name = name,
     source = { kind = "manual" },
-    weights = weights or { strength = 1.0 },
+    weights = weights,
     meta = {
       userEditable = true,
       specID = specID,
@@ -330,6 +331,8 @@ function Config.DuplicateScale(sourceID, newID, newName)
 end
 
 function Config.NewManualScaleSeed(specID)
+  local default = builtinForSpec(specID)
+  if default and default.weights then return copy(default.weights) end
   local defaults = XIVWeights.Builtin and XIVWeights.Builtin.Defaults
   local primary = defaults and defaults.PrimaryForSpec and defaults.PrimaryForSpec(specID) or nil
   primary = primary or "strength"

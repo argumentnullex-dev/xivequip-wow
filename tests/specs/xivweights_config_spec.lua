@@ -359,6 +359,12 @@ test("Profile mutation APIs enforce spec ownership for Custom scales", function(
   selected, reason = Profiles.SetCustomOverride(profile, 71, warrior.id)
   A.equal(selected, nil)
   A.equal(reason, "spec-class-mismatch")
+  selected, reason = Profiles.SetIntegrationOverride(profile, 71, "arms-integration")
+  A.equal(selected, nil)
+  A.equal(reason, "spec-class-mismatch")
+  selected, reason = Profiles.SetIntegrationOverride(profile, 999999, "unknown-integration-scale")
+  A.equal(selected, nil)
+  A.equal(reason, "unknown-spec")
   A.equal(Profiles.ClearCustomOverride(profile, 65), profile)
 end)
 
@@ -423,9 +429,17 @@ test("manual scale validation enforces name, range, and 1.0 anchor", function()
   A.truthy(ok)
 end)
 
-test("new manual scale seed uses the current spec primary stat", function()
+test("new manual scale seed clones the spec Default weights", function()
   local addon = newAddon({})
   local Config = addon.XIVWeights.Config
+  local defaults = addon.XIVWeights.Builtin.Defaults
+
+  local protection = Config.NewManualScaleSeed(66)
+  local expected = defaults.Get(66).weights
+  local originalHaste = expected.haste
+  A.same(protection, expected)
+  protection.haste = 0
+  A.equal(expected.haste, originalHaste)
 
   local mage = Config.NewManualScaleSeed(62)
   A.equal(mage.intellect, 1)
@@ -437,6 +451,18 @@ test("new manual scale seed uses the current spec primary stat", function()
 
   local unknown = Config.NewManualScaleSeed(999999)
   A.equal(unknown.strength, 1)
+end)
+
+test("creating a custom scale without weights clones the spec Default", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+  local defaults = addon.XIVWeights.Builtin.Defaults
+
+  local created = Config.CreateManualScale("custom:seeded", "Seeded", nil, 66)
+  A.same(created.weights, defaults.Get(66).weights)
+  local originalHaste = defaults.Get(66).weights.haste
+  created.weights.haste = 0
+  A.equal(defaults.Get(66).weights.haste, originalHaste)
 end)
 
 test("manual scales can be created duplicated and deleted", function()

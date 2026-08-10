@@ -376,6 +376,9 @@ function Profiles.SetIntegrationOverride(profile, specID, externalScaleID)
   specID = tonumber(specID)
   externalScaleID = tostring(externalScaleID or "")
   if not specID then return nil, "spec-required" end
+  local expectedClass = classForSpec(specID)
+  if not expectedClass then return nil, "unknown-spec" end
+  if normalizeClass(profile.classFile) ~= expectedClass then return nil, "spec-class-mismatch" end
   if externalScaleID == "" then return nil, "scale-required" end
   manual.integration.overrides[specID] = externalScaleID
   return profile
