@@ -5,7 +5,7 @@ local A = dofile(root .. sep .. "tests" .. sep .. "assertions.lua")
 local tests = {}
 local function test(name, fn) tests[#tests + 1] = { name = name, fn = fn } end
 
-local ADDON_ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128"
+local ADDON_ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128.tga"
 
 local function loadWindow(addon, calls)
   local function texture()
@@ -117,8 +117,8 @@ end)
 test("Create Macro refreshes an existing macro with the XIVEquip addon icon", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 7 end
-  _G.EditMacro = function(index, name, icon, body, perCharacter, localOnly)
-    calls.edited = { index = index, name = name, icon = icon, body = body, perCharacter = perCharacter, localOnly = localOnly }
+  _G.EditMacro = function(index, name, icon, body)
+    calls.edited = { index = index, name = name, icon = icon, body = body }
   end
   _G.CreateMacro = nil
 

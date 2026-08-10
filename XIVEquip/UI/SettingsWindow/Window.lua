@@ -5,7 +5,7 @@ XIVEquip.UI.SettingsWindow = XIVEquip.UI.SettingsWindow or {}
 
 local Window = XIVEquip.UI.SettingsWindow
 local PREFIX = (XIVEquip.L and XIVEquip.L.AddonPrefix) or "XIVEquip: "
-local ADDON_ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128"
+local ADDON_ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128.tga"
 local WINDOW_NAME = "XIVEquipSettingsWindow"
 
 local tabs = { "General", "XIVWeights Scales", "XIVEquip Core" }
@@ -311,15 +311,29 @@ local function createEquipMacro()
   local body = "/xivequip"
   local icon = ADDON_ICON
   local index = GetMacroIndexByName and GetMacroIndexByName(name) or 0
+  local ok = true
   if index and index > 0 then
-    if EditMacro then EditMacro(index, name, icon, body, true, true) end
+    if EditMacro then
+      ok = pcall(EditMacro, index, name, icon, body)
+    end
   elseif CreateMacro then
-    index = CreateMacro(name, icon, body, true)
+    ok, index = pcall(CreateMacro, name, icon, body, true)
+    if not ok then index = 0 end
+  end
+  if GetMacroIndexByName then
+    local resolved = GetMacroIndexByName(name)
+    if resolved and resolved > 0 then index = resolved end
   end
   st.MacroID = index or 0
-  if index and index > 0 and PickupMacro then PickupMacro(index) end
-  if index and index > 0 then
+  local pickedUp = false
+  if ok and index and index > 0 and PickupMacro then
+    local pickupOk = pcall(PickupMacro, index)
+    pickedUp = pickupOk and (not CursorHasMacro or CursorHasMacro())
+  end
+  if ok and index and index > 0 and pickedUp then
     print(PREFIX .. "Created /xivequip macro and placed it on your cursor.")
+  elseif ok and index and index > 0 then
+    print(PREFIX .. "Created /xivequip macro, but WoW did not place it on your cursor.")
   else
     print(PREFIX .. "Unable to create macro.")
   end
