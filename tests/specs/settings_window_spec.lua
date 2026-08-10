@@ -5,7 +5,9 @@ local A = dofile(root .. sep .. "tests" .. sep .. "assertions.lua")
 local tests = {}
 local function test(name, fn) tests[#tests + 1] = { name = name, fn = fn } end
 
-local ADDON_ICON = "Interface/AddOns/XIVEquip/Assets/icon_blue_128.tga"
+local ADDON_ICON_PATH = "Interface/AddOns/XIVEquip/Assets/icon_blue_128.tga"
+local ADDON_ICON_FILE_ID = -12345
+local FALLBACK_MACRO_ICON = "INV_Misc_Gear_01"
 
 local function loadWindow(addon, calls)
   local function texture()
@@ -68,6 +70,10 @@ local function loadWindow(addon, calls)
   end
   _G.print = function() end
   _G.PickupMacro = calls.pickupFn or function(index) calls.pickup = index end
+  _G.GetFileIDFromPath = calls.getFileIDFromPath or function(path)
+    calls.fileIDPaths[#calls.fileIDPaths + 1] = path
+    return ADDON_ICON_FILE_ID
+  end
 
   local chunk = assert(loadfile(root .. sep .. "XIVEquip" .. sep .. "UI" .. sep .. "SettingsWindow" .. sep .. "Window.lua"))
   chunk("XIVEquip", addon)
@@ -75,7 +81,7 @@ local function loadWindow(addon, calls)
 end
 
 local function harness()
-  local calls = { buttons = {}, created = nil, edited = nil, pickup = nil }
+  local calls = { buttons = {}, created = nil, edited = nil, pickup = nil, fileIDPaths = {} }
   local addon = {
     UI = {},
     L = { AddonPrefix = "XIVEquip: " },
@@ -96,7 +102,7 @@ local function harness()
   return addon, calls
 end
 
-test("Create Macro uses the XIVEquip addon icon", function()
+test("Create Macro uses the XIVEquip addon icon FileID", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 0 end
   _G.CreateMacro = function(name, icon, body, perCharacter)
@@ -110,12 +116,13 @@ test("Create Macro uses the XIVEquip addon icon", function()
   Window.Open()
   calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
 
-  A.equal(calls.created.icon, ADDON_ICON, "macro should use addon icon")
+  A.equal(calls.fileIDPaths[1], ADDON_ICON_PATH, "macro should resolve addon icon path")
+  A.equal(calls.created.icon, ADDON_ICON_FILE_ID, "macro should use resolved addon icon FileID")
   A.equal(calls.created.body, "/xivequip", "macro should run /xivequip")
   A.equal(calls.pickup, "XIVEquip", "new macro should be picked up by name")
 end)
 
-test("Create Macro refreshes an existing macro with the XIVEquip addon icon", function()
+test("Create Macro refreshes an existing macro with the XIVEquip addon icon FileID", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 7 end
   _G.EditMacro = function(index, name, icon, body)
@@ -129,8 +136,30 @@ test("Create Macro refreshes an existing macro with the XIVEquip addon icon", fu
   calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
 
   A.equal(calls.edited.index, 7, "existing macro should be edited")
-  A.equal(calls.edited.icon, ADDON_ICON, "existing macro should use addon icon")
+  A.equal(calls.edited.icon, ADDON_ICON_FILE_ID, "existing macro should use resolved addon icon FileID")
   A.equal(calls.pickup, "XIVEquip", "existing macro should be picked up by name")
+end)
+
+test("Create Macro falls back to a built-in icon when addon icon FileID is unavailable", function()
+  local addon, calls = harness()
+  calls.getFileIDFromPath = function(path)
+    calls.fileIDPaths[#calls.fileIDPaths + 1] = path
+    return nil
+  end
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.CreateMacro = function(name, icon, body, perCharacter)
+    calls.created = { name = name, icon = icon, body = body, perCharacter = perCharacter }
+    return 42
+  end
+  _G.EditMacro = nil
+  _G.GetCursorInfo = function() return "macro", "XIVEquip" end
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
+
+  A.equal(calls.fileIDPaths[1], ADDON_ICON_PATH, "fallback should still try the addon icon path first")
+  A.equal(calls.created.icon, FALLBACK_MACRO_ICON, "macro should use built-in fallback icon")
 end)
 
 test("Create Macro falls back from name pickup to macro index pickup", function()
