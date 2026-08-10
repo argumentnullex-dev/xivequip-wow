@@ -106,6 +106,28 @@ test("reviewed examples preserve current Wowhead priority ordering", function()
   near(brewmaster.weights.haste, 0.4)
 end)
 
+test("weapon-damage defaults value weapon DPS when the guide calls it out", function()
+  local addon = newAddon({})
+  local defaults = addon.XIVWeights.Builtin.Defaults
+
+  local beastMastery = defaults.Get(253)
+  A.equal(beastMastery.weights.weaponDps, 1)
+  near(beastMastery.weights.agility, 0.9)
+  near(beastMastery.weights.mastery, 0.5)
+  A.equal(beastMastery.meta.weaponDpsPriority, "abovePrimary")
+
+  local lowerDpsMoreAgility = addon.XIVWeights.Scorer.Score(beastMastery, { weaponDps = 100, agility = 1000 })
+  local higherDpsLessAgility = addon.XIVWeights.Scorer.Score(beastMastery, { weaponDps = 110, agility = 990 })
+  A.truthy(higherDpsLessAgility > lowerDpsMoreAgility, "BM default should not ignore weapon DPS")
+
+  local arms = defaults.Get(71)
+  local fury = defaults.Get(72)
+  A.equal(arms.weights.weaponDps, 1)
+  A.equal(fury.weights.weaponDps, 1)
+  A.equal(arms.meta.weaponDpsPriority, "withPrimary")
+  A.equal(fury.meta.weaponDpsPriority, "withPrimary")
+end)
+
 test("explicit class copy generation creates editable spec scale copies without selecting them", function()
   local addon = newAddon({})
 
@@ -197,6 +219,22 @@ test("manual scale validation enforces name, range, and 1.0 anchor", function()
 
   ok = Config.ValidateAuthoredWeights({ name = "Good", weights = { strength = 1.0, haste = 0.5 } })
   A.truthy(ok)
+end)
+
+test("new manual scale seed uses the current spec primary stat", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+
+  local mage = Config.NewManualScaleSeed(62)
+  A.equal(mage.intellect, 1)
+  A.equal(mage.strength, nil)
+
+  local rogue = Config.NewManualScaleSeed(260)
+  A.equal(rogue.agility, 1)
+  A.equal(rogue.strength, nil)
+
+  local unknown = Config.NewManualScaleSeed(999999)
+  A.equal(unknown.strength, 1)
 end)
 
 test("manual scales can be created duplicated and deleted", function()

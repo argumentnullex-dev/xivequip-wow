@@ -166,6 +166,13 @@ function Config.DuplicateScale(sourceID, newID, newName)
   return Config.SaveScale(copyScale)
 end
 
+function Config.NewManualScaleSeed(specID)
+  local defaults = XIVWeights.Builtin and XIVWeights.Builtin.Defaults
+  local primary = defaults and defaults.PrimaryForSpec and defaults.PrimaryForSpec(specID) or nil
+  primary = primary or "strength"
+  return { [primary] = 1.0 }
+end
+
 function Config.ListManualScales()
   return Config.Repository():List()
 end

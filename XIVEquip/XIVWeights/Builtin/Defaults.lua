@@ -10,7 +10,7 @@ local XIVWeights = XIVEquip.XIVWeights
 local Defaults = {}
 XIVWeights.Builtin.Defaults = Defaults
 
-Defaults.Version = 2
+Defaults.Version = 3
 
 Defaults.Classes = {
   WARRIOR = {
@@ -81,9 +81,18 @@ Defaults.Classes = {
   },
 }
 
-local function weights(primary, priority)
+local function weights(primary, priority, opts)
   local out = {}
-  out[primary] = 1.0
+  opts = opts or {}
+  if opts.weaponDps == "abovePrimary" then
+    out.weaponDps = 1.0
+    out[primary] = 0.9
+  elseif opts.weaponDps == "withPrimary" then
+    out.weaponDps = 1.0
+    out[primary] = 1.0
+  else
+    out[primary] = 1.0
+  end
   local value = 0.5
   for _, entry in ipairs(priority or {}) do
     if type(entry) == "table" then
@@ -108,33 +117,35 @@ local function source(specID, url)
   }
 end
 
-local function scale(specID, classFile, specName, primary, priority, guide)
+local function scale(specID, classFile, specName, primary, priority, guide, opts)
   return XIVWeights.NewScale({
     id = "default:spec:" .. tostring(specID),
     name = specName,
     source = source(specID, guide),
-    weights = weights(primary, priority),
+    weights = weights(primary, priority, opts),
     meta = {
       specID = specID,
       classFile = classFile,
       specName = specName,
+      primary = primary,
       defaultVersion = Defaults.Version,
       priority = priority,
       guide = guide,
+      weaponDpsPriority = opts and opts.weaponDps or nil,
     },
   })
 end
 
 Defaults.Scales = {
-  [71] = scale(71, "WARRIOR", "Arms", "strength", { "criticalStrike", "haste", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/warrior/arms/stat-priority-pve-dps"),
-  [72] = scale(72, "WARRIOR", "Fury", "strength", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/warrior/fury/stat-priority-pve-dps"),
+  [71] = scale(71, "WARRIOR", "Arms", "strength", { "criticalStrike", "haste", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/warrior/arms/stat-priority-pve-dps", { weaponDps = "withPrimary" }),
+  [72] = scale(72, "WARRIOR", "Fury", "strength", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/warrior/fury/stat-priority-pve-dps", { weaponDps = "withPrimary" }),
   [73] = scale(73, "WARRIOR", "Protection", "strength", { "haste", "criticalStrike", "versatility", "mastery" }, "https://www.wowhead.com/guide/classes/warrior/protection/stat-priority-pve-tank"),
 
   [65] = scale(65, "PALADIN", "Holy", "intellect", { "mastery", { "haste", "criticalStrike" }, "versatility" }, "https://www.wowhead.com/guide/classes/paladin/holy/overview-pve-healer"),
   [66] = scale(66, "PALADIN", "Protection", "strength", { "haste", "versatility", "mastery", "criticalStrike" }, "https://www.wowhead.com/guide/classes/paladin/protection/stat-priority-pve-tank"),
   [70] = scale(70, "PALADIN", "Retribution", "strength", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/paladin/retribution/stat-priority-pve-dps"),
 
-  [253] = scale(253, "HUNTER", "Beast Mastery", "agility", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/hunter/beast-mastery/stat-priority-pve-dps"),
+  [253] = scale(253, "HUNTER", "Beast Mastery", "agility", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/hunter/beast-mastery/stat-priority-pve-dps", { weaponDps = "abovePrimary" }),
   [254] = scale(254, "HUNTER", "Marksmanship", "agility", { "criticalStrike", "mastery", "versatility", "haste" }, "https://www.wowhead.com/guide/classes/hunter/marksmanship/stat-priority-pve-dps"),
   [255] = scale(255, "HUNTER", "Survival", "agility", { "mastery", { "criticalStrike", "haste" }, "versatility" }, "https://www.wowhead.com/guide/classes/hunter/survival/overview-pve-dps"),
 
@@ -206,4 +217,9 @@ end
 
 function Defaults.SpecsForClass(classFile)
   return Defaults.Classes[classFile] or {}
+end
+
+function Defaults.PrimaryForSpec(specID)
+  local scaleValue = Defaults.Scales[tonumber(specID)]
+  return scaleValue and scaleValue.meta and scaleValue.meta.primary or nil
 end

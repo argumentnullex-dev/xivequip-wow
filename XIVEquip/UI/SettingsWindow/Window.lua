@@ -371,7 +371,7 @@ local function showScales(content)
   local newButton = button(left, "Create", 70, 22)
   newButton:SetPoint("TOPLEFT", 0, -24)
   newButton:SetScript("OnClick", function()
-    local scale = C.CreateManualScale(uniqueScaleID("manual"), "New Scale", { strength = 1 })
+    local scale = C.CreateManualScale(uniqueScaleID("manual"), "New Scale", C.NewManualScaleSeed(currentSpecID()))
     if scale then Window.SelectedScaleID = scale.id end
     Window.ShowTab(2)
   end)
