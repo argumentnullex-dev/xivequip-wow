@@ -328,8 +328,8 @@ local function showGeneral(content)
     { "Debug logging", function() return S:GetDebugEnabled() end, function(v) S:SetDebugEnabled(v) end },
     { "Auto-equip on spec change", function() return S:GetAutomation("SpecEquip") end, function(v) S:SetAutomation("SpecEquip", v) end },
     { "Auto-save spec equipment set after equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
-    { "Hide minimap button", function() return S:GetMinimapHidden() end, function(v)
-      S:SetMinimapHidden(v)
+    { "Show minimap button", function() return not S:GetMinimapHidden() end, function(v)
+      S:SetMinimapHidden(v ~= true)
       if XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Refresh then XIVEquip.UI.MinimapButton.Refresh() end
     end },
   }

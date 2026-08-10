@@ -5,12 +5,13 @@ XIVEquip.UI.MinimapButton = XIVEquip.UI.MinimapButton or {}
 
 local Button = XIVEquip.UI.MinimapButton
 local ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128"
+local BUTTON_RADIUS = 92
 
 local function settingsApi() return XIVEquip.Settings end
 
 local function minimapPoint(angle)
   local rad = math.rad(tonumber(angle) or 220)
-  return math.cos(rad) * 80, math.sin(rad) * 80
+  return math.cos(rad) * BUTTON_RADIUS, math.sin(rad) * BUTTON_RADIUS
 end
 
 local function place(btn)
@@ -43,14 +44,36 @@ end
 function Button.Create()
   if Button.Frame or not Minimap then return Button.Frame end
   local btn = CreateFrame("Button", "XIVEquipMinimapButton", Minimap)
-  btn:SetSize(31, 31)
+  btn:SetSize(32, 32)
   btn:SetFrameStrata("MEDIUM")
   btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   btn:RegisterForDrag("LeftButton")
 
+  local border = btn:CreateTexture(nil, "OVERLAY")
+  border:SetSize(54, 54)
+  border:SetPoint("TOPLEFT", -11, 11)
+  border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+
+  local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+  highlight:SetSize(32, 32)
+  highlight:SetPoint("CENTER", 0, 0)
+  highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+  highlight:SetBlendMode("ADD")
+
+  local pushed = btn:CreateTexture(nil, "ARTWORK")
+  pushed:SetSize(20, 20)
+  pushed:SetPoint("CENTER", 1, -1)
+  pushed:SetTexture(ICON)
+  pushed:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
   local tex = btn:CreateTexture(nil, "ARTWORK")
-  tex:SetAllPoints()
+  tex:SetSize(20, 20)
+  tex:SetPoint("CENTER", 0, 0)
   tex:SetTexture(ICON)
+  tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  btn:SetNormalTexture(tex)
+  btn:SetPushedTexture(pushed)
+  btn:SetHighlightTexture(highlight)
 
   btn:SetScript("OnClick", function()
     if XIVEquip.UI.SettingsWindow and XIVEquip.UI.SettingsWindow.Toggle then
