@@ -6,7 +6,10 @@ XIVEquip.UI.MinimapButton = XIVEquip.UI.MinimapButton or {}
 local Button = XIVEquip.UI.MinimapButton
 local ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128"
 local BUTTON_RADIUS = 92
-local ICON_SIZE = 21
+local BUTTON_SIZE = 31
+local BORDER_SIZE = 50
+local BACKGROUND_SIZE = 24
+local ICON_SIZE = 18
 
 local function settingsApi() return XIVEquip.Settings end
 
@@ -45,32 +48,30 @@ end
 function Button.Create()
   if Button.Frame or not Minimap then return Button.Frame end
   local btn = CreateFrame("Button", "XIVEquipMinimapButton", Minimap)
-  btn:SetSize(32, 32)
+  btn:SetSize(BUTTON_SIZE, BUTTON_SIZE)
   btn:SetFrameStrata("MEDIUM")
   btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   btn:RegisterForDrag("LeftButton")
 
   local border = btn:CreateTexture(nil, "OVERLAY")
-  border:SetSize(54, 54)
-  border:SetPoint("TOPLEFT", -11, 11)
+  border:SetSize(BORDER_SIZE, BORDER_SIZE)
+  border:SetPoint("TOPLEFT", 0, 0)
   border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+
+  local background = btn:CreateTexture(nil, "BACKGROUND")
+  background:SetSize(BACKGROUND_SIZE, BACKGROUND_SIZE)
+  background:SetPoint("CENTER", 0, 0)
+  background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
 
   local icon = btn:CreateTexture(nil, "ARTWORK")
   icon:SetSize(ICON_SIZE, ICON_SIZE)
   icon:SetPoint("CENTER", 0, 0)
   icon:SetTexture(ICON)
   icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-  if icon.AddMaskTexture then
-    local mask = btn:CreateMaskTexture()
-    mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    mask:SetSize(ICON_SIZE, ICON_SIZE)
-    mask:SetPoint("CENTER", icon, "CENTER", 0, 0)
-    icon:AddMaskTexture(mask)
-  end
   btn.Icon = icon
 
   local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
-  highlight:SetSize(32, 32)
+  highlight:SetSize(BUTTON_SIZE, BUTTON_SIZE)
   highlight:SetPoint("CENTER", 0, 0)
   highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
   highlight:SetBlendMode("ADD")
