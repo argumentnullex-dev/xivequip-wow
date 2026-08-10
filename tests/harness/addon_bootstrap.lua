@@ -44,6 +44,8 @@ end
 -- need Const/Gear_Core/Comparers/Settings, so it can be loaded in isolation
 -- for unit tests that never touch the planner stack.
 function Bootstrap.LoadWeights(root, addon)
+  loadAddonFile(root, { "Profiles", "Config.lua" }, addon)
+  loadAddonFile(root, { "Integrations", "Registry.lua" }, addon)
   loadAddonFile(root, { "XIVWeights", "Model.lua" }, addon)
   loadAddonFile(root, { "XIVWeights", "Normalizer.lua" }, addon)
   loadAddonFile(root, { "XIVWeights", "Scorer.lua" }, addon)

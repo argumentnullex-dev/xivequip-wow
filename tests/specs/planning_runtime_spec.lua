@@ -63,7 +63,7 @@ test("live runtime uses built-in spec defaults without starting a legacy compare
   A.equal(scale.source.kind, "xivequip-default")
   A.equal(scale.meta.specID, 70)
   A.equal(scale.weights.strength, 1)
-  A.equal(runtime.ScoreSource({ weights = scale }), "Built-in default: Retribution")
+  A.equal(runtime.ScoreSource({ weights = scale }), "Default: Retribution")
   runtime.Close()
 end)
 

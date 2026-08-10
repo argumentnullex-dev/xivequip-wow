@@ -34,6 +34,7 @@ local function newAddon(settings)
   end
 
   loadAddonFile("Global" .. sep .. "Settings.lua", addon)
+  loadAddonFile("Profiles" .. sep .. "Config.lua", addon)
   loadAddonFile("Core" .. sep .. "ComparerBootstrapper.lua", addon)
   loadAddonFile("Core" .. sep .. "CommandRouter.lua", addon)
 
@@ -91,7 +92,10 @@ test("fresh settings produce canonical schema", function()
   local addon = newAddon(nil)
   local st = addon.Settings:Get()
 
-  A.equal(st.SchemaVersion, 3)
+  A.equal(st.SchemaVersion, 4)
+  A.equal(st.SettingsModel, "v2")
+  A.equal(st.Migration.SourceModel, "fresh")
+  A.equal(st.Migration.AutomaticDefaulted, true)
   A.equal(st.Comparer.Selected, "default")
   A.equal(st.Automation.SpecEquip, false)
   A.equal(st.Automation.SaveSpecSet, false)
@@ -101,6 +105,39 @@ test("fresh settings produce canonical schema", function()
   A.equal(type(st.XIVWeights), "table")
   A.equal(type(st.XIVWeights.Scales), "table")
   A.equal(st.UI.Minimap.Hidden, false)
+end)
+
+test("pre-profile settings migrate to a v2 model with Automatic as the default", function()
+  local addon = newAddon({ SchemaVersion = 3, Planner = { Mode = "native" } })
+  local st = addon.Settings:Get()
+
+  A.equal(st.SchemaVersion, 4)
+  A.equal(st.SettingsModel, "v2")
+  A.equal(st.Migration.SourceSchemaVersion, 3)
+  A.equal(st.Migration.SourceModel, "pre-profile-v2")
+
+  local profile = addon.Profiles.Config.GetDefault("PALADIN")
+  A.truthy(profile)
+  A.equal(profile.automatic, true)
+  A.equal(profile.manual.mode, "default")
+  A.equal(addon.Settings:GetPlannerMode(), "native")
+end)
+
+test("class Default Profile is lazy, class-specific, and assigned per character", function()
+  local addon = newAddon({})
+  local Profiles = addon.Profiles.Config
+
+  local profile, context = Profiles.EnsureCurrent({
+    UnitClass = function() return "Paladin", "PALADIN" end,
+    UnitName = function() return "Daedric", "Area 52" end,
+  })
+
+  A.equal(profile.id, "paladin:default")
+  A.equal(profile.classFile, "PALADIN")
+  A.equal(profile.automatic, true)
+  A.equal(context.characterKey, "Daedric-Area 52")
+  A.equal(_G.XIVEquip_Settings.Profiles.CharacterAssignments["Daedric-Area 52"].profileID, profile.id)
+  A.falsy(_G.XIVEquip_Settings.Profiles.ByClass.WARRIOR)
 end)
 
 test("legacy AutoSpecEquip migrates to SpecEquip", function()

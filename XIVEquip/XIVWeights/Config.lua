@@ -20,6 +20,14 @@ local function settings()
   return _G.XIVEquip_Settings
 end
 
+local function profilesConfig()
+  return XIVEquip.Profiles and XIVEquip.Profiles.Config
+end
+
+local function integrationsRegistry()
+  return XIVEquip.Integrations and XIVEquip.Integrations.Registry
+end
+
 local function weightsSettings()
   local st = settings()
   st.XIVWeights = type(st.XIVWeights) == "table" and st.XIVWeights or {}
@@ -73,6 +81,13 @@ function Config.ScaleDisplayName(scaleOrID, fallback)
 end
 
 function Config.ResolvedScaleSourceLabel(scale)
+  if scale and scale.resolution then
+    local resolution = scale.resolution
+    local label = tostring(resolution.sourceLabel or "Default")
+    local scaleLabel = tostring(resolution.scaleLabel or scaleName(scale, "current spec"))
+    if resolution.fallback then label = label .. " (Fallback)" end
+    return label .. ": " .. scaleLabel
+  end
   local source = scale and scale.source or {}
   local specName = scaleName(scale, source.specID and Config.SpecName(source.specID) or nil)
   if source.kind == "pawn" then return "Pawn: " .. tostring(scaleName(scale, source.key or "selected scale")) end
@@ -188,6 +203,59 @@ function Config.SetSpecSelection(specID, provider, scaleID)
   }
 end
 
+function Config.GetProfileSelection(specID, runtime)
+  local Profiles = profilesConfig()
+  if not Profiles then return nil, nil end
+
+  local profile, context = Profiles.GetForSpec(specID, runtime)
+  if not profile then return nil, context end
+
+  if profile.automatic ~= false then
+    return {
+      provider = "automatic",
+      scale = nil,
+      mode = "automatic",
+      profile = profile,
+    }, context
+  end
+
+  local manual = type(profile.manual) == "table" and profile.manual or {}
+  local mode = string.lower(tostring(manual.mode or "default"))
+  if mode == "custom" then
+    local overrides = type(manual.customOverrides) == "table" and manual.customOverrides or {}
+    local selected = overrides[tonumber(specID)]
+    return {
+      provider = selected and "manual" or "default",
+      scale = selected,
+      mode = "custom",
+      profile = profile,
+    }, context
+  end
+
+  if mode == "integration" then
+    local integration = type(manual.integration) == "table" and manual.integration or {}
+    local overrides = type(integration.overrides) == "table" and integration.overrides or {}
+    return {
+      provider = normalizeProvider(integration.provider or "pawn"),
+      scale = overrides[tonumber(specID)],
+      mode = "integration",
+      profile = profile,
+    }, context
+  end
+
+  return {
+    provider = "default",
+    scale = nil,
+    mode = "default",
+    profile = profile,
+  }, context
+end
+
+function Config.ListIntegrations()
+  local registry = integrationsRegistry()
+  return registry and registry:List() or {}
+end
+
 function Config.SaveScale(scale)
   assert(scale and scale.id, "XIVWeights.Config.SaveScale requires a scale id")
   local repo = Config.Repository()
@@ -235,8 +303,7 @@ function Config.ListManualScales()
   return Config.Repository():List()
 end
 
-function Config.ResolveForSpec(specID, runtime)
-  local sel = Config.GetSpecSelection(specID)
+local function resolveSelection(specID, sel, runtime)
   local provider = sel.provider
   local scale
 
@@ -259,15 +326,97 @@ function Config.ResolveForSpec(specID, runtime)
     if ok and resolved then scale = resolved end
   end
 
+  return scale
+end
+
+function Config.ResolveResultForSpec(specID, runtime)
+  local profileSelection, context = Config.GetProfileSelection(specID, runtime)
+  local sel = profileSelection or Config.GetSpecSelection(specID)
+  local fallback = false
+  local fallbackReason
+  local scale
+
+  local integrationEntry
+  if sel.provider == "automatic" then
+    local registry = integrationsRegistry()
+    if registry then
+      scale, integrationEntry = registry:ResolveAutomatic({ specID = specID, runtime = runtime })
+    else
+      local pawnProvider = runtime and runtime.PawnProvider and runtime.PawnProvider()
+      if pawnProvider then
+        local ok, resolved = pcall(function() return pawnProvider:Resolve(nil, { specID = specID }) end)
+        if ok and resolved then scale = resolved end
+      end
+    end
+    if not scale then
+      fallback = true
+      fallbackReason = "no-suitable-integration-scale"
+      sel = { provider = "default", scale = nil, mode = "automatic", profile = sel.profile }
+    end
+  end
+
+  if sel.mode == "integration" and not scale then
+    local registry = integrationsRegistry()
+    if registry then
+      scale, fallbackReason, integrationEntry = registry:Resolve(sel.provider, {
+        specID = specID,
+        runtime = runtime,
+      }, sel.scale)
+      if not scale then fallback = true end
+    end
+  end
+
+  if not scale then scale = resolveSelection(specID, sel, runtime) end
+
+  local sourceKind = "default"
+  local sourceLabel = "Default"
+  if scale and scale.source and scale.source.kind == "pawn" then
+    sourceKind = "integration"
+    sourceLabel = integrationEntry and integrationEntry.label or "Pawn"
+  elseif scale and scale.source and scale.source.kind == "manual" then
+    sourceKind = "custom"
+    sourceLabel = "Custom"
+  elseif scale and scale.source and scale.source.kind == "xivequip-default-copy" then
+    sourceKind = "custom"
+    sourceLabel = "Custom"
+  end
+
   if not scale then
     scale = XIVWeights.Builtin and XIVWeights.Builtin.Defaults and XIVWeights.Builtin.Defaults.Get(specID)
+    fallback = true
+    fallbackReason = fallbackReason or "scale-unavailable"
   end
   if not scale then
     scale = XIVWeights.NewScale({ id = "fallback:empty", source = { kind = "empty" }, weights = {} })
+    fallback = true
+    fallbackReason = fallbackReason or "no-default-scale"
+    sourceKind = "default"
+    sourceLabel = "Default"
   end
 
   local default = XIVWeights.Builtin and XIVWeights.Builtin.Defaults and XIVWeights.Builtin.Defaults.Get(specID)
-  return XIVWeights.Resolver.Resolve(scale, default)
+  local effective = XIVWeights.Resolver.Resolve(scale, default)
+  effective.resolution = {
+    sourceKind = sourceKind,
+    sourceLabel = sourceLabel,
+    scaleLabel = scaleName(scale, Config.SpecName(specID) or "current spec"),
+    automatic = sel.mode == "automatic",
+    fallback = fallback,
+    fallbackReason = fallbackReason,
+    profileID = sel.profile and sel.profile.id or nil,
+  }
+  return {
+    scale = effective,
+    profile = sel.profile,
+    selection = sel,
+    context = context,
+    fallback = fallback,
+    fallbackReason = fallbackReason,
+  }
+end
+
+function Config.ResolveForSpec(specID, runtime)
+  return Config.ResolveResultForSpec(specID, runtime).scale
 end
 
 function Config.ValidateAuthoredWeights(scale)

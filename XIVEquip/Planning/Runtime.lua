@@ -19,14 +19,18 @@ end
 function Runtime.Live()
   local runtime = {}
   local closed = false
+  local pawnProvider
 
   runtime.UnitClass = function(unit) return call(_G.UnitClass, unit) end
+  runtime.UnitName = function(unit) return call(_G.UnitName, unit) end
+  runtime.GetRealmName = function() return call(_G.GetRealmName) end
   runtime.GetSpecialization = function() return call(_G.GetSpecialization) end
   runtime.GetSpecializationInfo = function(index) return call(_G.GetSpecializationInfo, index) end
   runtime.UnitLevel = function(unit) return call(_G.UnitLevel, unit) end
   runtime.IsDualWielding = function() return call(_G.IsDualWielding) end
 
   runtime.PawnProvider = function()
+    if pawnProvider then return pawnProvider end
     local Pawn = XIVEquip.Pawn
     local XIVWeights = XIVEquip.XIVWeights
     if not (Pawn and XIVWeights and XIVWeights.Providers and XIVWeights.Providers.Pawn) then return nil end
@@ -53,7 +57,8 @@ function Runtime.Live()
         return nil, nil
       end,
     }
-    return XIVWeights.Providers.Pawn.New(adapter)
+    pawnProvider = XIVWeights.Providers.Pawn.New(adapter)
+    return pawnProvider
   end
 
   runtime.ResolveWeights = function()

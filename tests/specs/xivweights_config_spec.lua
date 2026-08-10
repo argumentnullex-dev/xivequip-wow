@@ -201,6 +201,72 @@ test("fresh spec selection defaults to immutable built-in default", function()
   A.equal(_G.XIVEquip_Settings.XIVWeights.Scales["spec:70"], nil)
 end)
 
+test("Automatic Profile resolution prefers a usable Pawn scale", function()
+  local addon = newAddon({})
+  local pawnScale = addon.XIVWeights.NewScale({
+    id = "pawn:protection",
+    name = "Protection",
+    source = { kind = "pawn", key = "pawn:protection" },
+    weights = { strength = 1, haste = 0.8 },
+  })
+  local runtime = {
+    UnitClass = function() return "Paladin", "PALADIN" end,
+    UnitName = function() return "Daedric", "Area 52" end,
+    PawnProvider = function()
+      return { Resolve = function() return pawnScale end }
+    end,
+  }
+
+  local result = addon.XIVWeights.Config.ResolveResultForSpec(66, runtime)
+
+  A.equal(result.profile.automatic, true)
+  A.equal(result.scale.source.kind, "pawn")
+  A.equal(result.scale.resolution.sourceLabel, "Pawn")
+  A.equal(result.scale.resolution.scaleLabel, "Protection")
+  A.falsy(result.fallback)
+end)
+
+test("Automatic Profile falls back to the spec Default when no Integration is usable", function()
+  local addon = newAddon({})
+  local runtime = {
+    UnitClass = function() return "Paladin", "PALADIN" end,
+    UnitName = function() return "Daedric", "Area 52" end,
+    PawnProvider = function() return nil end,
+  }
+
+  local result = addon.XIVWeights.Config.ResolveResultForSpec(66, runtime)
+
+  A.equal(result.scale.source.kind, "xivequip-default")
+  A.equal(result.scale.resolution.sourceLabel, "Default")
+  A.equal(result.scale.resolution.scaleLabel, "Protection")
+  A.equal(result.fallback, true)
+  A.equal(result.fallbackReason, "no-suitable-integration-scale")
+end)
+
+test("Custom Profile mode uses a spec-matching override and leaves other specs on Default", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+  local Profiles = addon.Profiles.Config
+  local custom = Config.CreateManualScale("custom:protection", "Protection Raid", { strength = 1, haste = 0.9 })
+  local profile = Profiles.GetDefault("PALADIN")
+  profile.automatic = false
+  profile.manual.mode = "custom"
+  profile.manual.customOverrides[66] = custom.id
+
+  local runtime = {
+    UnitClass = function() return "Paladin", "PALADIN" end,
+    UnitName = function() return "Daedric", "Area 52" end,
+  }
+  local selected = Config.ResolveResultForSpec(66, runtime)
+  local defaulted = Config.ResolveResultForSpec(70, runtime)
+
+  A.equal(selected.scale.source.kind, "manual")
+  A.equal(selected.scale.resolution.sourceLabel, "Custom")
+  A.equal(selected.scale.resolution.scaleLabel, "Protection Raid")
+  A.equal(defaulted.scale.source.kind, "xivequip-default")
+  A.equal(defaulted.scale.resolution.sourceLabel, "Default")
+end)
+
 test("manual scale validation enforces name, range, and 1.0 anchor", function()
   local addon = newAddon({})
   local Config = addon.XIVWeights.Config
