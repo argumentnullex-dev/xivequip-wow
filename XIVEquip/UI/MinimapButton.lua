@@ -5,12 +5,18 @@ XIVEquip.UI.MinimapButton = XIVEquip.UI.MinimapButton or {}
 
 local Button = XIVEquip.UI.MinimapButton
 local ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128"
+local BUTTON_EDGE_OFFSET = 5
+local BUTTON_SIZE = 31
+local BORDER_SIZE = 50
+local BACKGROUND_SIZE = 24
+local ICON_SIZE = 18
 
 local function settingsApi() return XIVEquip.Settings end
 
 local function minimapPoint(angle)
   local rad = math.rad(tonumber(angle) or 220)
-  return math.cos(rad) * 80, math.sin(rad) * 80
+  local radius = ((Minimap and Minimap.GetWidth and Minimap:GetWidth() or 174) / 2) + BUTTON_EDGE_OFFSET
+  return math.cos(rad) * radius, math.sin(rad) * radius
 end
 
 local function place(btn)
@@ -43,15 +49,47 @@ end
 function Button.Create()
   if Button.Frame or not Minimap then return Button.Frame end
   local btn = CreateFrame("Button", "XIVEquipMinimapButton", Minimap)
-  btn:SetSize(31, 31)
+  btn:SetSize(BUTTON_SIZE, BUTTON_SIZE)
   btn:SetFrameStrata("MEDIUM")
   btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   btn:RegisterForDrag("LeftButton")
 
-  local tex = btn:CreateTexture(nil, "ARTWORK")
-  tex:SetAllPoints()
-  tex:SetTexture(ICON)
+  local border = btn:CreateTexture(nil, "OVERLAY")
+  border:SetSize(BORDER_SIZE, BORDER_SIZE)
+  border:SetPoint("TOPLEFT", 0, 0)
+  border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
+  local background = btn:CreateTexture(nil, "BACKGROUND")
+  background:SetSize(BACKGROUND_SIZE, BACKGROUND_SIZE)
+  background:SetPoint("CENTER", 0, 0)
+  background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+
+  local icon = btn:CreateTexture(nil, "ARTWORK")
+  icon:SetSize(ICON_SIZE, ICON_SIZE)
+  icon:SetPoint("CENTER", 0, 0)
+  icon:SetTexture(ICON)
+  icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  btn.Icon = icon
+
+  local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+  highlight:SetSize(BUTTON_SIZE, BUTTON_SIZE)
+  highlight:SetPoint("CENTER", 0, 0)
+  highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+  highlight:SetBlendMode("ADD")
+  btn:SetHighlightTexture(highlight)
+
+  btn:SetScript("OnMouseDown", function(self)
+    if self.Icon then
+      self.Icon:ClearAllPoints()
+      self.Icon:SetPoint("CENTER", 1, -1)
+    end
+  end)
+  btn:SetScript("OnMouseUp", function(self)
+    if self.Icon then
+      self.Icon:ClearAllPoints()
+      self.Icon:SetPoint("CENTER", 0, 0)
+    end
+  end)
   btn:SetScript("OnClick", function()
     if XIVEquip.UI.SettingsWindow and XIVEquip.UI.SettingsWindow.Toggle then
       XIVEquip.UI.SettingsWindow.Toggle()

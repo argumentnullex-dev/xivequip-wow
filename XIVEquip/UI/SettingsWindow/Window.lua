@@ -5,6 +5,10 @@ XIVEquip.UI.SettingsWindow = XIVEquip.UI.SettingsWindow or {}
 
 local Window = XIVEquip.UI.SettingsWindow
 local PREFIX = (XIVEquip.L and XIVEquip.L.AddonPrefix) or "XIVEquip: "
+local WINDOW_NAME = "XIVEquipSettingsWindow"
+local GENERAL_MACRO_MAX = 120
+local MACRO_BODY = "/xivequip"
+local MACRO_ICON = "Garrison_ArmorUpgrade"
 
 local tabs = { "General", "XIVWeights Scales", "XIVEquip Core" }
 
@@ -75,6 +79,69 @@ local function restorePosition(frame)
   else
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
   end
+end
+
+local function registerEscapeClose(frameName)
+  if type(UISpecialFrames) ~= "table" then return end
+  for _, name in ipairs(UISpecialFrames) do
+    if name == frameName then return end
+  end
+  table.insert(UISpecialFrames, frameName)
+end
+
+local function cursorHasPickedMacro(index, name)
+  if GetCursorInfo then
+    local kind, id = GetCursorInfo()
+    if kind == "macro" then return id == index or id == name end
+    return false
+  end
+  return not CursorHasMacro or CursorHasMacro()
+end
+
+local function macroSlotName(index)
+  if not index or index <= 0 then return nil end
+  if C_Macro and C_Macro.GetMacroName then
+    return C_Macro.GetMacroName(index)
+  end
+  if GetMacroInfo then
+    local name = GetMacroInfo(index)
+    return name
+  end
+  return nil
+end
+
+local function isGeneralMacroIndex(index)
+  index = tonumber(index)
+  return index and index >= 1 and index <= GENERAL_MACRO_MAX
+end
+
+local function findActionBarMacro(name)
+  if not GetActionInfo then return nil end
+  for slot = 1, 180 do
+    local actionType, macroID = GetActionInfo(slot)
+    if actionType == "macro" and isGeneralMacroIndex(macroID) and macroSlotName(macroID) == name then
+      return macroID
+    end
+  end
+  return nil
+end
+
+local function findNamedMacro(name, savedID)
+  local placed = findActionBarMacro(name)
+  if placed then return placed end
+
+  local saved = tonumber(savedID)
+  if isGeneralMacroIndex(saved) and macroSlotName(saved) == name then
+    return saved
+  end
+
+  local index = GetMacroIndexByName and GetMacroIndexByName(name) or 0
+  if isGeneralMacroIndex(index) then return index end
+
+  for i = 1, GENERAL_MACRO_MAX do
+    if macroSlotName(i) == name then return i end
+  end
+  return 0
 end
 
 local function makeContent(parent)
@@ -298,18 +365,36 @@ end
 local function createEquipMacro()
   local st = settings()
   local name = "XIVEquip"
-  local body = "/xivequip"
-  local icon = "INV_Misc_Gear_01"
-  local index = GetMacroIndexByName and GetMacroIndexByName(name) or 0
+  local body = MACRO_BODY
+  local icon = MACRO_ICON
+  local index = findNamedMacro(name, st.MacroID)
+  local ok = true
   if index and index > 0 then
-    if EditMacro then EditMacro(index, name, icon, body, true, true) end
+    if EditMacro then
+      ok = pcall(EditMacro, index, name, icon, body)
+    end
   elseif CreateMacro then
-    index = CreateMacro(name, icon, body, true)
+    ok, index = pcall(CreateMacro, name, icon, body, nil)
+    if not ok then index = 0 end
+  end
+  if (not index or index <= 0) and GetMacroIndexByName then
+    local resolved = GetMacroIndexByName(name)
+    if isGeneralMacroIndex(resolved) then index = resolved end
   end
   st.MacroID = index or 0
-  if index and index > 0 and PickupMacro then PickupMacro(index) end
-  if index and index > 0 then
+  local pickedUp = false
+  if ok and index and index > 0 and PickupMacro then
+    local pickupOk = pcall(PickupMacro, index)
+    pickedUp = pickupOk and cursorHasPickedMacro(index, name)
+    if not pickedUp then
+      pickupOk = pcall(PickupMacro, name)
+      pickedUp = pickupOk and cursorHasPickedMacro(index, name)
+    end
+  end
+  if ok and index and index > 0 and pickedUp then
     print(PREFIX .. "Created /xivequip macro and placed it on your cursor.")
+  elseif ok and index and index > 0 then
+    print(PREFIX .. "Created /xivequip macro, but WoW did not place it on your cursor.")
   else
     print(PREFIX .. "Unable to create macro.")
   end
@@ -328,8 +413,8 @@ local function showGeneral(content)
     { "Debug logging", function() return S:GetDebugEnabled() end, function(v) S:SetDebugEnabled(v) end },
     { "Auto-equip on spec change", function() return S:GetAutomation("SpecEquip") end, function(v) S:SetAutomation("SpecEquip", v) end },
     { "Auto-save spec equipment set after equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
-    { "Hide minimap button", function() return S:GetMinimapHidden() end, function(v)
-      S:SetMinimapHidden(v)
+    { "Show minimap button", function() return not S:GetMinimapHidden() end, function(v)
+      S:SetMinimapHidden(v ~= true)
       if XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Refresh then XIVEquip.UI.MinimapButton.Refresh() end
     end },
   }
@@ -591,7 +676,7 @@ end
 function Window.Create()
   if Window.Frame then return Window.Frame end
 
-  local frame = CreateFrame("Frame", "XIVEquipSettingsWindow", UIParent, "BasicFrameTemplateWithInset")
+  local frame = CreateFrame("Frame", WINDOW_NAME, UIParent, "BasicFrameTemplateWithInset")
   frame:SetSize(760, 760)
   frame:SetFrameStrata("DIALOG")
   frame:SetMovable(true)
@@ -626,6 +711,7 @@ function Window.Create()
   PanelTemplates_SetTab(frame, 1)
 
   restorePosition(frame)
+  registerEscapeClose(WINDOW_NAME)
   Window.Frame = frame
   return frame
 end

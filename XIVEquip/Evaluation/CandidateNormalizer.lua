@@ -153,8 +153,9 @@ function CandidateNormalizer.FromLink(link, source)
   local itemInfo = itemID or link
   if itemInfo == nil then return nil, "invalid-item-info" end
 
-  local okInstant, _, _, _, equipLoc, _, itemClassID, itemSubclassID = pcall(GetItemInfoInstant, itemInfo)
+  local okInstant, resolvedItemID, _, _, equipLoc, _, itemClassID, itemSubclassID = pcall(GetItemInfoInstant, itemInfo)
   if not okInstant or not equipLoc then return nil, "pending-item-data" end
+  itemID = itemID or resolvedItemID
   local _, _, _, baseItemLevel, requiredLevel = GetItemInfo(link)
 
   -- GetItemInfo's 4th return is the item's *base* level. GetDetailedItemLevelInfo
