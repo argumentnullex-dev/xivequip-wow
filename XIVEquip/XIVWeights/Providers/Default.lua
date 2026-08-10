@@ -1,5 +1,5 @@
 -- XIVWeights/Providers/Default.lua
--- Provider for the user's generated per-spec default-copy scales.
+-- Provider for source-controlled built-in XIVEquip default scales.
 local addonName, XIVEquip = ...
 XIVEquip.XIVWeights = XIVEquip.XIVWeights or {}
 XIVEquip.XIVWeights.Providers = XIVEquip.XIVWeights.Providers or {}
@@ -17,10 +17,16 @@ end
 
 function Methods:ListScales(context)
   local classFile = context and context.classFile
-  if classFile and self.config and self.config.EnsureClassSpecScales then
-    return self.config.EnsureClassSpecScales(classFile)
+  local defaults = XIVWeights.Builtin and XIVWeights.Builtin.Defaults
+  if classFile and defaults then
+    local out = {}
+    for _, spec in ipairs(defaults.SpecsForClass(classFile) or {}) do
+      local scale = defaults.Get(spec.id)
+      if scale then out[#out + 1] = scale end
+    end
+    return out
   end
-  return self.config and self.config.ListManualScales and self.config.ListManualScales() or {}
+  return defaults and defaults.List() or {}
 end
 
 function Methods:Resolve(selection, context)

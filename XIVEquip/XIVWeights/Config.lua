@@ -81,7 +81,6 @@ function Config.EnsureSpecScale(specID)
   local scale, reason = Config.CreateSpecScale(specID)
   if not scale then return nil, reason end
   xw.Scales[id] = scale
-  xw.Specs[tonumber(specID)] = xw.Specs[tonumber(specID)] or { provider = "manual", scale = id }
   return scale
 end
 
@@ -114,8 +113,7 @@ function Config.GetSpecSelection(specID)
   local key = tonumber(specID)
   local sel = type(xw.Specs[key]) == "table" and xw.Specs[key] or nil
   if not sel then
-    local scale = Config.EnsureSpecScale(key)
-    sel = { provider = "manual", scale = scale and scale.id or generatedID(key) }
+    sel = { provider = "default", scale = nil }
     xw.Specs[key] = sel
   end
   sel.provider = normalizeProvider(sel.provider)
@@ -197,7 +195,7 @@ function Config.ResolveForSpec(specID, runtime)
   end
 
   if not scale then
-    scale = Config.EnsureSpecScale(specID)
+    scale = XIVWeights.Builtin and XIVWeights.Builtin.Defaults and XIVWeights.Builtin.Defaults.Get(specID)
   end
   if not scale then
     scale = XIVWeights.NewScale({ id = "fallback:empty", source = { kind = "empty" }, weights = {} })

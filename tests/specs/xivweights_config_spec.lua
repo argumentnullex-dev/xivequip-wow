@@ -6,6 +6,14 @@ local Bootstrap = dofile(root .. sep .. "tests" .. sep .. "harness" .. sep .. "a
 local tests = {}
 local function test(name, fn) tests[#tests + 1] = { name = name, fn = fn } end
 
+local function near(actual, expected, message)
+  actual = tonumber(actual)
+  expected = tonumber(expected)
+  if not actual or not expected or math.abs(actual - expected) > 0.000001 then
+    error(string.format("%s: expected %s, got %s", message or "assertion failed", tostring(expected), tostring(actual)), 2)
+  end
+end
+
 local function loadSettings(addon)
   local chunk = assert(loadfile(root .. sep .. "XIVEquip" .. sep .. "Global" .. sep .. "Settings.lua"))
   chunk("XIVEquip", addon)
@@ -54,13 +62,13 @@ test("Demon Hunter defaults include Midnight Devourer", function()
   local scale = defaults.Get(1480)
   A.truthy(scale)
   A.equal(scale.weights.intellect, 1)
-  A.equal(scale.weights.haste, 0.5)
-  A.equal(scale.weights.mastery, 0.4)
-  A.equal(scale.weights.criticalStrike, 0.3)
-  A.equal(scale.weights.versatility, 0.2)
+  near(scale.weights.haste, 0.5)
+  near(scale.weights.mastery, 0.4)
+  near(scale.weights.criticalStrike, 0.3)
+  near(scale.weights.versatility, 0.2)
   A.equal(scale.source.specID, 1480)
   A.truthy(scale.source.guide:find("devourer", 1, true))
-  A.equal(scale.source.reviewedAt, "2026-08-09")
+  A.equal(scale.source.reviewedAt, "2026-08-10")
 end)
 
 test("Protection Paladin default uses survivability stat order", function()
@@ -68,14 +76,37 @@ test("Protection Paladin default uses survivability stat order", function()
   local scale = addon.XIVWeights.Builtin.Defaults.Get(66)
 
   A.equal(scale.weights.strength, 1)
-  A.equal(scale.weights.haste, 0.5)
-  A.equal(scale.weights.versatility, 0.4)
-  A.equal(scale.weights.mastery, 0.3)
-  A.equal(scale.weights.criticalStrike, 0.2)
+  near(scale.weights.haste, 0.5)
+  near(scale.weights.versatility, 0.4)
+  near(scale.weights.mastery, 0.3)
+  near(scale.weights.criticalStrike, 0.2)
   A.truthy(scale.source.guide:find("paladin/protection", 1, true))
 end)
 
-test("class login generation creates editable spec scale copies for every class spec", function()
+test("reviewed examples preserve current Wowhead priority ordering", function()
+  local addon = newAddon({})
+  local defaults = addon.XIVWeights.Builtin.Defaults
+
+  local fury = defaults.Get(72)
+  near(fury.weights.haste, 0.5)
+  near(fury.weights.mastery, 0.4)
+  near(fury.weights.criticalStrike, 0.3)
+  near(fury.weights.versatility, 0.2)
+
+  local outlaw = defaults.Get(260)
+  near(outlaw.weights.haste, 0.5)
+  near(outlaw.weights.criticalStrike, 0.4)
+  near(outlaw.weights.versatility, 0.4)
+  near(outlaw.weights.mastery, 0.3)
+
+  local brewmaster = defaults.Get(268)
+  near(brewmaster.weights.versatility, 0.5)
+  near(brewmaster.weights.criticalStrike, 0.5)
+  near(brewmaster.weights.mastery, 0.5)
+  near(brewmaster.weights.haste, 0.4)
+end)
+
+test("explicit class copy generation creates editable spec scale copies without selecting them", function()
   local addon = newAddon({})
 
   local scales = addon.XIVWeights.Config.EnsureClassSpecScales("PALADIN")
@@ -86,7 +117,19 @@ test("class login generation creates editable spec scale copies for every class 
   A.truthy(_G.XIVEquip_Settings.XIVWeights.Scales["spec:70"])
   A.equal(_G.XIVEquip_Settings.XIVWeights.Scales["spec:70"].name, "Retribution")
   A.equal(_G.XIVEquip_Settings.XIVWeights.Scales["spec:70"].meta.tiedToSpecID, 70)
-  A.equal(_G.XIVEquip_Settings.XIVWeights.Specs[70].provider, "manual")
+  A.equal(_G.XIVEquip_Settings.XIVWeights.Specs[70], nil)
+end)
+
+test("default provider lists built-in scales without creating SavedVariables copies", function()
+  local addon = newAddon({})
+  local provider = addon.XIVWeights.Providers.Default.New(addon.XIVWeights.Config)
+
+  local list = provider:ListScales({ classFile = "PALADIN" })
+  local xw = _G.XIVEquip_Settings and _G.XIVEquip_Settings.XIVWeights
+
+  A.equal(#list, 3)
+  A.equal(list[3].meta.specID, 70)
+  A.equal(xw and xw.Scales and xw.Scales["spec:70"] or nil, nil)
 end)
 
 test("reset spec scale restores the hard-coded default copy", function()
@@ -98,7 +141,7 @@ test("reset spec scale restores the hard-coded default copy", function()
 
   local reset = Config.ResetSpecScale(70)
 
-  A.equal(reset.weights.haste, 0.3)
+  near(reset.weights.haste, 0.3)
   A.equal(reset.source.kind, "xivequip-default-copy")
   A.equal(reset.meta.tiedToSpecID, 70)
   A.equal(Config.GetSpecSelection(70).provider, "manual")
@@ -117,21 +160,23 @@ test("built-in default resolution ignores edited generated spec copy", function(
   local resolved = Config.ResolveForSpec(66)
 
   A.equal(resolved.source.kind, "xivequip-default")
-  A.equal(resolved.weights.haste, 1)
-  A.equal(resolved.weights.versatility, 0.8)
-  A.equal(resolved.weights.mastery, 0.6)
+  near(resolved.weights.haste, 0.5)
+  near(resolved.weights.versatility, 0.4)
+  near(resolved.weights.mastery, 0.3)
+  near(resolved.weights.criticalStrike, 0.2)
 end)
 
-test("generated spec selection defaults to editable manual copy", function()
+test("fresh spec selection defaults to immutable built-in default", function()
   local addon = newAddon({})
   local Config = addon.XIVWeights.Config
 
   local selection = Config.GetSpecSelection(70)
   local resolved = Config.ResolveForSpec(70)
 
-  A.equal(selection.provider, "manual")
-  A.equal(selection.scale, "spec:70")
-  A.equal(resolved.source.kind, "xivequip-default-copy")
+  A.equal(selection.provider, "default")
+  A.equal(selection.scale, nil)
+  A.equal(resolved.source.kind, "xivequip-default")
+  A.equal(_G.XIVEquip_Settings.XIVWeights.Scales["spec:70"], nil)
 end)
 
 test("manual scale validation enforces name, range, and 1.0 anchor", function()

@@ -3,7 +3,7 @@
 **XIVEquip** brings the FFXIV-style “Equip Recommended Gear” button to World of Warcraft.
 
 - Click one button → it **plans** the best upgrades in your bags and **equips** them.
-- Native 2.0 uses editable **XIVWeights** spec scales out of the box; Pawn remains optional.
+- Native 2.0 uses built-in **XIVWeights** spec defaults out of the box; Pawn remains optional.
 - Handles **armor**, **jewelry** (rings/trinkets are solved as pairs), and **weapons** (legal combos only).
 - Optional: **Auto‑equip on spec change** and **auto‑save equipment sets** named **`Spec.xive`**.
 
@@ -17,8 +17,8 @@
   - `PlanBest` computes the full list of items to equip; `EquipBest` applies and verifies that plan.
   - If item data is still loading, XIVEquip retries briefly instead of treating unknown items as non-upgrades.
 - **XIVWeights**
-  - On login, XIVEquip creates editable SavedVariables scale copies for each spec on your class.
-  - Those scales are seeded from hard-coded XIVEquip defaults and can be reset per spec.
+  - Fresh characters use source-controlled XIVEquip defaults for each spec.
+  - Customizing a spec creates an editable SavedVariables copy that can be reset to the shipped default.
   - Pawn can still be used live or imported into a manual XIVWeights scale.
 - **Weapons done right**
   - Legal combos only, scored via your comparer.
@@ -242,12 +242,12 @@ The fixture capture and compare commands are intended for building realistic off
 Open `/xive` or `/xive settings`.
 
 - **General** – Login/equip messages, debug logging, auto-equip, auto-save, minimap button visibility, and a draggable `/xivequip` macro helper.
-- **XIVWeights Scales** – Generated per-spec scales, custom scale create/duplicate/delete, Pawn import, editable scale names, sliders/numeric fields for each weight, and reset-to-default controls for spec scales.
+- **XIVWeights Scales** – Built-in spec defaults, custom scale create/duplicate/delete, Pawn import, editable scale names, sliders/numeric fields for each weight, and reset-to-default controls for customized spec scales.
 - **XIVEquip Core** – Planner mode and per-spec source selection for built-in defaults, manual XIVWeights scales, or active Pawn scales.
 - **Planner mode** – Which planner normal equip paths use.
   *Default:* **legacy**. Use `/xive planner native` to opt into the native 2.0 planner for normal equips, or use `/xive plan native` and `/xive equip native` for one-off native checks without changing the saved setting.
 
-Generated spec scales are normal SavedVariables scales named after the spec, such as `Protection`, `Retribution`, or `Holy`. They are editable copies of hard-coded XIVEquip defaults. Resetting a spec scale replaces your copy with a fresh copy of the shipped default for that spec.
+Fresh specs use immutable built-in defaults. Choosing to customize a spec creates a normal SavedVariables scale named after the spec, such as `Protection`, `Retribution`, or `Holy`. Resetting a customized spec scale replaces your copy with a fresh copy of the shipped default for that spec.
 
 ---
 

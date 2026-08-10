@@ -73,7 +73,7 @@ function Runtime.Live()
   runtime.ScoreSource = function(context)
     local source = context and context.weights and context.weights.source
     if source and source.kind == "pawn" then return "XIVWeights/Pawn" end
-    if source and source.kind == "xivequip-default-copy" then return "XIVWeights/Default" end
+    if source and (source.kind == "xivequip-default" or source.kind == "xivequip-default-copy") then return "XIVWeights/Default" end
     if source and source.kind == "manual" then return "XIVWeights/Manual" end
     return "XIVWeights"
   end

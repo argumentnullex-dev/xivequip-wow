@@ -44,7 +44,7 @@ local function registerComparers(addon, pawnUsable)
   })
 end
 
-test("live runtime uses generated spec defaults without starting a legacy comparer", function()
+test("live runtime uses built-in spec defaults without starting a legacy comparer", function()
   local addon = newAddon()
   registerComparers(addon, true)
   _G.GetSpecialization = function() return 1 end
@@ -60,7 +60,7 @@ test("live runtime uses generated spec defaults without starting a legacy compar
   local scale = runtime.ResolveWeights()
 
   A.equal(starts, 0)
-  A.equal(scale.source.kind, "xivequip-default-copy")
+  A.equal(scale.source.kind, "xivequip-default")
   A.equal(scale.meta.specID, 70)
   A.equal(scale.weights.strength, 1)
   A.equal(runtime.ScoreSource({ weights = scale }), "XIVWeights/Default")

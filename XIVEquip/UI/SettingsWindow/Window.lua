@@ -86,8 +86,6 @@ end
 
 local function specRows()
   local classFile = currentClassFile()
-  local C = Config()
-  if C then C.EnsureClassSpecScales(classFile) end
   local defaults = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Builtin and XIVEquip.XIVWeights.Builtin.Defaults
   return defaults and defaults.SpecsForClass(classFile) or {}
 end
@@ -229,6 +227,10 @@ local function addScaleEditor(content, scale, x, y, width)
     slider:SetMinMaxValues(0, 1)
     slider:SetValueStep(0.1)
     if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+    for i = 0, 10 do
+      local tick = font(content, "GameFontDisableSmall", "|")
+      tick:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", (i * 16) - 1, 5)
+    end
     local suppress = true
     slider:SetValue(tonumber(working[feature]) or 0)
     suppress = false
@@ -352,19 +354,17 @@ local function showScales(content)
   local C = Config()
   local title = font(page, "GameFontNormalLarge", "XIVWeights Scales")
   title:SetPoint("TOPLEFT", 0, 0)
-  local note = font(page, "GameFontHighlightSmall", "Generated spec scales are editable copies. Hard-coded defaults are restored by Reset.")
+  local note = font(page, "GameFontHighlightSmall", "Built-in defaults are immutable. Customize a spec to create an editable SavedVariables copy.")
   note:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
   note:SetWidth(640)
 
   if not C then return end
-  specRows()
+  local specs = specRows()
   local scales = listScales()
   local selected = selectedScaleID()
   Window.SelectedScaleID = selected
 
-  local left = CreateFrame("Frame", nil, page)
-  left:SetPoint("TOPLEFT", 0, -48)
-  left:SetSize(230, 610)
+  local _, left = createScroll(page, 0, -48, 230, 610)
   local leftTitle = font(left, "GameFontNormal", "Scales")
   leftTitle:SetPoint("TOPLEFT", 0, 0)
 
@@ -400,6 +400,29 @@ local function showScales(content)
   end)
 
   local y = -86
+  if #specs > 0 then
+    local specTitle = font(left, "GameFontNormalSmall", "Spec defaults")
+    specTitle:SetPoint("TOPLEFT", 0, y)
+    y = y - 22
+    for _, spec in ipairs(specs) do
+      local customize = button(left, "Customize " .. tostring(spec.name or spec.id), 206, 22)
+      customize:SetPoint("TOPLEFT", 0, y)
+      customize:SetScript("OnClick", function()
+        local scale = C.EnsureSpecScale(spec.id)
+        if scale then
+          Window.SelectedScaleID = scale.id
+          C.SetSpecSelection(spec.id, "manual", scale.id)
+        end
+        Window.ShowTab(2)
+      end)
+      y = y - 25
+    end
+    y = y - 8
+  end
+
+  local savedTitle = font(left, "GameFontNormalSmall", "Saved scales")
+  savedTitle:SetPoint("TOPLEFT", 0, y)
+  y = y - 22
   for _, scale in ipairs(scales) do
     local label = tostring(scale.name or scale.id)
     if scale.meta and scale.meta.tiedToSpecID then label = label .. " *" end
@@ -440,6 +463,7 @@ local function showScales(content)
       y = y - 25
     end
   end
+  left:SetHeight(math.max(610, -y + 36))
 
   local scroll, editor = createScroll(page, 250, -48, 455, 610)
   local selectedScale = selected and C.Repository():Get(selected)
@@ -507,48 +531,49 @@ local function showCore(content)
     Window.ShowTab(3)
   end)
 
-  local y = -204
-  local manualTitle = font(page, "GameFontNormalSmall", "Manual scales")
-  manualTitle:SetPoint("TOPLEFT", 4, y)
+  local _, manualPane = createScroll(page, 4, -204, 330, 360)
+  local y = 0
+  local manualTitle = font(manualPane, "GameFontNormalSmall", "Manual scales")
+  manualTitle:SetPoint("TOPLEFT", 0, y)
   y = y - 24
   for _, scale in ipairs(listScales()) do
-    local use = button(page, "Use", 50, 22)
-    use:SetPoint("TOPLEFT", 4, y)
+    local use = button(manualPane, "Use", 50, 22)
+    use:SetPoint("TOPLEFT", 0, y)
     use:SetScript("OnClick", function()
       if specID then C.SetSpecSelection(specID, "manual", scale.id) end
       Window.ShowTab(3)
     end)
-    local label = font(page, "GameFontHighlightSmall", tostring(scale.name or scale.id))
+    local label = font(manualPane, "GameFontHighlightSmall", tostring(scale.name or scale.id))
     label:SetPoint("LEFT", use, "RIGHT", 8, 0)
-    label:SetWidth(260)
+    label:SetWidth(236)
     y = y - 25
-    if y < -446 then break end
   end
+  manualPane:SetHeight(math.max(360, -y + 28))
 
-  local pawnX = 365
-  local pawnY = -204
-  local pawnTitle = font(page, "GameFontNormalSmall", "Pawn scales")
-  pawnTitle:SetPoint("TOPLEFT", pawnX, pawnY)
+  local _, pawnPane = createScroll(page, 365, -204, 330, 360)
+  local pawnY = 0
+  local pawnTitle = font(pawnPane, "GameFontNormalSmall", "Pawn scales")
+  pawnTitle:SetPoint("TOPLEFT", 0, pawnY)
   pawnY = pawnY - 24
   local pawnEntries = pawnAdapter().ListScales()
   if #pawnEntries == 0 then
-    local none = font(page, "GameFontDisableSmall", "No active Pawn scales found.")
-    none:SetPoint("TOPLEFT", pawnX, pawnY)
+    local none = font(pawnPane, "GameFontDisableSmall", "No active Pawn scales found.")
+    none:SetPoint("TOPLEFT", 0, pawnY)
   else
     for _, entry in ipairs(pawnEntries) do
-      local use = button(page, "Use", 50, 22)
-      use:SetPoint("TOPLEFT", pawnX, pawnY)
+      local use = button(pawnPane, "Use", 50, 22)
+      use:SetPoint("TOPLEFT", 0, pawnY)
       use:SetScript("OnClick", function()
         if specID then C.SetSpecSelection(specID, "pawn", entry.key or entry.name) end
         Window.ShowTab(3)
       end)
-      local label = font(page, "GameFontHighlightSmall", tostring(entry.name or entry.key))
+      local label = font(pawnPane, "GameFontHighlightSmall", tostring(entry.name or entry.key))
       label:SetPoint("LEFT", use, "RIGHT", 8, 0)
-      label:SetWidth(260)
+      label:SetWidth(236)
       pawnY = pawnY - 25
-      if pawnY < -560 then break end
     end
   end
+  pawnPane:SetHeight(math.max(360, -pawnY + 28))
 end
 
 local renderers = { showGeneral, showScales, showCore }

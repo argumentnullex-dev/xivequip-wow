@@ -1,7 +1,7 @@
 -- XIVWeights/Builtin/Defaults.lua
 -- Built-in spec scale templates. These are source-controlled defaults, not
--- user settings. XIVWeights.Config creates editable SavedVariables copies for
--- the user's class/specs and can reset those copies from this table.
+-- user settings. XIVWeights.Config can create editable SavedVariables copies
+-- on demand and can reset those copies from this table.
 local addonName, XIVEquip = ...
 XIVEquip.XIVWeights = XIVEquip.XIVWeights or {}
 XIVEquip.XIVWeights.Builtin = XIVEquip.XIVWeights.Builtin or {}
@@ -10,7 +10,7 @@ local XIVWeights = XIVEquip.XIVWeights
 local Defaults = {}
 XIVWeights.Builtin.Defaults = Defaults
 
-Defaults.Version = 1
+Defaults.Version = 2
 
 Defaults.Classes = {
   WARRIOR = {
@@ -85,8 +85,12 @@ local function weights(primary, priority)
   local out = {}
   out[primary] = 1.0
   local value = 0.5
-  for _, feature in ipairs(priority or {}) do
-    out[feature] = value
+  for _, entry in ipairs(priority or {}) do
+    if type(entry) == "table" then
+      for _, feature in ipairs(entry) do out[feature] = value end
+    else
+      out[entry] = value
+    end
     value = value - 0.1
     if value < 0.1 then value = 0.1 end
   end
@@ -98,7 +102,7 @@ local function source(specID, url)
     kind = "xivequip-default",
     specID = specID,
     defaultVersion = Defaults.Version,
-    reviewedAt = "2026-08-09",
+    reviewedAt = "2026-08-10",
     guide = url,
     refresh = "tools/default-scales/refresh-prompt.md",
   }
@@ -123,57 +127,57 @@ end
 
 Defaults.Scales = {
   [71] = scale(71, "WARRIOR", "Arms", "strength", { "criticalStrike", "haste", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/warrior/arms/stat-priority-pve-dps"),
-  [72] = scale(72, "WARRIOR", "Fury", "strength", { "mastery", "haste", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/warrior/fury/stat-priority-pve-dps"),
-  [73] = scale(73, "WARRIOR", "Protection", "strength", { "haste", "versatility", "mastery", "criticalStrike" }, "https://www.wowhead.com/guide/classes/warrior/protection/stat-priority-pve-tank"),
+  [72] = scale(72, "WARRIOR", "Fury", "strength", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/warrior/fury/stat-priority-pve-dps"),
+  [73] = scale(73, "WARRIOR", "Protection", "strength", { "haste", "criticalStrike", "versatility", "mastery" }, "https://www.wowhead.com/guide/classes/warrior/protection/stat-priority-pve-tank"),
 
-  [65] = scale(65, "PALADIN", "Holy", "intellect", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/paladin/holy/stat-priority-pve-healer"),
+  [65] = scale(65, "PALADIN", "Holy", "intellect", { "mastery", { "haste", "criticalStrike" }, "versatility" }, "https://www.wowhead.com/guide/classes/paladin/holy/overview-pve-healer"),
   [66] = scale(66, "PALADIN", "Protection", "strength", { "haste", "versatility", "mastery", "criticalStrike" }, "https://www.wowhead.com/guide/classes/paladin/protection/stat-priority-pve-tank"),
   [70] = scale(70, "PALADIN", "Retribution", "strength", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/paladin/retribution/stat-priority-pve-dps"),
 
-  [253] = scale(253, "HUNTER", "Beast Mastery", "agility", { "haste", "criticalStrike", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/hunter/beast-mastery/stat-priority-pve-dps"),
-  [254] = scale(254, "HUNTER", "Marksmanship", "agility", { "criticalStrike", "mastery", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/hunter/marksmanship/stat-priority-pve-dps"),
-  [255] = scale(255, "HUNTER", "Survival", "agility", { "haste", "criticalStrike", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/hunter/survival/stat-priority-pve-dps"),
+  [253] = scale(253, "HUNTER", "Beast Mastery", "agility", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/hunter/beast-mastery/stat-priority-pve-dps"),
+  [254] = scale(254, "HUNTER", "Marksmanship", "agility", { "criticalStrike", "mastery", "versatility", "haste" }, "https://www.wowhead.com/guide/classes/hunter/marksmanship/stat-priority-pve-dps"),
+  [255] = scale(255, "HUNTER", "Survival", "agility", { "mastery", { "criticalStrike", "haste" }, "versatility" }, "https://www.wowhead.com/guide/classes/hunter/survival/overview-pve-dps"),
 
-  [259] = scale(259, "ROGUE", "Assassination", "agility", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/rogue/assassination/stat-priority-pve-dps"),
-  [260] = scale(260, "ROGUE", "Outlaw", "agility", { "versatility", "criticalStrike", "haste", "mastery" }, "https://www.wowhead.com/guide/classes/rogue/outlaw/stat-priority-pve-dps"),
-  [261] = scale(261, "ROGUE", "Subtlety", "agility", { "criticalStrike", "versatility", "mastery", "haste" }, "https://www.wowhead.com/guide/classes/rogue/subtlety/stat-priority-pve-dps"),
+  [259] = scale(259, "ROGUE", "Assassination", "agility", { "criticalStrike", "haste", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/rogue/assassination/overview-pve-dps"),
+  [260] = scale(260, "ROGUE", "Outlaw", "agility", { "haste", { "criticalStrike", "versatility" }, "mastery" }, "https://www.wowhead.com/guide/classes/rogue/outlaw/overview-pve-dps"),
+  [261] = scale(261, "ROGUE", "Subtlety", "agility", { "mastery", "haste", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/rogue/subtlety/stat-priority-pve-dps"),
 
   [256] = scale(256, "PRIEST", "Discipline", "intellect", { "haste", "criticalStrike", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/priest/discipline/stat-priority-pve-healer"),
-  [257] = scale(257, "PRIEST", "Holy", "intellect", { "mastery", "haste", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/priest/holy/stat-priority-pve-healer"),
-  [258] = scale(258, "PRIEST", "Shadow", "intellect", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/priest/shadow/stat-priority-pve-dps"),
+  [257] = scale(257, "PRIEST", "Holy", "intellect", { "criticalStrike", { "versatility", "mastery" }, "haste" }, "https://www.wowhead.com/guide/classes/priest/holy/overview-pve-healer"),
+  [258] = scale(258, "PRIEST", "Shadow", "intellect", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/priest/shadow/overview-pve-dps"),
 
-  [250] = scale(250, "DEATHKNIGHT", "Blood", "strength", { "haste", "criticalStrike", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/death-knight/blood/stat-priority-pve-tank"),
-  [251] = scale(251, "DEATHKNIGHT", "Frost", "strength", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/death-knight/frost/stat-priority-pve-dps"),
-  [252] = scale(252, "DEATHKNIGHT", "Unholy", "strength", { "mastery", "haste", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/death-knight/unholy/stat-priority-pve-dps"),
+  [250] = scale(250, "DEATHKNIGHT", "Blood", "strength", { "criticalStrike", "mastery", "versatility", "haste" }, "https://www.wowhead.com/guide/classes/death-knight/blood/basics"),
+  [251] = scale(251, "DEATHKNIGHT", "Frost", "strength", { "criticalStrike", "mastery", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/death-knight/frost/basics"),
+  [252] = scale(252, "DEATHKNIGHT", "Unholy", "strength", { "criticalStrike", "mastery", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/death-knight/unholy/basics"),
 
-  [262] = scale(262, "SHAMAN", "Elemental", "intellect", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/shaman/elemental/stat-priority-pve-dps"),
-  [263] = scale(263, "SHAMAN", "Enhancement", "agility", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/shaman/enhancement/stat-priority-pve-dps"),
-  [264] = scale(264, "SHAMAN", "Restoration", "intellect", { "criticalStrike", "haste", "versatility", "mastery" }, "https://www.wowhead.com/guide/classes/shaman/restoration/stat-priority-pve-healer"),
+  [262] = scale(262, "SHAMAN", "Elemental", "intellect", { "mastery", { "criticalStrike", "haste" }, "versatility" }, "https://www.wowhead.com/guide/classes/shaman/elemental/overview-pve-dps"),
+  [263] = scale(263, "SHAMAN", "Enhancement", "agility", { "mastery", "haste", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/shaman/enhancement/overview-pve-dps"),
+  [264] = scale(264, "SHAMAN", "Restoration", "intellect", { "criticalStrike", { "versatility", "mastery", "haste" } }, "https://www.wowhead.com/guide/classes/shaman/restoration/stat-priority-pve-healer"),
 
   [62] = scale(62, "MAGE", "Arcane", "intellect", { "mastery", "haste", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/mage/arcane/stat-priority-pve-dps"),
-  [63] = scale(63, "MAGE", "Fire", "intellect", { "haste", "criticalStrike", "versatility", "mastery" }, "https://www.wowhead.com/guide/classes/mage/fire/stat-priority-pve-dps"),
-  [64] = scale(64, "MAGE", "Frost", "intellect", { "criticalStrike", "haste", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/mage/frost/stat-priority-pve-dps"),
+  [63] = scale(63, "MAGE", "Fire", "intellect", { "haste", "mastery", "versatility", "criticalStrike" }, "https://www.wowhead.com/guide/classes/mage/fire/stat-priority-pve-dps"),
+  [64] = scale(64, "MAGE", "Frost", "intellect", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/mage/frost/stat-priority-pve-dps"),
 
-  [265] = scale(265, "WARLOCK", "Affliction", "intellect", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/warlock/affliction/stat-priority-pve-dps"),
-  [266] = scale(266, "WARLOCK", "Demonology", "intellect", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/warlock/demonology/stat-priority-pve-dps"),
-  [267] = scale(267, "WARLOCK", "Destruction", "intellect", { "haste", "criticalStrike", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/warlock/destruction/stat-priority-pve-dps"),
+  [265] = scale(265, "WARLOCK", "Affliction", "intellect", { "haste", "criticalStrike", "versatility", "mastery" }, "https://www.wowhead.com/guide/classes/warlock/affliction/overview-pve-dps"),
+  [266] = scale(266, "WARLOCK", "Demonology", "intellect", { { "haste", "criticalStrike" }, "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/warlock/demonology/stat-priority-pve-dps"),
+  [267] = scale(267, "WARLOCK", "Destruction", "intellect", { "haste", { "mastery", "criticalStrike" }, "versatility" }, "https://www.wowhead.com/guide/classes/warlock/destruction/stat-priority-pve-dps"),
 
-  [268] = scale(268, "MONK", "Brewmaster", "agility", { "versatility", "criticalStrike", "mastery", "haste" }, "https://www.wowhead.com/guide/classes/monk/brewmaster/stat-priority-pve-tank"),
-  [269] = scale(269, "MONK", "Windwalker", "agility", { "mastery", "criticalStrike", "versatility", "haste" }, "https://www.wowhead.com/guide/classes/monk/windwalker/stat-priority-pve-dps"),
-  [270] = scale(270, "MONK", "Mistweaver", "intellect", { "haste", "criticalStrike", "versatility", "mastery" }, "https://www.wowhead.com/guide/classes/monk/mistweaver/stat-priority-pve-healer"),
+  [268] = scale(268, "MONK", "Brewmaster", "agility", { { "versatility", "criticalStrike", "mastery" }, "haste" }, "https://www.wowhead.com/guide/classes/monk/brewmaster/stat-priority-pve-tank"),
+  [269] = scale(269, "MONK", "Windwalker", "agility", { "haste", { "criticalStrike", "mastery" }, "versatility" }, "https://www.wowhead.com/guide/classes/monk/windwalker/overview-pve-dps"),
+  [270] = scale(270, "MONK", "Mistweaver", "intellect", { "haste", "criticalStrike", "versatility", "mastery" }, "https://www.wowhead.com/guide/classes/monk/mistweaver/overview-pve-healer"),
 
-  [102] = scale(102, "DRUID", "Balance", "intellect", { "mastery", "haste", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/druid/balance/stat-priority-pve-dps"),
-  [103] = scale(103, "DRUID", "Feral", "agility", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/druid/feral/stat-priority-pve-dps"),
-  [104] = scale(104, "DRUID", "Guardian", "agility", { "versatility", "mastery", "haste", "criticalStrike" }, "https://www.wowhead.com/guide/classes/druid/guardian/stat-priority-pve-tank"),
+  [102] = scale(102, "DRUID", "Balance", "intellect", { "mastery", { "criticalStrike", "haste" }, "versatility" }, "https://www.wowhead.com/guide/classes/druid/balance/overview-pve-dps"),
+  [103] = scale(103, "DRUID", "Feral", "agility", { "mastery", { "haste", "criticalStrike" }, "versatility" }, "https://www.wowhead.com/guide/classes/druid/feral/stat-priority-pve-dps"),
+  [104] = scale(104, "DRUID", "Guardian", "agility", { "haste", "versatility", { "mastery", "criticalStrike" } }, "https://www.wowhead.com/guide/classes/druid/guardian/overview-pve-tank"),
   [105] = scale(105, "DRUID", "Restoration", "intellect", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/druid/restoration/stat-priority-pve-healer"),
 
   [577] = scale(577, "DEMONHUNTER", "Havoc", "agility", { "criticalStrike", "mastery", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/demon-hunter/havoc/stat-priority-pve-dps"),
-  [581] = scale(581, "DEMONHUNTER", "Vengeance", "agility", { "haste", "versatility", "criticalStrike", "mastery" }, "https://www.wowhead.com/guide/classes/demon-hunter/vengeance/stat-priority-pve-tank"),
+  [581] = scale(581, "DEMONHUNTER", "Vengeance", "agility", { "haste", "versatility", "criticalStrike", "mastery" }, "https://www.wowhead.com/guide/classes/demon-hunter/vengeance/basics"),
   [1480] = scale(1480, "DEMONHUNTER", "Devourer", "intellect", { "haste", "mastery", "criticalStrike", "versatility" }, "https://www.wowhead.com/guide/classes/demon-hunter/devourer/basics"),
 
-  [1467] = scale(1467, "EVOKER", "Devastation", "intellect", { "criticalStrike", "mastery", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/evoker/devastation/stat-priority-pve-dps"),
-  [1468] = scale(1468, "EVOKER", "Preservation", "intellect", { "criticalStrike", "haste", "versatility", "mastery" }, "https://www.wowhead.com/guide/classes/evoker/preservation/stat-priority-pve-healer"),
-  [1473] = scale(1473, "EVOKER", "Augmentation", "intellect", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/evoker/augmentation/stat-priority-pve-dps"),
+  [1467] = scale(1467, "EVOKER", "Devastation", "intellect", { "criticalStrike", { "haste", "mastery" }, "versatility" }, "https://www.wowhead.com/guide/classes/evoker/devastation/overview-pve-dps"),
+  [1468] = scale(1468, "EVOKER", "Preservation", "intellect", { "mastery", "criticalStrike", "haste", "versatility" }, "https://www.wowhead.com/guide/classes/evoker/preservation/stat-priority-pve-healer"),
+  [1473] = scale(1473, "EVOKER", "Augmentation", "intellect", { "criticalStrike", "haste", "mastery", "versatility" }, "https://www.wowhead.com/guide/classes/evoker/augmentation/basics"),
 }
 
 local function copy(value)

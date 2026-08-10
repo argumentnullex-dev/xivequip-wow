@@ -485,10 +485,6 @@ f:RegisterEvent("PLAYER_LOGIN")
 -- Callback used in UI.lua to run inline logic.
 f:SetScript("OnEvent", function()
   if XIVEquip.Settings and XIVEquip.Settings.Initialize then XIVEquip.Settings:Initialize() end
-  if XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config and UnitClass then
-    local classFile = select(2, UnitClass("player"))
-    XIVEquip.XIVWeights.Config.EnsureClassSpecScales(classFile)
-  end
   if XIVEquip.UI and XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Create then
     XIVEquip.UI.MinimapButton.Create()
   end
