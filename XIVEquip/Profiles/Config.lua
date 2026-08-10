@@ -30,6 +30,28 @@ local function normalizeName(value)
   return tostring(value or ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
 end
 
+local function copy(value)
+  if type(value) ~= "table" then return value end
+  local out = {}
+  for key, item in pairs(value) do out[key] = copy(item) end
+  return out
+end
+
+local function profileNameExists(classStore, name, exceptID)
+  name = string.lower(normalizeName(name))
+  for id, profile in pairs(classStore.Items or {}) do
+    if id ~= exceptID and string.lower(normalizeName(profile.name)) == name then return true end
+  end
+  return false
+end
+
+local function profileID(classFile, classStore)
+  local prefix = string.lower(normalizeClass(classFile)) .. ":profile:"
+  local number = 1
+  while classStore.Items[prefix .. tostring(number)] do number = number + 1 end
+  return prefix .. tostring(number)
+end
+
 local function defaultProfile(classFile)
   local normalized = normalizeClass(classFile)
   local id = Profiles.DefaultProfileID(normalized)
@@ -186,6 +208,81 @@ function Profiles.List(classFile)
   for _, profile in pairs(classStore.Items) do out[#out + 1] = profile end
   table.sort(out, function(a, b) return tostring(a.name) < tostring(b.name) end)
   return out
+end
+
+function Profiles.Create(classFile, name, sourceID)
+  local classStore = Profiles.EnsureClass(classFile)
+  if not classStore then return nil, "class-unavailable" end
+  name = normalizeName(name)
+  if name == "" then return nil, "missing-name" end
+  if profileNameExists(classStore, name) then return nil, "duplicate-name" end
+
+  local profile
+  if sourceID then
+    local source = classStore.Items[sourceID]
+    if not source then return nil, "unknown-profile" end
+    profile = copy(source)
+  else
+    profile = defaultProfile(classFile)
+  end
+  profile.id = profileID(classFile, classStore)
+  profile.name = name
+  profile.classFile = normalizeClass(classFile)
+  classStore.Items[profile.id] = profile
+  return profile
+end
+
+function Profiles.Duplicate(classFile, sourceID, name)
+  local source = Profiles.Get(classFile, sourceID)
+  if not source then return nil, "unknown-profile" end
+  return Profiles.Create(classFile, name, source.id)
+end
+
+function Profiles.Rename(classFile, profileIDValue, name)
+  local classStore = Profiles.EnsureClass(classFile)
+  local profile = classStore and classStore.Items[profileIDValue]
+  if not profile then return nil, "unknown-profile" end
+  name = normalizeName(name)
+  if name == "" then return nil, "missing-name" end
+  if profileNameExists(classStore, name, profile.id) then return nil, "duplicate-name" end
+  profile.name = name
+  return profile
+end
+
+function Profiles.Delete(classFile, profileIDValue)
+  local classStore = Profiles.EnsureClass(classFile)
+  if not classStore then return nil, "class-unavailable" end
+  if profileIDValue == classStore.DefaultProfileID then return nil, "default-profile" end
+  if not classStore.Items[profileIDValue] then return nil, "unknown-profile" end
+
+  classStore.Items[profileIDValue] = nil
+  local assignments = store().CharacterAssignments
+  for characterKey, assignment in pairs(assignments) do
+    if type(assignment) == "table"
+        and normalizeClass(assignment.classFile) == normalizeClass(classFile)
+        and assignment.profileID == profileIDValue then
+      assignments[characterKey] = {
+        classFile = normalizeClass(classFile),
+        profileID = classStore.DefaultProfileID,
+      }
+    end
+  end
+  return true
+end
+
+function Profiles.Usage(classFile, profileIDValue)
+  local profile = Profiles.Get(classFile, profileIDValue)
+  if not profile then return nil end
+  local characters = {}
+  for characterKey, assignment in pairs(store().CharacterAssignments) do
+    if type(assignment) == "table"
+        and normalizeClass(assignment.classFile) == normalizeClass(classFile)
+        and assignment.profileID == profile.id then
+      characters[#characters + 1] = characterKey
+    end
+  end
+  table.sort(characters)
+  return { count = #characters, characters = characters }
 end
 
 return Profiles

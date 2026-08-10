@@ -140,6 +140,27 @@ test("class Default Profile is lazy, class-specific, and assigned per character"
   A.falsy(_G.XIVEquip_Settings.Profiles.ByClass.WARRIOR)
 end)
 
+test("Profile CRUD preserves stable ids and repairs assignments when deleting", function()
+  local addon = newAddon({})
+  local Profiles = addon.Profiles.Config
+  local default = Profiles.GetDefault("PALADIN")
+  local raid = Profiles.Create("PALADIN", "Raid")
+  A.truthy(raid)
+  A.equal(raid.automatic, true)
+  A.equal(Profiles.Rename("PALADIN", raid.id, "Raid Plus").id, raid.id)
+  A.equal(Profiles.AssignCharacter("Daedric-Area 52", "PALADIN", raid.id).id, raid.id)
+  A.equal(Profiles.Usage("PALADIN", raid.id).count, 1)
+
+  local copy = Profiles.Duplicate("PALADIN", raid.id, "Raid Copy")
+  A.truthy(copy)
+  A.falsy(copy.id == raid.id)
+  A.equal(Profiles.Delete("PALADIN", raid.id), true)
+  A.equal(_G.XIVEquip_Settings.Profiles.CharacterAssignments["Daedric-Area 52"].profileID, default.id)
+  local deleted, reason = Profiles.Delete("PALADIN", default.id)
+  A.equal(deleted, nil)
+  A.equal(reason, "default-profile")
+end)
+
 test("legacy AutoSpecEquip migrates to SpecEquip", function()
   local addon = newAddon({ AutoSpecEquip = true })
   local st = addon.Settings:Get()
