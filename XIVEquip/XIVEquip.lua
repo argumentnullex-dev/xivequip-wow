@@ -49,6 +49,10 @@ f:SetScript("OnEvent", function(_, event, arg1)
       XIVEquip.Settings:Initialize()
     end
   elseif event == "PLAYER_LOGIN" then
+    if XIVEquip.Profiles and XIVEquip.Profiles.Config
+        and XIVEquip.Profiles.Config.EnsureCurrent then
+      XIVEquip.Profiles.Config.EnsureCurrent()
+    end
     -- Finalize the policy registry now, not lazily on first use: every
     -- normal addon (including a third party declaring XIVEquip as a
     -- dependency and registering via C_AddOns.GetAddOnLocalTable) has had

@@ -467,7 +467,7 @@ local function showScales(content)
   local newButton = button(left, "Create", 70, 22)
   newButton:SetPoint("TOPLEFT", 0, -24)
   newButton:SetScript("OnClick", function()
-    local scale = C.CreateManualScale(uniqueScaleID("manual"), "New Scale", C.NewManualScaleSeed(currentSpecID()))
+    local scale = C.CreateManualScale(uniqueScaleID("manual"), "New Scale", C.NewManualScaleSeed(currentSpecID()), currentSpecID())
     if scale then Window.SelectedScaleID = scale.id end
     Window.ShowTab(2)
   end)
@@ -546,7 +546,7 @@ local function showScales(content)
       import:SetScript("OnClick", function()
         local ok, imported = pcall(function()
           return XIVEquip.XIVWeights.Import.Pawn.Import(
-              pawnAdapter(), entry.key or entry.name, uniqueScaleID("manual:pawn"), "Imported: " .. tostring(entry.name or entry.key))
+              pawnAdapter(), entry.key or entry.name, uniqueScaleID("manual:pawn"), "Imported: " .. tostring(entry.name or entry.key), currentSpecID())
         end)
         if ok and imported then
           Window.SelectedScaleID = imported.id

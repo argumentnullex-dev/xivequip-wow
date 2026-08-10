@@ -4,7 +4,8 @@ XIVEquip = XIVEquip or _G.XIVEquip or {}
 XIVEquip.Settings = XIVEquip.Settings or {}
 
 local S = XIVEquip.Settings
-local SCHEMA_VERSION = 3
+local SCHEMA_VERSION = 4
+local SETTINGS_MODEL = "v2"
 
 local function normalizeComparer(value)
   local v = tostring(value or "default")
@@ -75,11 +76,33 @@ local function ensureXIVWeights(st)
       and st.XIVWeights.Integrations.Pawn or {}
 end
 
+local function ensureProfiles(st, sourceVersion)
+  local profiles = st.Profiles
+  if type(profiles) ~= "table" or profiles.ModelVersion ~= 1 then
+    st.Profiles = {
+      ModelVersion = 1,
+      ByClass = {},
+      CharacterAssignments = {},
+    }
+    st.Migration = {
+      SourceSchemaVersion = sourceVersion,
+      SourceModel = sourceVersion > 0 and "pre-profile-v2" or "fresh",
+      AutomaticDefaulted = true,
+    }
+  else
+    profiles.ByClass = type(profiles.ByClass) == "table" and profiles.ByClass or {}
+    profiles.CharacterAssignments = type(profiles.CharacterAssignments) == "table"
+        and profiles.CharacterAssignments or {}
+  end
+end
+
 local function ensure()
   _G.XIVEquip_Settings = _G.XIVEquip_Settings or {}
   local st = _G.XIVEquip_Settings
+  local sourceVersion = tonumber(st.SchemaVersion) or 0
 
   st.SchemaVersion = SCHEMA_VERSION
+  st.SettingsModel = SETTINGS_MODEL
 
   st.Comparer = type(st.Comparer) == "table" and st.Comparer or {}
   st.Comparer.Selected = normalizeComparer(st.Comparer.Selected or st.SelectedComparer or "default")
@@ -125,6 +148,7 @@ local function ensure()
   st.MacroID = st.MacroID or 0
 
   ensureXIVWeights(st)
+  ensureProfiles(st, sourceVersion)
 
   st.SelectedComparer = nil
   st.AutoSpecEquip = nil

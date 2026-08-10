@@ -63,7 +63,7 @@ test("live runtime uses built-in spec defaults without starting a legacy compare
   A.equal(scale.source.kind, "xivequip-default")
   A.equal(scale.meta.specID, 70)
   A.equal(scale.weights.strength, 1)
-  A.equal(runtime.ScoreSource({ weights = scale }), "Built-in default: Retribution")
+  A.equal(runtime.ScoreSource({ weights = scale }), "Default: Retribution")
   runtime.Close()
 end)
 
@@ -95,6 +95,32 @@ test("live runtime resolves exact configured Pawn scale without legacy comparer 
   A.equal(scale.weights.haste, 0.5)
   A.equal(runtime.ScoreSource({ weights = scale }), "Pawn: Pawn Ret")
   runtime.Close()
+end)
+
+test("live runtimes share the Pawn provider conversion cache for the addon session", function()
+  local addon = newAddon()
+  local oldLoaded = _G.IsAddOnLoaded
+  _G.IsAddOnLoaded = function(name) return name == "Pawn" end
+  addon.Pawn = {
+    GetScaleValues = function(key)
+      return { Strength = 10, HasteRating = 5 }, { key = key, name = "Pawn Ret" }
+    end,
+    GetActiveScales = function() return { { key = "pawn-ret", name = "Pawn Ret" } } end,
+  }
+
+  local first = addon.Planning.Runtime.Live()
+  local second = addon.Planning.Runtime.Live()
+  local firstProvider = first.PawnProvider()
+  local firstScale = firstProvider:Resolve("pawn-ret")
+  local secondProvider = second.PawnProvider()
+  local secondScale = secondProvider:Resolve("pawn-ret")
+
+  A.equal(firstProvider, secondProvider)
+  A.equal(firstScale, secondScale)
+  A.equal(firstProvider.cache["pawn-ret"].scale, firstScale)
+  first.Close()
+  second.Close()
+  _G.IsAddOnLoaded = oldLoaded
 end)
 
 return tests

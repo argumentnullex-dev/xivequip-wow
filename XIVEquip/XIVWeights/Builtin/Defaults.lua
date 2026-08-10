@@ -219,6 +219,16 @@ function Defaults.SpecsForClass(classFile)
   return Defaults.Classes[classFile] or {}
 end
 
+function Defaults.ClassForSpec(specID)
+  specID = tonumber(specID)
+  for classFile, specs in pairs(Defaults.Classes) do
+    for _, spec in ipairs(specs) do
+      if spec.id == specID then return classFile end
+    end
+  end
+  return nil
+end
+
 function Defaults.PrimaryForSpec(specID)
   local scaleValue = Defaults.Scales[tonumber(specID)]
   return scaleValue and scaleValue.meta and scaleValue.meta.primary or nil

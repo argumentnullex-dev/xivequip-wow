@@ -8,6 +8,7 @@ local Planning = XIVEquip.Planning
 
 local Runtime = {}
 Planning.Runtime = Runtime
+local sharedPawnProvider
 
 local function call(fn, ...)
   if type(fn) ~= "function" then return nil end
@@ -21,15 +22,28 @@ function Runtime.Live()
   local closed = false
 
   runtime.UnitClass = function(unit) return call(_G.UnitClass, unit) end
+  runtime.UnitName = function(unit) return call(_G.UnitName, unit) end
+  runtime.GetRealmName = function() return call(_G.GetRealmName) end
+  runtime.IsAddOnLoaded = function(name)
+    if C_AddOns and type(C_AddOns.IsAddOnLoaded) == "function" then
+      return call(C_AddOns.IsAddOnLoaded, name) == true
+    end
+    if type(_G.IsAddOnLoaded) == "function" then
+      return call(_G.IsAddOnLoaded, name) == true
+    end
+    return name == "Pawn" and XIVEquip.Pawn ~= nil
+  end
   runtime.GetSpecialization = function() return call(_G.GetSpecialization) end
   runtime.GetSpecializationInfo = function(index) return call(_G.GetSpecializationInfo, index) end
   runtime.UnitLevel = function(unit) return call(_G.UnitLevel, unit) end
   runtime.IsDualWielding = function() return call(_G.IsDualWielding) end
 
   runtime.PawnProvider = function()
+    if sharedPawnProvider then return sharedPawnProvider end
     local Pawn = XIVEquip.Pawn
     local XIVWeights = XIVEquip.XIVWeights
     if not (Pawn and XIVWeights and XIVWeights.Providers and XIVWeights.Providers.Pawn) then return nil end
+    if not runtime.IsAddOnLoaded("Pawn") then return nil end
     local adapter = {
       ListScales = function()
         if type(Pawn.GetActiveScales) == "function" then return Pawn.GetActiveScales() end
@@ -53,7 +67,8 @@ function Runtime.Live()
         return nil, nil
       end,
     }
-    return XIVWeights.Providers.Pawn.New(adapter)
+    sharedPawnProvider = XIVWeights.Providers.Pawn.New(adapter)
+    return sharedPawnProvider
   end
 
   runtime.ResolveWeights = function()

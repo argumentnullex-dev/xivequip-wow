@@ -32,6 +32,10 @@ Global/Constants.lua
 Global/Localization.lua
 Global/Logger.lua
 
+# v2 settings profiles
+Profiles/Config.lua
+Integrations/Registry.lua
+
 # Core Modules for Registration and Setup
 Core/GearHooks.lua
 Core/GearCore.lua
