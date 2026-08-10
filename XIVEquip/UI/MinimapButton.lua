@@ -6,6 +6,7 @@ XIVEquip.UI.MinimapButton = XIVEquip.UI.MinimapButton or {}
 local Button = XIVEquip.UI.MinimapButton
 local ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128"
 local BUTTON_RADIUS = 92
+local ICON_SIZE = 21
 
 local function settingsApi() return XIVEquip.Settings end
 
@@ -54,27 +55,39 @@ function Button.Create()
   border:SetPoint("TOPLEFT", -11, 11)
   border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
+  local icon = btn:CreateTexture(nil, "ARTWORK")
+  icon:SetSize(ICON_SIZE, ICON_SIZE)
+  icon:SetPoint("CENTER", 0, 0)
+  icon:SetTexture(ICON)
+  icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  if icon.AddMaskTexture then
+    local mask = btn:CreateMaskTexture()
+    mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    mask:SetSize(ICON_SIZE, ICON_SIZE)
+    mask:SetPoint("CENTER", icon, "CENTER", 0, 0)
+    icon:AddMaskTexture(mask)
+  end
+  btn.Icon = icon
+
   local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
   highlight:SetSize(32, 32)
   highlight:SetPoint("CENTER", 0, 0)
   highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
   highlight:SetBlendMode("ADD")
-
-  local pushed = btn:CreateTexture(nil, "ARTWORK")
-  pushed:SetSize(20, 20)
-  pushed:SetPoint("CENTER", 1, -1)
-  pushed:SetTexture(ICON)
-  pushed:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-  local tex = btn:CreateTexture(nil, "ARTWORK")
-  tex:SetSize(20, 20)
-  tex:SetPoint("CENTER", 0, 0)
-  tex:SetTexture(ICON)
-  tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-  btn:SetNormalTexture(tex)
-  btn:SetPushedTexture(pushed)
   btn:SetHighlightTexture(highlight)
 
+  btn:SetScript("OnMouseDown", function(self)
+    if self.Icon then
+      self.Icon:ClearAllPoints()
+      self.Icon:SetPoint("CENTER", 1, -1)
+    end
+  end)
+  btn:SetScript("OnMouseUp", function(self)
+    if self.Icon then
+      self.Icon:ClearAllPoints()
+      self.Icon:SetPoint("CENTER", 0, 0)
+    end
+  end)
   btn:SetScript("OnClick", function()
     if XIVEquip.UI.SettingsWindow and XIVEquip.UI.SettingsWindow.Toggle then
       XIVEquip.UI.SettingsWindow.Toggle()
