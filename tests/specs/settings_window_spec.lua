@@ -22,6 +22,7 @@ local function loadWindow(addon, calls)
   local function fontString()
     return {
       SetText = function(_, text) calls.fontText[#calls.fontText + 1] = tostring(text or "") end,
+      SetTextColor = function() end,
       SetPoint = function() end,
       SetWidth = function() end,
       SetJustifyH = function() end,
@@ -237,7 +238,7 @@ test("settings window registers once for Escape close", function()
   A.equal(count, 1, "settings window should be registered once as an Escape-close frame")
 end)
 
-test("Core tab uses spec names and display labels instead of raw ids", function()
+test("Config page uses spec names and display labels instead of raw ids", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 0 end
   _G.GetSpecialization = function() return 1 end
@@ -258,17 +259,15 @@ test("Core tab uses spec names and display labels instead of raw ids", function(
 
   local Window = loadWindow(addon, calls)
   Window.Open()
-  Window.ShowTab(3)
+  Window.ShowTab(1)
 
   local text = table.concat(calls.fontText, "\n")
-  A.truthy(text:find("Current specialization: Retribution", 1, true), "Core tab should show the spec name")
-  A.truthy(text:find("Source: Built-in default", 1, true), "Core tab should show the source label")
-  A.truthy(text:find("Scale: Retribution", 1, true), "Core tab should show the scale name")
-  A.truthy(calls.buttons["Use Native"], "Core tab should use native without 2.0 wording")
-  A.truthy(calls.buttons["Customize Spec Scale"], "Core tab should describe the editable spec-scale action")
-  A.falsy(text:find("spec:70", 1, true), "Core tab should not leak generated scale ids")
-  A.falsy(text:find("Current specialization: 70", 1, true), "Core tab should not show raw spec ids")
-  A.falsy(calls.buttons["Use Native 2.0"], "Core tab should not show native 2.0 wording")
+  A.truthy(text:find("Retribution", 1, true), "Config should show the spec name")
+  A.truthy(text:find("Built%-in default", 1, true) or text:find("Built-in default", 1, true), "Config should show the source label")
+  A.truthy(calls.buttons["Manage"], "Config should expose Profile management")
+  A.truthy(calls.buttons["Create Macro"], "Config should preserve macro creation")
+  A.falsy(text:find("spec:70", 1, true), "Config should not leak generated scale ids")
+  A.falsy(text:find("| 70", 1, true), "Config should not show raw spec ids")
 end)
 
 return tests
