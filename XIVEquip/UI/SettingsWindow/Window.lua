@@ -149,6 +149,47 @@ local function resolveMacroIcon()
   return FALLBACK_MACRO_ICON, false
 end
 
+local function macroSlotName(index)
+  if not index or index <= 0 then return nil end
+  if C_Macro and C_Macro.GetMacroName then
+    return C_Macro.GetMacroName(index)
+  end
+  if GetMacroInfo then
+    local name = GetMacroInfo(index)
+    return name
+  end
+  return nil
+end
+
+local function findActionBarMacro(name)
+  if not GetActionInfo then return nil end
+  for slot = 1, 180 do
+    local actionType, macroID = GetActionInfo(slot)
+    if actionType == "macro" and macroSlotName(macroID) == name then
+      return macroID
+    end
+  end
+  return nil
+end
+
+local function findNamedMacro(name, savedID)
+  local placed = findActionBarMacro(name)
+  if placed then return placed end
+
+  local saved = tonumber(savedID)
+  if saved and saved > 0 and macroSlotName(saved) == name then
+    return saved
+  end
+
+  local index = GetMacroIndexByName and GetMacroIndexByName(name) or 0
+  if index and index > 0 then return index end
+
+  for i = 1, 120 do
+    if macroSlotName(i) == name then return i end
+  end
+  return 0
+end
+
 local function makeContent(parent)
   local content = CreateFrame("Frame", nil, parent)
   content:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, -78)
@@ -372,7 +413,7 @@ local function createEquipMacro()
   local name = "XIVEquip"
   local body = "/xivequip"
   local icon, customIcon = resolveMacroIcon()
-  local index = GetMacroIndexByName and GetMacroIndexByName(name) or 0
+  local index = findNamedMacro(name, st.MacroID)
   local ok = true
   if index and index > 0 then
     if EditMacro then
@@ -382,7 +423,7 @@ local function createEquipMacro()
     ok, index = pcall(CreateMacro, name, icon, body, true)
     if not ok then index = 0 end
   end
-  if GetMacroIndexByName then
+  if (not index or index <= 0) and GetMacroIndexByName then
     local resolved = GetMacroIndexByName(name)
     if resolved and resolved > 0 then index = resolved end
   end
