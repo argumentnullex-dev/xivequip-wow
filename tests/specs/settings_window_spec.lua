@@ -21,7 +21,7 @@ local function loadWindow(addon, calls)
 
   local function fontString()
     return {
-      SetText = function() end,
+      SetText = function(_, text) calls.fontText[#calls.fontText + 1] = tostring(text or "") end,
       SetPoint = function() end,
       SetWidth = function() end,
       SetJustifyH = function() end,
@@ -31,6 +31,8 @@ local function loadWindow(addon, calls)
   local function frame(name)
     local f = { name = name, scripts = {}, shown = false }
     function f:SetSize() end
+    function f:SetHeight() end
+    function f:SetWidth() end
     function f:SetFrameStrata() end
     function f:SetMovable() end
     function f:EnableMouse() end
@@ -44,6 +46,7 @@ local function loadWindow(addon, calls)
     function f:ClearAllPoints() end
     function f:SetPoint() end
     function f:SetAllPoints() end
+    function f:SetScrollChild(child) self.scrollChild = child end
     function f:GetPoint() return "CENTER", nil, "CENTER", 0, 0 end
     function f:StartMoving() end
     function f:StopMovingOrSizing() end
@@ -84,7 +87,7 @@ end
 
 local function harness()
   local settingsTable = { UI = { SettingsWindow = {} } }
-  local calls = { buttons = {}, created = nil, edited = nil, pickup = nil, settings = settingsTable }
+  local calls = { buttons = {}, fontText = {}, created = nil, edited = nil, pickup = nil, settings = settingsTable }
   local addon = {
     UI = {},
     L = { AddonPrefix = "XIVEquip: " },
@@ -100,6 +103,8 @@ local function harness()
       SetAutomation = function() end,
       GetMinimapHidden = function() return false end,
       SetMinimapHidden = function() end,
+      GetPlannerMode = function() return settingsTable.PlannerMode or "native" end,
+      SetPlannerMode = function(_, mode) settingsTable.PlannerMode = mode end,
     },
   }
   return addon, calls
@@ -230,6 +235,40 @@ test("settings window registers once for Escape close", function()
     if name == "XIVEquipSettingsWindow" then count = count + 1 end
   end
   A.equal(count, 1, "settings window should be registered once as an Escape-close frame")
+end)
+
+test("Core tab uses spec names and display labels instead of raw ids", function()
+  local addon, calls = harness()
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+
+  addon.XIVWeights = {
+    Config = {
+      GetSpecSelection = function() return { provider = "default", scale = nil } end,
+      SelectionDisplay = function() return "Built-in default", "Retribution" end,
+      ListManualScales = function() return { { id = "spec:70", name = "Retribution", meta = { tiedToSpecID = 70 } } } end,
+      SetSpecSelection = function() end,
+      EnsureSpecScale = function() end,
+      GeneratedScaleID = function() return "spec:70" end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Pawn = { GetActiveScales = function() return {} end }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(3)
+
+  local text = table.concat(calls.fontText, "\n")
+  A.truthy(text:find("Current specialization: Retribution", 1, true), "Core tab should show the spec name")
+  A.truthy(text:find("Source: Built-in default", 1, true), "Core tab should show the source label")
+  A.truthy(text:find("Scale: Retribution", 1, true), "Core tab should show the scale name")
+  A.truthy(calls.buttons["Use Native"], "Core tab should use native without 2.0 wording")
+  A.truthy(calls.buttons["Customize Spec Scale"], "Core tab should describe the editable spec-scale action")
+  A.falsy(text:find("spec:70", 1, true), "Core tab should not leak generated scale ids")
+  A.falsy(text:find("Current specialization: 70", 1, true), "Core tab should not show raw spec ids")
+  A.falsy(calls.buttons["Use Native 2.0"], "Core tab should not show native 2.0 wording")
 end)
 
 return tests

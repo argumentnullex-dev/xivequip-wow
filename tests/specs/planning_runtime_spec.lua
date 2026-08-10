@@ -63,7 +63,7 @@ test("live runtime uses built-in spec defaults without starting a legacy compare
   A.equal(scale.source.kind, "xivequip-default")
   A.equal(scale.meta.specID, 70)
   A.equal(scale.weights.strength, 1)
-  A.equal(runtime.ScoreSource({ weights = scale }), "XIVWeights/Default")
+  A.equal(runtime.ScoreSource({ weights = scale }), "Built-in default: Retribution")
   runtime.Close()
 end)
 
@@ -93,7 +93,7 @@ test("live runtime resolves exact configured Pawn scale without legacy comparer 
   A.equal(scale.source.key, "pawn-ret")
   A.equal(scale.weights.strength, 1)
   A.equal(scale.weights.haste, 0.5)
-  A.equal(runtime.ScoreSource({ weights = scale }), "XIVWeights/Pawn")
+  A.equal(runtime.ScoreSource({ weights = scale }), "Pawn: Pawn Ret")
   runtime.Close()
 end)
 

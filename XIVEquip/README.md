@@ -3,7 +3,7 @@
 **XIVEquip** brings the FFXIV-style “Equip Recommended Gear” button to World of Warcraft.
 
 - Click one button → it **plans** the best upgrades in your bags and **equips** them.
-- Native 2.0 uses built-in **XIVWeights** spec defaults out of the box; Pawn remains optional.
+- The native planner uses built-in **XIVWeights** spec defaults out of the box; Pawn remains optional.
 - Handles **armor**, **jewelry** (rings/trinkets are solved as pairs), and **weapons** (legal combos only).
 - Optional: **Auto‑equip on spec change** and **auto‑save equipment sets** named **`Spec.xive`**.
 
@@ -223,9 +223,9 @@ The suite loads addon modules with mocked WoW APIs and covers comparer fallback,
 - `/xive status` — print settings schema, comparer resolution/fallback, auto-equip state, and auto-save state
 - `/xive diag` — score currently equipped items with the resolved comparer
 - `/xive score <itemLink> [scaleName]` — score one linked item; optional scale name uses Pawn when available
-- `/xive planner status` — show whether normal equip uses the legacy planner or native 2.0 planner
+- `/xive planner status` — show whether normal equip uses the legacy planner or native planner
 - `/xive planner legacy` — use the legacy planner for normal button, `/xivequip`, and automation equips
-- `/xive planner native` — use the native 2.0 planner for normal button, `/xivequip`, and automation equips
+- `/xive planner native` — use the native planner for normal button, `/xivequip`, and automation equips
 - `/xive plan [legacy|native]` — print the current equip plan; optional mode overrides the setting for this command only
 - `/xive equip [legacy|native]` — equip recommendations; optional mode overrides the setting for this command only
 - `/xive compare` — compare legacy and native planner output, capture a fixture, and save a diagnostic log to `XIVEquip_Settings.Diagnostics.PlannerCompare`
@@ -245,7 +245,7 @@ Open `/xive` or `/xive settings`.
 - **XIVWeights Scales** – Built-in spec defaults, custom scale create/duplicate/delete, Pawn import, editable scale names, sliders/numeric fields for each weight, and reset-to-default controls for customized spec scales.
 - **XIVEquip Core** – Planner mode and per-spec source selection for built-in defaults, manual XIVWeights scales, or active Pawn scales.
 - **Planner mode** – Which planner normal equip paths use.
-  *Default:* **legacy**. Use `/xive planner native` to opt into the native 2.0 planner for normal equips, or use `/xive plan native` and `/xive equip native` for one-off native checks without changing the saved setting.
+  *Default:* **legacy**. Use `/xive planner native` to opt into the native planner for normal equips, or use `/xive plan native` and `/xive equip native` for one-off native checks without changing the saved setting.
 
 Fresh specs use immutable built-in defaults. Choosing to customize a spec creates a normal SavedVariables scale named after the spec, such as `Protection`, `Retribution`, or `Holy`. Resetting a customized spec scale replaces your copy with a fresh copy of the shipped default for that spec.
 

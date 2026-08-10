@@ -49,6 +49,64 @@ local function normalizeScale(scale)
   return XIVWeights.NewScale(scale)
 end
 
+local function builtinForSpec(specID)
+  return XIVWeights.Builtin and XIVWeights.Builtin.Defaults and XIVWeights.Builtin.Defaults.Get(tonumber(specID))
+end
+
+function Config.SpecName(specID)
+  local default = builtinForSpec(specID)
+  return default and default.meta and default.meta.specName or default and default.name or nil
+end
+
+local function scaleName(scale, fallback)
+  if not scale then return fallback end
+  return scale.name or (scale.meta and scale.meta.specName) or fallback
+end
+
+function Config.ScaleDisplayName(scaleOrID, fallback)
+  if type(scaleOrID) == "table" then return scaleName(scaleOrID, fallback) end
+  if type(scaleOrID) == "string" then
+    local scale = Config.Repository():Get(scaleOrID)
+    return scaleName(scale, fallback or scaleOrID)
+  end
+  return fallback
+end
+
+function Config.ResolvedScaleSourceLabel(scale)
+  local source = scale and scale.source or {}
+  local specName = scaleName(scale, source.specID and Config.SpecName(source.specID) or nil)
+  if source.kind == "pawn" then return "Pawn: " .. tostring(scaleName(scale, source.key or "selected scale")) end
+  if source.kind == "xivequip-default" then return "Built-in default: " .. tostring(specName or "current spec") end
+  if source.kind == "xivequip-default-copy" then return "Custom spec scale: " .. tostring(specName or "current spec") end
+  if source.kind == "manual" then return "Manual scale: " .. tostring(scaleName(scale, scale and scale.id or "selected scale")) end
+  if source.kind == "empty" then return "No weights" end
+  return "XIVWeights"
+end
+
+function Config.SelectionDisplay(specID, selection, pawnEntries)
+  selection = selection or Config.GetSpecSelection(specID)
+  local provider = normalizeProvider(selection and selection.provider)
+  local specName = Config.SpecName(specID) or ("Spec " .. tostring(specID or "unknown"))
+
+  if provider == "default" then
+    local default = builtinForSpec(specID)
+    return "Built-in default", scaleName(default, specName)
+  end
+
+  if provider == "pawn" then
+    local selected = selection and selection.scale
+    for _, entry in ipairs(pawnEntries or {}) do
+      if entry and (entry.key == selected or entry.name == selected) then
+        return "Pawn", tostring(entry.name or entry.key)
+      end
+    end
+    return "Pawn", tostring(selected or "selected scale")
+  end
+
+  local scaleID = selection and selection.scale or generatedID(specID)
+  return "Manual scale", Config.ScaleDisplayName(scaleID, specName)
+end
+
 function Config.GeneratedScaleID(specID)
   return generatedID(specID)
 end

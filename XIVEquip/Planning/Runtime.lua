@@ -71,10 +71,11 @@ function Runtime.Live()
   end
 
   runtime.ScoreSource = function(context)
-    local source = context and context.weights and context.weights.source
-    if source and source.kind == "pawn" then return "XIVWeights/Pawn" end
-    if source and (source.kind == "xivequip-default" or source.kind == "xivequip-default-copy") then return "XIVWeights/Default" end
-    if source and source.kind == "manual" then return "XIVWeights/Manual" end
+    local scale = context and context.weights
+    local Config = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
+    if Config and type(Config.ResolvedScaleSourceLabel) == "function" then
+      return Config.ResolvedScaleSourceLabel(scale)
+    end
     return "XIVWeights"
   end
 
