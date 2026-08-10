@@ -26,6 +26,17 @@ local function currentSpecID()
   return GetSpecializationInfo and select(1, GetSpecializationInfo(index)) or nil
 end
 
+local function currentSpecName()
+  local index = GetSpecialization and GetSpecialization()
+  if index and GetSpecializationInfo then
+    local _, name = GetSpecializationInfo(index)
+    if name and name ~= "" then return name end
+  end
+  local C = Config()
+  local specID = currentSpecID()
+  return C and C.SpecName and C.SpecName(specID) or nil
+end
+
 local function currentClassFile()
   return UnitClass and select(2, UnitClass("player")) or nil
 end
@@ -578,7 +589,7 @@ local function showCore(content)
     Window.ShowTab(3)
   end)
 
-  local native = button(page, "Use Native 2.0", 130, 24)
+  local native = button(page, "Use Native", 110, 24)
   native:SetPoint("LEFT", legacy, "RIGHT", 10, 0)
   native:SetScript("OnClick", function()
     S:SetPlannerMode("native")
@@ -588,9 +599,11 @@ local function showCore(content)
   if not C then return end
   local specID = currentSpecID()
   local selection = specID and C.GetSpecSelection(specID)
-  local specText = "Current specialization: " .. tostring(specID or "unknown")
+  local specName = currentSpecName() or (specID and ("Spec " .. tostring(specID)) or "unknown")
+  local specText = "Current specialization: " .. tostring(specName)
   if selection then
-    specText = specText .. "  |  Source: " .. tostring(selection.provider) .. "  |  Scale: " .. tostring(selection.scale or "spec default")
+    local sourceLabel, scaleLabel = C.SelectionDisplay(specID, selection, pawnAdapter().ListScales())
+    specText = specText .. "  |  Source: " .. tostring(sourceLabel) .. "  |  Scale: " .. tostring(scaleLabel)
   end
   local specLine = font(page, "GameFontHighlight", specText)
   specLine:SetPoint("TOPLEFT", 4, -100)
@@ -599,14 +612,14 @@ local function showCore(content)
   local sourceTitle = font(page, "GameFontNormal", "Native weight source")
   sourceTitle:SetPoint("TOPLEFT", 4, -138)
 
-  local builtin = button(page, "Built-in Default", 135, 24)
+  local builtin = button(page, "Use Built-in Default", 165, 24)
   builtin:SetPoint("TOPLEFT", 4, -164)
   builtin:SetScript("OnClick", function()
     if specID then C.SetSpecSelection(specID, "default", nil) end
     Window.ShowTab(3)
   end)
 
-  local generated = button(page, "Generated Spec Scale", 160, 24)
+  local generated = button(page, "Customize Spec Scale", 170, 24)
   generated:SetPoint("LEFT", builtin, "RIGHT", 10, 0)
   generated:SetScript("OnClick", function()
     if specID then

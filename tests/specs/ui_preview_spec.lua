@@ -138,6 +138,22 @@ test("native hover preview uses native planning without legacy comparer or weapo
   A.equal(calls.weapons, 0)
 end)
 
+test("native hover preview shows human-readable planner and score source", function()
+  local _, calls, button = newHarness("native", {
+    planReturn = function()
+      return {}, false, {}, { diagnostics = { scoreSource = "Built-in default: Retribution" } }
+    end,
+  })
+
+  button.scripts.OnEnter(button)
+
+  local header = table.concat(calls.tooltipLines, "\n")
+  A.truthy(header:find("Planner: native", 1, true), "preview should identify native planner without version jargon")
+  A.truthy(header:find("Source: Built-in default: Retribution", 1, true), "preview should show the selected spec scale")
+  A.falsy(header:find("native 2.0", 1, true), "preview should not show native 2.0 wording")
+  A.falsy(header:find("XIVWeights/Default", 1, true), "preview should not leak provider names")
+end)
+
 test("legacy hover preview uses one legacy comparer pass", function()
   local _, calls, button = newHarness("legacy")
 

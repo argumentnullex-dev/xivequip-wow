@@ -408,12 +408,12 @@ C.RegisterRoot("plan", function(rest)
   if mode == "native" then
     local _, pending, plan, result, nativeFailure = Gear:PlanBest(nil, { planner = "native" })
     if nativeFailure then
-      print(PREFIX .. "Native 2.0 planner failed; no plan available. Check the debug log for details.")
+      print(PREFIX .. "Native planner failed; no plan available. Check the debug log for details.")
       return
     end
 
     local diag = result and result.diagnostics or {}
-    print(PREFIX .. "Planner: native 2.0")
+    print(PREFIX .. "Planner: native")
     print(PREFIX .. "Score source: " .. tostring(diag.scoreSource or "unknown"))
     printPlan(plan, pending)
     return

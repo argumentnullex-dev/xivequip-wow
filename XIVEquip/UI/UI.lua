@@ -335,11 +335,11 @@ local function createButton()
           changes, pending = {}, false
         end
         if nativeFailure then
-          tooltipHeader = "Planner: native 2.0 failed"
+          tooltipHeader = "Planner: native failed"
           changes, pending = {}, false
         else
           local source = result and result.diagnostics and result.diagnostics.scoreSource or "unknown"
-          tooltipHeader = "Planner: native 2.0  |  Source: " .. tostring(source)
+          tooltipHeader = "Planner: native  |  Source: " .. tostring(source)
         end
       else
         comparerLease = acquireComparerPass()
