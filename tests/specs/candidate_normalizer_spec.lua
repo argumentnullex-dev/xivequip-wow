@@ -37,6 +37,36 @@ test("extracts equip facts, item level, and required level", function()
   A.equal(candidate.itemLevel, 450)
 end)
 
+test("uses the full item link when the itemID cannot be parsed locally", function()
+  local addon = newAddon()
+  FakeWorld.Install()
+  local richLink = "|Hkeystone-item-string-without-local-item-token|h[item-9001]|h"
+
+  _G.GetItemInfoInstant = function(info)
+    A.equal(info, richLink)
+    return 9001, nil, nil, "INVTYPE_FINGER", nil, 4, 0
+  end
+  _G.GetItemInfo = function(info)
+    A.equal(info, richLink)
+    return "item-9001", richLink, nil, 515, 80, nil, nil, nil, "INVTYPE_FINGER"
+  end
+  _G.GetDetailedItemLevelInfo = function(info)
+    A.equal(info, richLink)
+    return 522
+  end
+  _G.GetItemStats = function(info)
+    A.equal(info, richLink)
+    return { ITEM_MOD_HASTE_RATING_SHORT = 123 }
+  end
+
+  local candidate = addon.Evaluation.CandidateNormalizer.FromLink(richLink, { kind = "bag" })
+
+  A.equal(candidate.itemID, 9001)
+  A.equal(candidate.equip.equipLoc, "INVTYPE_FINGER")
+  A.equal(candidate.itemLevel, 522)
+  A.equal(candidate.stats.haste, 123)
+end)
+
 test("prefers the effective (upgraded) item level over the base level from GetItemInfo", function()
   local addon = newAddon()
   FakeWorld.Install({
