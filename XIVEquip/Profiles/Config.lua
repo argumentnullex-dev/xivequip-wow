@@ -298,6 +298,13 @@ local function manualState(profile)
   return profile.manual
 end
 
+local function classForSpec(specID)
+  local defaults = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Builtin
+      and XIVEquip.XIVWeights.Builtin.Defaults
+  if defaults and defaults.ClassForSpec then return defaults.ClassForSpec(specID) end
+  return nil
+end
+
 function Profiles.SetAutomatic(profile, enabled)
   if type(profile) ~= "table" then return nil, "profile-required" end
   profile.automatic = enabled == true
@@ -320,6 +327,9 @@ function Profiles.SetCustomOverride(profile, specID, scaleID)
   if not manual then return nil, "profile-required" end
   specID = tonumber(specID)
   if not specID then return nil, "spec-required" end
+  local expectedClass = classForSpec(specID)
+  if not expectedClass then return nil, "unknown-spec" end
+  if normalizeClass(profile.classFile) ~= expectedClass then return nil, "spec-class-mismatch" end
   local config = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
   local scale = config and config.Repository and config.Repository():Get(scaleID)
   if not scale then return nil, "unknown-scale" end

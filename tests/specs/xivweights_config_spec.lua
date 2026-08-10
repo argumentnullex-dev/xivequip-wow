@@ -283,6 +283,64 @@ test("Profile Integration resolution preserves opaque provider ids and source la
   A.falsy(result.fallback)
 end)
 
+test("failed Pawn Integration falls back to Default without resolving a manual scale", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+  local Profiles = addon.Profiles.Config
+  local profile = Profiles.GetDefault("PALADIN")
+  local manual = Config.CreateManualScale("shared:protection", "Wrong Manual", { strength = 1 }, 66)
+
+  A.truthy(Profiles.SetAutomatic(profile, false))
+  A.truthy(Profiles.SetManualMode(profile, "integration"))
+  A.truthy(Profiles.SetIntegrationProvider(profile, "pawn"))
+  A.truthy(Profiles.SetIntegrationOverride(profile, 66, manual.id))
+
+  local result = Config.ResolveResultForSpec(66, {
+    UnitClass = function() return "Paladin", "PALADIN" end,
+    UnitName = function() return "Daedric", "Area 52" end,
+    PawnProvider = function()
+      return { Resolve = function() return nil end }
+    end,
+  })
+
+  A.equal(result.scale.source.kind, "xivequip-default")
+  A.equal(result.scale.resolution.sourceLabel, "Default")
+  A.equal(result.scale.resolution.fallback, true)
+  A.equal(result.fallbackReason, "integration-scale-missing")
+  A.equal(profile.manual.integration.provider, "pawn")
+  A.equal(profile.manual.integration.overrides[66], manual.id)
+end)
+
+test("failed generic Integration falls back to Default and never resolves a manual key", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+  local Profiles = addon.Profiles.Config
+  local registry = addon.Integrations.Registry
+  registry:Register({
+    id = "hypothetical-failing",
+    label = "Hypothetical",
+    IsAvailable = function() return true end,
+    Resolve = function() return nil, "integration-scale-missing" end,
+  })
+  local profile = Profiles.GetDefault("PALADIN")
+  local manual = Config.CreateManualScale("shared:protection", "Wrong Manual", { strength = 1 }, 66)
+
+  A.truthy(Profiles.SetAutomatic(profile, false))
+  A.truthy(Profiles.SetManualMode(profile, "integration"))
+  A.truthy(Profiles.SetIntegrationProvider(profile, "hypothetical-failing"))
+  A.truthy(Profiles.SetIntegrationOverride(profile, 66, manual.id))
+
+  local result = Config.ResolveResultForSpec(66, {
+    UnitClass = function() return "Paladin", "PALADIN" end,
+    UnitName = function() return "Daedric", "Area 52" end,
+  })
+
+  A.equal(result.scale.source.kind, "xivequip-default")
+  A.equal(result.scale.resolution.sourceLabel, "Default")
+  A.equal(result.scale.resolution.fallback, true)
+  A.equal(result.fallbackReason, "integration-scale-missing")
+end)
+
 test("Profile mutation APIs enforce spec ownership for Custom scales", function()
   local addon = newAddon({})
   local Config = addon.XIVWeights.Config
@@ -297,7 +355,20 @@ test("Profile mutation APIs enforce spec ownership for Custom scales", function(
   selected = Profiles.SetCustomOverride(profile, 65, holy.id)
   A.equal(selected, profile)
   A.equal(profile.manual.customOverrides[65], holy.id)
+  local warrior = Config.CreateManualScale("custom:arms", "Arms Custom", { strength = 1 }, 71)
+  selected, reason = Profiles.SetCustomOverride(profile, 71, warrior.id)
+  A.equal(selected, nil)
+  A.equal(reason, "spec-class-mismatch")
   A.equal(Profiles.ClearCustomOverride(profile, 65), profile)
+end)
+
+test("Custom scale creation rejects unknown specializations", function()
+  local addon = newAddon({})
+  local created, reason = addon.XIVWeights.Config.CreateManualScale(
+    "custom:unknown", "Unknown", { strength = 1 }, 999999)
+
+  A.equal(created, nil)
+  A.equal(reason, "unknown-spec")
 end)
 
 test("Custom scale creation requires a specialization owner", function()

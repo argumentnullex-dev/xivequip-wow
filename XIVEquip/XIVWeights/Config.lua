@@ -295,6 +295,7 @@ function Config.CreateManualScale(id, name, weights, specID)
   specID = tonumber(specID)
   if not specID then return nil, "spec-required" end
   local default = builtinForSpec(specID)
+  if not default then return nil, "unknown-spec" end
   local scale = XIVWeights.NewScale({
     id = id,
     name = name,
@@ -398,11 +399,26 @@ function Config.ResolveResultForSpec(specID, runtime)
   if sel.mode == "integration" and not scale then
     local registry = integrationsRegistry()
     if registry then
-      scale, fallbackReason, integrationEntry = registry:Resolve(sel.provider, {
+      local resolved, reason, entry = registry:Resolve(sel.provider, {
         specID = specID,
         runtime = runtime,
       }, sel.scale)
-      if not scale then fallback = true end
+      scale = resolved
+      fallbackReason = reason
+      integrationEntry = scale and entry or nil
+    end
+    if not scale then
+      fallback = true
+      fallbackReason = fallbackReason or "integration-unavailable"
+      -- Keep the configured Integration in the profile. The effective
+      -- selection becomes Default so an external key can never resolve
+      -- accidentally through the manual-scale provider.
+      sel = {
+        provider = "default",
+        scale = nil,
+        mode = "integration",
+        profile = sel.profile,
+      }
     end
   end
 
