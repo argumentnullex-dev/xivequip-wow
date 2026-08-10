@@ -5,6 +5,8 @@ XIVEquip.UI.SettingsWindow = XIVEquip.UI.SettingsWindow or {}
 
 local Window = XIVEquip.UI.SettingsWindow
 local PREFIX = (XIVEquip.L and XIVEquip.L.AddonPrefix) or "XIVEquip: "
+local ADDON_ICON = "Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128"
+local WINDOW_NAME = "XIVEquipSettingsWindow"
 
 local tabs = { "General", "XIVWeights Scales", "XIVEquip Core" }
 
@@ -75,6 +77,14 @@ local function restorePosition(frame)
   else
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
   end
+end
+
+local function registerEscapeClose(frameName)
+  if type(UISpecialFrames) ~= "table" then return end
+  for _, name in ipairs(UISpecialFrames) do
+    if name == frameName then return end
+  end
+  table.insert(UISpecialFrames, frameName)
 end
 
 local function makeContent(parent)
@@ -299,7 +309,7 @@ local function createEquipMacro()
   local st = settings()
   local name = "XIVEquip"
   local body = "/xivequip"
-  local icon = "INV_Misc_Gear_01"
+  local icon = ADDON_ICON
   local index = GetMacroIndexByName and GetMacroIndexByName(name) or 0
   if index and index > 0 then
     if EditMacro then EditMacro(index, name, icon, body, true, true) end
@@ -591,7 +601,7 @@ end
 function Window.Create()
   if Window.Frame then return Window.Frame end
 
-  local frame = CreateFrame("Frame", "XIVEquipSettingsWindow", UIParent, "BasicFrameTemplateWithInset")
+  local frame = CreateFrame("Frame", WINDOW_NAME, UIParent, "BasicFrameTemplateWithInset")
   frame:SetSize(760, 760)
   frame:SetFrameStrata("DIALOG")
   frame:SetMovable(true)
@@ -626,6 +636,7 @@ function Window.Create()
   PanelTemplates_SetTab(frame, 1)
 
   restorePosition(frame)
+  registerEscapeClose(WINDOW_NAME)
   Window.Frame = frame
   return frame
 end

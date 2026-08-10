@@ -35,6 +35,7 @@ local specs = {
   "planning_plan_builder_spec",
   "command_router_compare_spec",
   "settings_spec",
+  "settings_window_spec",
   "weapons_spec",
   "paired_slots_spec",
   "equip_execution_spec",
