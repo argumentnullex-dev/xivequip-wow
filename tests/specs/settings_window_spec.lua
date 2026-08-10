@@ -110,7 +110,7 @@ test("Create Macro uses the XIVEquip addon icon FileID", function()
     return 42
   end
   _G.EditMacro = nil
-  _G.GetCursorInfo = function() return "macro", "XIVEquip" end
+  _G.GetCursorInfo = function() return "macro", 42 end
 
   local Window = loadWindow(addon, calls)
   Window.Open()
@@ -119,7 +119,7 @@ test("Create Macro uses the XIVEquip addon icon FileID", function()
   A.equal(calls.fileIDPaths[1], ADDON_ICON_PATH, "macro should resolve addon icon path")
   A.equal(calls.created.icon, ADDON_ICON_FILE_ID, "macro should use resolved addon icon FileID")
   A.equal(calls.created.body, "/xivequip", "macro should run /xivequip")
-  A.equal(calls.pickup, "XIVEquip", "new macro should be picked up by name")
+  A.equal(calls.pickup, 42, "new macro should be picked up by index")
 end)
 
 test("Create Macro refreshes an existing macro with the XIVEquip addon icon FileID", function()
@@ -129,7 +129,7 @@ test("Create Macro refreshes an existing macro with the XIVEquip addon icon File
     calls.edited = { index = index, name = name, icon = icon, body = body }
   end
   _G.CreateMacro = nil
-  _G.GetCursorInfo = function() return "macro", "XIVEquip" end
+  _G.GetCursorInfo = function() return "macro", 7 end
 
   local Window = loadWindow(addon, calls)
   Window.Open()
@@ -137,7 +137,7 @@ test("Create Macro refreshes an existing macro with the XIVEquip addon icon File
 
   A.equal(calls.edited.index, 7, "existing macro should be edited")
   A.equal(calls.edited.icon, ADDON_ICON_FILE_ID, "existing macro should use resolved addon icon FileID")
-  A.equal(calls.pickup, "XIVEquip", "existing macro should be picked up by name")
+  A.equal(calls.pickup, 7, "existing macro should be picked up by index")
 end)
 
 test("Create Macro falls back to a built-in icon when addon icon FileID is unavailable", function()
@@ -162,7 +162,7 @@ test("Create Macro falls back to a built-in icon when addon icon FileID is unava
   A.equal(calls.created.icon, FALLBACK_MACRO_ICON, "macro should use built-in fallback icon")
 end)
 
-test("Create Macro falls back from name pickup to macro index pickup", function()
+test("Create Macro falls back from macro index pickup to name pickup", function()
   local addon, calls = harness()
   local pickupAttempts = {}
   _G.GetMacroIndexByName = function() return 7 end
@@ -173,7 +173,7 @@ test("Create Macro falls back from name pickup to macro index pickup", function(
     calls.pickup = id
   end
   _G.GetCursorInfo = function()
-    if pickupAttempts[#pickupAttempts] == 7 then return "macro", 7 end
+    if pickupAttempts[#pickupAttempts] == "XIVEquip" then return "macro", "XIVEquip" end
     return nil
   end
 
@@ -181,9 +181,9 @@ test("Create Macro falls back from name pickup to macro index pickup", function(
   Window.Open()
   calls.buttons["Create Macro"].scripts.OnClick(calls.buttons["Create Macro"])
 
-  A.equal(pickupAttempts[1], "XIVEquip", "macro pickup should try by name first")
-  A.equal(pickupAttempts[2], 7, "macro pickup should fall back to index")
-  A.equal(calls.pickup, 7, "fallback macro index should be the final pickup")
+  A.equal(pickupAttempts[1], 7, "macro pickup should try by index first")
+  A.equal(pickupAttempts[2], "XIVEquip", "macro pickup should fall back to name")
+  A.equal(calls.pickup, "XIVEquip", "fallback macro name should be the final pickup")
 end)
 
 test("settings window registers once for Escape close", function()

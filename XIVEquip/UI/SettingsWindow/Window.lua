@@ -347,10 +347,10 @@ local function createEquipMacro()
   st.MacroID = index or 0
   local pickedUp = false
   if ok and index and index > 0 and PickupMacro then
-    local pickupOk = pcall(PickupMacro, name)
+    local pickupOk = pcall(PickupMacro, index)
     pickedUp = pickupOk and cursorHasPickedMacro(index, name)
     if not pickedUp then
-      pickupOk = pcall(PickupMacro, index)
+      pickupOk = pcall(PickupMacro, name)
       pickedUp = pickupOk and cursorHasPickedMacro(index, name)
     end
   end
