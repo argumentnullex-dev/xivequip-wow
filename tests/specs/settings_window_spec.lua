@@ -45,7 +45,9 @@ local function loadWindow(addon, calls)
     function f:SetValueStep() end
     function f:SetObeyStepOnDrag() end
     function f:SetValue(value) self.value = value end
-    function f:SetFrameStrata() end
+    function f:SetFrameStrata(value) self.frameStrata = value end
+    function f:SetToplevel(value) self.toplevel = value end
+    function f:Raise() self.raised = true end
     function f:SetMovable() end
     function f:EnableMouse() end
     function f:RegisterForDrag() end
@@ -74,6 +76,7 @@ local function loadWindow(addon, calls)
     function f:SetTextInsets() end
     function f:SetMultiLine() end
     function f:SetFontObject() end
+    function f:HighlightText() self.highlighted = true end
     function f:SetText(text) self.text = text; calls.buttons[text] = self end
     function f:SetID(id) self.id = id end
     function f:GetID() return self.id end
@@ -452,7 +455,7 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.equal(#profilePanel._xivEquipPool.items.button, profileButtonCount, "profile buttons should not accumulate after a state change")
   A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode buttons should not accumulate after a state change")
   A.falsy(modePanel._xivEquipPool.items.button[1].enabled, "automatic mode should disable manual mode controls")
-  A.equal(modePanel._xivEquipPool.items.button[2].text, "[Stored] Custom Scales", "Automatic should retain the selected manual mode as disabled context")
+  A.equal(modePanel._xivEquipPool.items.button[2].text, "Custom", "Automatic should retain the selected manual mode as disabled context")
   local mapPanel = page._xivEquipPool.items.panel[3]
   A.truthy(mapPanel:IsShown(), "Automatic should retain the stored per-spec mapping as visible context")
   A.falsy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "Automatic should disable stored per-spec mapping controls")
@@ -500,6 +503,9 @@ test("Profile Management reuses its name field and refreshes profile usage", fun
   local Window = loadWindow(addon, calls)
   Window.Open()
   calls.buttons["Manage"].scripts.OnClick(calls.buttons["Manage"])
+  A.truthy(Window.ProfileDialog:IsShown(), "Manage should open the Profile dialog")
+  A.equal(Window.ProfileDialog.frameStrata, "DIALOG", "Profile dialog should render above the settings window")
+  A.truthy(Window.ProfileDialog.raised, "Profile dialog should be raised above the settings window")
   local detail = Window.ProfileDialog.body._xivEquipPool.items.panel[1]
   local nameBox = detail._xivEquipFrames["profile-name"]
   usageCount = 2
@@ -604,7 +610,7 @@ test("unavailable Integrations do not list scales and show Default fallback for 
   A.equal(mapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Default - Pawn unavailable", "automatic Integration mapping should show its effective Default fallback")
 end)
 
-test("Scale editor displays import provenance and refreshes the active selector label", function()
+test("Scale editor shows specialization binding and refreshes the active selector label", function()
   local addon, calls = harness()
   local sourceScale = { id = "manual:source", name = "Protection Raid" }
   local scale = {
@@ -644,9 +650,9 @@ test("Scale editor displays import provenance and refreshes the active selector 
   Window.Open()
   Window.ShowTab(2)
   local page = Window.Frame.content.page
-  local importedText = table.concat(calls.fontText, "\n")
-  A.truthy(importedText:find("Imported from: Pawn", 1, true), "imported scales should display their real provenance")
-  A.falsy(importedText:find("Based on: Default", 1, true), "imported scales should not claim to be based on Default")
+  local editorText = table.concat(calls.fontText, "\n")
+  A.truthy(editorText:find("Specialization: Retribution", 1, true), "editor should make the scale specialization clear")
+  A.falsy(editorText:find("Based on: Default", 1, true), "editor should not show routine provenance noise")
   local scroll = page._xivEquipFrames["settings-scroll"]
   local nameEdit = scroll._xivEquipScrollChild._xivEquipFrames["scale-name"]
   nameEdit:SetText("Retribution Mythic")
@@ -655,12 +661,12 @@ test("Scale editor displays import provenance and refreshes the active selector 
   A.equal(scale.name, "Retribution Mythic", "rename should save the selected Custom scale")
   A.equal(page._xivEquipPool.items.dropdown[2].dropdownText, "Retribution Mythic", "rename should refresh the selected-scale menu label")
 
-  scale.meta.duplicatedFrom = sourceScale.id
-  scale.source.duplicatedFrom = sourceScale.id
-  Window.ScaleRevision = (Window.ScaleRevision or 0) + 1
-  calls.fontText = {}
-  Window.ShowTab(2)
-  A.truthy(table.concat(calls.fontText, "\n"):find("Duplicated from: Protection Raid", 1, true), "duplicated scales should identify their source scale")
+  calls.buttons["Import"].scripts.OnClick(calls.buttons["Import"])
+  A.truthy(Window.ImportDialog:IsShown(), "Import should open its dialog")
+  A.equal(Window.ImportDialog.frameStrata, "DIALOG", "Import dialog should render above the settings window")
+  calls.buttons["Export"].scripts.OnClick(calls.buttons["Export"])
+  A.truthy(Window.TextDialog:IsShown(), "Export should open its dialog")
+  A.equal(Window.TextDialog.frameStrata, "DIALOG", "Export dialog should render above the settings window")
 end)
 
 return tests
