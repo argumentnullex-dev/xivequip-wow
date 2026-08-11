@@ -170,6 +170,20 @@ test("reset spec scale restores the hard-coded default copy", function()
   A.equal(Config.GetSpecSelection(70).scale, "spec:70")
 end)
 
+test("resolved scale display labels use the compact source and scale format", function()
+  local addon = newAddon({})
+  local display = addon.XIVWeights.Config.ResolvedScaleDisplayLabel
+
+  A.equal(display({ resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } }),
+    "Default | Retribution")
+  A.equal(display({ resolution = { sourceLabel = "Custom", scaleLabel = "Retribution", defaultCopy = true } }),
+    "Custom | Default (Retribution)")
+  A.equal(display({ resolution = { sourceLabel = "Custom", scaleLabel = "Retribution SBA" } }),
+    "Custom | Retribution SBA")
+  A.equal(display({ resolution = { sourceLabel = "Pawn", scaleLabel = "Paladin: Retribution" } }),
+    "Pawn | Paladin: Retribution")
+end)
+
 test("built-in default resolution ignores edited generated spec copy", function()
   local addon = newAddon({})
   local Config = addon.XIVWeights.Config

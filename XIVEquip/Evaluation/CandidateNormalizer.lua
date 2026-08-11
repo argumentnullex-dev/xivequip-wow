@@ -11,8 +11,8 @@
 -- here before there's an actual caller risks it silently diverging from
 -- the real thing.
 --
--- Weapon damage/speed extraction mirrors the legacy Pawn bridge's tooltip
--- fallback so native Pawn scales do not advertise supported weapon keys
+-- Weapon damage/speed extraction includes a tooltip fallback so native Pawn
+-- scales do not advertise supported weapon keys
 -- that silently score as zero when GetItemStats omits damage fields.
 local addonName, XIVEquip = ...
 XIVEquip.Evaluation = XIVEquip.Evaluation or {}
@@ -22,9 +22,8 @@ local CandidateNormalizer = {}
 Evaluation.CandidateNormalizer = CandidateNormalizer
 
 -- Blizzard GetItemStats token -> XIVWeights stat feature name. A small,
--- independent map (not a reuse of Comparers/Pawn/Interface.lua's private
--- STATMAP) -- low-churn enough that duplicating it beats reaching into
--- another module's locals.
+-- independent map -- low-churn enough that keeping it local beats coupling
+-- normalization to an integration module.
 local STAT_TOKEN_MAP = {
   ITEM_MOD_STRENGTH = "strength", ITEM_MOD_STRENGTH_SHORT = "strength",
   ITEM_MOD_AGILITY = "agility", ITEM_MOD_AGILITY_SHORT = "agility",

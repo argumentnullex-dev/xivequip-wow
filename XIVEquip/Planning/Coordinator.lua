@@ -1,5 +1,5 @@
 -- Planning/Coordinator.lua
--- Shadow RecommendationResult coordinator for the 2.0 evaluation pipeline.
+-- RecommendationResult coordinator for the 2.0 evaluation pipeline.
 -- It does not equip anything; it builds frontiers and asks the whole-loadout
 -- optimizer for a desired final slot assignment.
 local addonName, XIVEquip = ...
@@ -341,6 +341,7 @@ function Coordinator.Plan(opts)
       currentGroupScores = currentGroupScores,
       optimizedSlots = copyArray(OPTIMIZED_SLOTS),
       pending = collection.pending == true,
+      weights = context.weights,
       score = scoreTotal or 0,
       diagnostics = diagnosticsFor(collection, groups, runtime, context),
       selectedAssignments = selected or {},

@@ -1,13 +1,12 @@
 -- tests/scenarios/paired_slots/rings.lua
 -- Doc section 7's ring-pair contract bullets, ported from the existing
--- planner-level tests in tests/specs/paired_slots_spec.lua (doc migration
+-- native planner-level paired-slot tests (doc migration
 -- Step 2: port behavior, not test implementation). Where the original test
 -- accepted either slot for a symmetric-scored item ("truthy(pickID(11)==x
 -- or pickID(12)==x)"), scores here are made slot-asymmetric so the
 -- black-box final-state assertion (which is necessarily slot-specific) has
 -- a single correct answer -- the underlying behavior under test is
--- unchanged. tests/specs/paired_slots_spec.lua is untouched and keeps
--- covering the exact-plan-shape/move-order details this layer doesn't.
+-- unchanged. Execution specs cover exact plan shape and move ordering.
 
 local root = ...
 local sep = package.config:sub(1, 1)

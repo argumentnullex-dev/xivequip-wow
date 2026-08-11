@@ -73,28 +73,7 @@ f:SetScript("OnEvent", function(_, event, arg1)
       registry:Lock()
     end
 
-    if not (XIVEquip.Comparers and XIVEquip.Comparers.Initialize) then
-      print((XIVEquip.L and XIVEquip.L.AddonPrefix or "XIVEquip: ") ..
-        "Comparer core not loaded (check TOC order / Comparers.lua).")
-      return
-    end
-    local status, resolution = XIVEquip.Comparers:Initialize()
-    local active = (resolution and resolution.comparer and resolution.comparer.Label)
-        or (XIVEquip.Comparers.GetResolvedName and XIVEquip.Comparers:GetResolvedName())
-        or XIVEquip.Comparers:GetActiveName()
-    if status == "default:pawn" then
-      msgLoaded(L.Loaded_Default_Pawn)
-    elseif status == "default:ilvl" then
-      msgLoaded(L.Loaded_Default_Ilvl)
-    elseif status == "saved:ok" then
-      msgLoaded(string.format(L.Loaded_Using_Name, tostring(active)))
-    elseif status == "saved:unknown" then
-      msgLogin(L.Warn_Unknown)
-    elseif status == "saved:unavailable" then
-      msgLogin(L.Warn_Unavailable)
-    else
-      msgLoaded(string.format(L.Loaded_Using_Name, tostring(active or "ilvl")))
-    end
+    msgLoaded("native XIVWeights")
   end
 end)
 
@@ -102,18 +81,13 @@ end)
 -- [XIVEquip-AUTO] XIVEquip:EquipBestGear: Applies equipment changes (gear/weapons) for the addon.
 function XIVEquip:EquipBestGear()
   if not XIVEquip.Gear or not XIVEquip.Gear.EquipBest then
-    msgError(L.NoComparer)
+    msgError("Native gear planner is not available.")
     return
   end
-  -- Debug helper: when user enabled debug, print active comparer & Pawn tooltip header
+  -- Debug helper: native planning owns scale resolution.
   local debugEnabled = XIVEquip.Settings and XIVEquip.Settings.GetDebugEnabled and XIVEquip.Settings:GetDebugEnabled()
   if debugEnabled then
-    local act = (XIVEquip.Comparers and XIVEquip.Comparers:GetActiveName()) or "nil"
-    print((L.AddonPrefix or "XIVEquip: ") .. "Debug: active comparer=" .. tostring(act))
-    local cmp = XIVEquip.Comparers and XIVEquip.Comparers:GetActive()
-    if cmp and type(cmp.GetActiveTooltipHeader) == "function" then
-      print((L.AddonPrefix or "XIVEquip: ") .. "Debug: " .. tostring(cmp.GetActiveTooltipHeader()))
-    end
+    print((L.AddonPrefix or "XIVEquip: ") .. "Debug: planner=native")
   end
   XIVEquip.Gear:EquipBest()
 end

@@ -1,16 +1,14 @@
 -- XIVWeights/Providers/Pawn.lua
 -- Converts Pawn scale weights into XIVWeights.Scale records (doc section
 -- 11, 12, 31). This Provider only converts *scale weights* -- it does not
--- read or score items, so it has no dependency on Comparers/Pawn/Interface's
--- item-stat/tooltip-parsing code.
+-- read or score items, so it has no dependency on planner item extraction.
 --
 -- Takes an injected adapter rather than reaching for the real Pawn
 -- integration directly, so this is unit-testable without the real Pawn
--- addon loaded. A real binding is Phase 2+ work, not a finished design here
--- -- in particular, Comparers/Pawn/Interface.lua's GetActiveScales() gives
+-- addon loaded. In particular, Integrations/Pawn.lua's GetActiveScales() gives
 -- *custom* (SV-backed) scale entries a real `values` table, but *provider*
 -- (API-backed) scale entries have `values == nil` and need a separate
--- fetch (mirroring that file's private tryGetProviderValues) before they
+-- fetch from the integration adapter before they
 -- have anything to convert. A ResolveValues that just returns `entry.values`
 -- for an explicitly selected scale -- as sketched below -- only works for
 -- custom scales; a real adapter must fall back to the provider-values fetch

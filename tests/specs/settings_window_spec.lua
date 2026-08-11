@@ -149,8 +149,6 @@ local function harness()
       SetAutomation = function() end,
       GetMinimapHidden = function() return false end,
       SetMinimapHidden = function() end,
-      GetPlannerMode = function() return settingsTable.PlannerMode or "native" end,
-      SetPlannerMode = function(_, mode) settingsTable.PlannerMode = mode end,
     },
   }
   return addon, calls

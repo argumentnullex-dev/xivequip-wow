@@ -172,11 +172,22 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
   -- that: the search tries its most promising (cheapest on validity,
   -- then highest-scoring) option per group first, tightening both bounds
   -- below as early as possible.
+  local function tieBreakBetter(a, b)
+    local aValues, bValues = a.tieBreak or {}, b.tieBreak or {}
+    local count = math.max(#aValues, #bValues)
+    for i = 1, count do
+      local aValue, bValue = tonumber(aValues[i]) or 0, tonumber(bValues[i]) or 0
+      if aValue ~= bValue then return aValue > bValue end
+    end
+    return false
+  end
+
   for _, group in ipairs(ordered) do
     table.sort(group.frontier, function(a, b)
       local aInvalid, bInvalid = invalidCost(a), invalidCost(b)
       if aInvalid ~= bInvalid then return aInvalid < bInvalid end
-      return a.score > b.score
+      if a.score ~= b.score then return a.score > b.score end
+      return tieBreakBetter(a, b)
     end)
   end
 

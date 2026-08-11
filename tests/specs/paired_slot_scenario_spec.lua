@@ -1,8 +1,7 @@
 -- tests/specs/paired_slot_scenario_spec.lua
 -- Runs the ring and trinket pair matrix (doc section 7), plus the trinket
 -- policy placeholders, through the black-box scenario harness. Layer B
--- (paired_slots_spec.lua) stays in place for exact-plan-shape/move-order
--- coverage (doc migration Step 2).
+-- execution specs retain exact-plan-shape and move-order coverage.
 
 local root = ...
 local sep = package.config:sub(1, 1)

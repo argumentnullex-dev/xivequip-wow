@@ -2,7 +2,7 @@
 ## Title: XIVEquip
 ## Notes: FFXIV-style 'Equip Recommended Gear' button using Pawn when available.
 ## Author: argument.null.ex@gmail.com (aka Code Ninja)
-## Version: 2.0.0-dev.50
+## Version: 2.0.0-dev.51
 ## SavedVariables: XIVEquip_Settings
 ## IconTexture: Interface\AddOns\XIVEquip\Assets\icon_blue_128
 # Third-party addons reach XIVEquip:RegisterPolicy (PublicAPI/Policies.lua)
@@ -39,7 +39,6 @@ Integrations/Registry.lua
 # Core Modules for Registration and Setup
 Core/GearHooks.lua
 Core/GearCore.lua
-Core/ComparerBootstrapper.lua
 Core/CommandRouter.lua
 Profiles/Commands.lua
 
@@ -92,25 +91,15 @@ Policies/Assignment/WeaponHandLegality.lua
 Optimization/LoadoutOptimizer.lua
 Policies/Preference/PreferSetBonuses.lua
 
-# Shadow recommendation planner (diagnostic only)
+# Native recommendation planner
 Planning/Runtime.lua
 Planning/Coordinator.lua
 Planning/PlanBuilder.lua
 
-# Comparers - Item Level
-Comparers/ilvl/Interface.lua
-Comparers/ilvl/Export.lua
+# Addon integrations
+Integrations/Pawn.lua
 
-# Comparers - Pawn
-Comparers/Pawn/Interface.lua
-Comparers/Pawn/Export.lua
-Comparers/Pawn/Settings.lua
-Comparers/Pawn/Command.lua
-
-# Gear Evaluation Modules
-Gear/Weapons.lua
-Gear/Jewelry.lua
-Gear/Armor.lua
+# Gear execution
 Gear/Interface.lua
 
 # Automation Features

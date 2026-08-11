@@ -1,6 +1,6 @@
 -- tests/scenarios/paired_slots/trinkets.lua
 -- Doc section 7's trinket bullets that only need scoring/uniqueness (no
--- policy metadata), ported from tests/specs/paired_slots_spec.lua. The
+-- policy metadata), represented through the native scenario harness. The
 -- preferred/avoided/excluded/required/passive-on-use bullets need trinket
 -- policy metadata that doesn't exist yet -- see
 -- tests/scenarios/policies/trinket_policy.lua for those, written as

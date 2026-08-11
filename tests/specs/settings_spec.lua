@@ -35,57 +35,26 @@ local function newAddon(settings)
 
   loadAddonFile("Global" .. sep .. "Settings.lua", addon)
   loadAddonFile("Profiles" .. sep .. "Config.lua", addon)
-  loadAddonFile("Core" .. sep .. "ComparerBootstrapper.lua", addon)
   loadAddonFile("Core" .. sep .. "CommandRouter.lua", addon)
-
-  addon.Comparers:RegisterComparer("ilvl", {
-    Label = "Item Level",
-    IsAvailable = function() return true end,
-  })
-
-  local meta = { passStarts = 0, passEnds = 0 }
-  local realStartPass = addon.Comparers.StartPass
-  addon.Comparers.StartPass = function(self, ...)
-    meta.passStarts = meta.passStarts + 1
-    return realStartPass(self, ...)
-  end
-  local realEndPass = addon.Comparers.EndPass
-  addon.Comparers.EndPass = function(self, ...)
-    meta.passEnds = meta.passEnds + 1
-    if realEndPass then return realEndPass(self, ...) end
-  end
-
-  return addon, meta
+  return addon
 end
 
 local function commandHarness(settings)
-  local addon, meta = newAddon(settings)
+  local addon = newAddon(settings)
   local calls = { plan = {}, equip = {} }
 
   addon.Gear = {
-    PlanBest = function(_, cmp, opts)
-      opts = opts or {}
-      calls.plan[#calls.plan + 1] = {
-        cmp = cmp,
-        opts = opts,
-        planner = opts.planner or addon.Settings:GetPlannerMode(),
-      }
-      if opts.planner == "native" then
-        return {}, false, {}, { diagnostics = { scoreSource = "Item Level" } }
-      end
-      return {}, false, {}
+    PlanBest = function(_, opts)
+      calls.plan[#calls.plan + 1] = opts or {}
+      return {}, false, {}, { diagnostics = { scoreSource = "Default | Retribution" } }
     end,
     EquipBest = function(_, opts)
-      opts = opts or {}
-      calls.equip[#calls.equip + 1] = {
-        opts = opts,
-        planner = opts.planner or addon.Settings:GetPlannerMode(),
-      }
+      calls.equip[#calls.equip + 1] = opts or {}
       return { completed = true }
     end,
   }
 
-  return addon, meta, calls
+  return addon, calls
 end
 
 test("fresh settings produce canonical schema", function()
@@ -96,11 +65,11 @@ test("fresh settings produce canonical schema", function()
   A.equal(st.SettingsModel, "v2")
   A.equal(st.Migration.SourceModel, "fresh")
   A.equal(st.Migration.AutomaticDefaulted, true)
-  A.equal(st.Comparer.Selected, "default")
+  A.equal(st.Comparer, nil)
   A.equal(st.Automation.SpecEquip, false)
   A.equal(st.Automation.SaveSpecSet, false)
   A.equal(st.Messages.Preview, true)
-  A.equal(st.Planner.Mode, "legacy")
+  A.equal(st.Planner, nil)
   A.equal(type(st.Debug), "table")
   A.equal(type(st.XIVWeights), "table")
   A.equal(type(st.XIVWeights.Scales), "table")
@@ -108,7 +77,7 @@ test("fresh settings produce canonical schema", function()
 end)
 
 test("pre-profile settings migrate to a v2 model with Automatic as the default", function()
-  local addon = newAddon({ SchemaVersion = 3, Planner = { Mode = "native" } })
+  local addon = newAddon({ SchemaVersion = 3, Planner = { Mode = "legacy" }, Comparer = { Selected = "ilvl" } })
   local st = addon.Settings:Get()
 
   A.equal(st.SchemaVersion, 4)
@@ -120,7 +89,8 @@ test("pre-profile settings migrate to a v2 model with Automatic as the default",
   A.truthy(profile)
   A.equal(profile.automatic, true)
   A.equal(profile.manual.mode, "default")
-  A.equal(addon.Settings:GetPlannerMode(), "native")
+  A.equal(st.Planner, nil)
+  A.equal(st.Comparer, nil)
 end)
 
 test("older v1/v2 settings are marked as pre-profile rather than fresh", function()
@@ -205,30 +175,18 @@ test("debug boolean migrates to canonical table", function()
   A.equal(_G.XIVEquip_DebugSlot, 16)
 end)
 
-test("comparer labels migrate to canonical keys", function()
-  local addon = newAddon({ SelectedComparer = "Item Level" })
+test("retired comparer and planner settings are discarded", function()
+  local addon = newAddon({
+    SelectedComparer = "Item Level",
+    Comparer = { Selected = "pawn" },
+    PlannerMode = "legacy",
+    Planner = { Mode = "legacy" },
+  })
   local st = addon.Settings:Get()
-
-  A.equal(st.Comparer.Selected, "ilvl")
   A.equal(st.SelectedComparer, nil)
-end)
-
-test("planner mode normalizes aliases", function()
-  local addon = newAddon({})
-
-  addon.Settings:SetPlannerMode("2.0")
-  A.equal(addon.Settings:GetPlannerMode(), "native")
-
-  addon.Settings:SetPlannerMode("1.0")
-  A.equal(addon.Settings:GetPlannerMode(), "legacy")
-end)
-
-test("legacy planner mode field migrates to canonical planner table", function()
-  local addon = newAddon({ PlannerMode = "native" })
-  local st = addon.Settings:Get()
-
-  A.equal(st.Planner.Mode, "native")
+  A.equal(st.Comparer, nil)
   A.equal(st.PlannerMode, nil)
+  A.equal(st.Planner, nil)
 end)
 
 test("slash automation commands mutate canonical fields", function()
@@ -242,93 +200,29 @@ test("slash automation commands mutate canonical fields", function()
   A.equal(st.Automation.SaveSpecSet, true)
 end)
 
-test("slash planner commands mutate canonical planner mode", function()
-  local addon = newAddon({})
-
-  SlashCmdList.XIVE("planner native")
-  A.equal(addon.Settings:GetPlannerMode(), "native")
-
-  SlashCmdList.XIVE("planner legacy")
-  A.equal(addon.Settings:GetPlannerMode(), "legacy")
+test("plan and equip commands use the native-only entry points", function()
+  local addon, calls = commandHarness({})
+  SlashCmdList.XIVE("plan")
+  SlashCmdList.XIVE("equip")
+  A.equal(#calls.plan, 1)
+  A.equal(#calls.equip, 1)
 end)
 
-test("/xive plan resolves configured and explicit planner modes before opening resources", function()
-  local addon, meta, calls = commandHarness({ Planner = { Mode = "legacy" } })
-  SlashCmdList.XIVE("plan")
-  A.equal(#calls.plan, 1)
-  A.equal(calls.plan[1].planner, "legacy")
-  A.truthy(calls.plan[1].cmp, "legacy plan should receive a comparer")
-  A.equal(meta.passStarts, 1)
-  A.equal(meta.passEnds, 1)
-
-  addon, meta, calls = commandHarness({ Planner = { Mode = "native" } })
-  SlashCmdList.XIVE("plan")
-  A.equal(#calls.plan, 1)
-  A.equal(calls.plan[1].planner, "native")
-  A.equal(calls.plan[1].cmp, nil)
-  A.equal(meta.passStarts, 0)
-  A.equal(meta.passEnds, 0)
-
-  addon, meta, calls = commandHarness({ Planner = { Mode = "native" } })
+test("legacy planner arguments and commands are rejected", function()
+  local addon, calls = commandHarness({})
   SlashCmdList.XIVE("plan legacy")
-  A.equal(#calls.plan, 1)
-  A.equal(calls.plan[1].planner, "legacy")
-  A.truthy(calls.plan[1].cmp, "explicit legacy plan should receive a comparer")
-  A.equal(meta.passStarts, 1)
-  A.equal(meta.passEnds, 1)
-  A.equal(addon.Settings:GetPlannerMode(), "native")
-
-  addon, meta, calls = commandHarness({ Planner = { Mode = "legacy" } })
-  SlashCmdList.XIVE("plan native")
-  A.equal(#calls.plan, 1)
-  A.equal(calls.plan[1].planner, "native")
-  A.equal(calls.plan[1].cmp, nil)
-  A.equal(meta.passStarts, 0)
-  A.equal(meta.passEnds, 0)
-  A.equal(addon.Settings:GetPlannerMode(), "legacy")
-end)
-
-test("/xive equip uses configured planner mode and honors explicit overrides", function()
-  local addon, _, calls = commandHarness({ Planner = { Mode = "legacy" } })
-  SlashCmdList.XIVE("equip")
-  A.equal(#calls.equip, 1)
-  A.equal(calls.equip[1].planner, "legacy")
-
-  addon, _, calls = commandHarness({ Planner = { Mode = "native" } })
-  SlashCmdList.XIVE("equip")
-  A.equal(#calls.equip, 1)
-  A.equal(calls.equip[1].planner, "native")
-
-  addon, _, calls = commandHarness({ Planner = { Mode = "native" } })
   SlashCmdList.XIVE("equip legacy")
-  A.equal(#calls.equip, 1)
-  A.equal(calls.equip[1].planner, "legacy")
-  A.equal(addon.Settings:GetPlannerMode(), "native")
-
-  addon, _, calls = commandHarness({ Planner = { Mode = "legacy" } })
-  SlashCmdList.XIVE("equip native")
-  A.equal(#calls.equip, 1)
-  A.equal(calls.equip[1].planner, "native")
-  A.equal(addon.Settings:GetPlannerMode(), "legacy")
-end)
-
-test("invalid explicit planner arguments do not plan or equip", function()
-  local _, meta, calls = commandHarness({ Planner = { Mode = "native" } })
-
-  SlashCmdList.XIVE("plan invalid")
+  SlashCmdList.XIVE("planner legacy")
+  SlashCmdList.XIVE("compare")
   A.equal(#calls.plan, 0)
-  A.equal(meta.passStarts, 0)
-  A.equal(meta.passEnds, 0)
-  A.contains(_G.printed, "Usage: /xive plan [legacy|native]")
-
-  _G.printed = {}
-  SlashCmdList.XIVE("equip invalid")
   A.equal(#calls.equip, 0)
-  A.contains(_G.printed, "Usage: /xive equip [legacy|native]")
+  A.contains(_G.printed, "Usage: /xive plan")
+  A.contains(_G.printed, "Usage: /xive equip")
+  A.contains(_G.printed, "Unknown command")
 end)
 
 test("/xive equip2 is no longer a registered or documented command", function()
-  local _, _, calls = commandHarness({})
+  local _, calls = commandHarness({})
   SlashCmdList.XIVE("equip2")
 
   A.equal(#calls.equip, 0)

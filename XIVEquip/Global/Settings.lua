@@ -7,23 +7,6 @@ local S = XIVEquip.Settings
 local SCHEMA_VERSION = 4
 local SETTINGS_MODEL = "v2"
 
-local function normalizeComparer(value)
-  local v = tostring(value or "default")
-  local key = string.lower(v)
-  if key == "" or key == "auto" then return "default" end
-  if key == "pawn" then return "pawn" end
-  if key == "ilvl" or key == "itemlevel" or key == "item level" then return "ilvl" end
-  if key == "default" then return "default" end
-  return v
-end
-
-local function normalizePlannerMode(value)
-  local key = string.lower(tostring(value or "legacy"))
-  if key == "" or key == "default" or key == "legacy" or key == "1" or key == "1.0" then return "legacy" end
-  if key == "native" or key == "2" or key == "2.0" or key == "v2" then return "native" end
-  return "legacy"
-end
-
 local function messageValue(st, key, default)
   if type(st.Messages) == "table" and st.Messages[key] ~= nil then
     return st.Messages[key] == true
@@ -104,9 +87,6 @@ local function ensure()
   st.SchemaVersion = SCHEMA_VERSION
   st.SettingsModel = SETTINGS_MODEL
 
-  st.Comparer = type(st.Comparer) == "table" and st.Comparer or {}
-  st.Comparer.Selected = normalizeComparer(st.Comparer.Selected or st.SelectedComparer or "default")
-
   st.Messages = type(st.Messages) == "table" and st.Messages or {}
   st.Messages.Login = messageValue(st, "Login", false)
   st.Messages.Equip = messageValue(st, "Equip", false)
@@ -136,9 +116,6 @@ local function ensure()
   st.Weapons.Mode = st.Weapons.Mode or "AUTO"
   st.Weapons.Bias = st.Weapons.Bias or "AUTO"
 
-  st.Planner = type(st.Planner) == "table" and st.Planner or {}
-  st.Planner.Mode = normalizePlannerMode(st.Planner.Mode or st.PlannerMode or "legacy")
-
   st.UI = type(st.UI) == "table" and st.UI or {}
   st.UI.SettingsWindow = type(st.UI.SettingsWindow) == "table" and st.UI.SettingsWindow or {}
   st.UI.Minimap = type(st.UI.Minimap) == "table" and st.UI.Minimap or {}
@@ -151,10 +128,12 @@ local function ensure()
   ensureProfiles(st, sourceVersion)
 
   st.SelectedComparer = nil
+  st.Comparer = nil
   st.AutoSpecEquip = nil
   st.AutoSpecSets = nil
   st.DebugSlot = nil
   st.PlannerMode = nil
+  st.Planner = nil
 
   rawset(_G, "XIVEquip_Debug", st.Debug.Enabled == true)
   rawset(_G, "XIVEquip_DebugSlot", st.Debug.Slot)
@@ -210,24 +189,6 @@ function S:GetAutomation(flag)
   local key = automationAliases[flag] or flag
   return ensure().Automation[key] == true
 end
-
-function S:SetComparerName(name)
-  local st = ensure()
-  st.Comparer.Selected = normalizeComparer(name)
-end
-
-function S:GetComparerName() return ensure().Comparer.Selected end
-
-function S:SetComparerLabel(name) self:SetComparerName(name) end
-
-function S:GetComparerLabel() return self:GetComparerName() end
-
-function S:SetPlannerMode(mode)
-  local st = ensure()
-  st.Planner.Mode = normalizePlannerMode(mode)
-end
-
-function S:GetPlannerMode() return ensure().Planner.Mode end
 
 function S:GetMinimapHidden()
   return ensure().UI.Minimap.Hidden == true

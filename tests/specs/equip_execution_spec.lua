@@ -62,15 +62,6 @@ local function newHarness(config)
       Error = function(msg) logs[#logs + 1] = tostring(msg) end,
       Debugf = function(_, ...) logs[#logs + 1] = table.concat({ ... }, " ") end,
     },
-    Comparers = {
-      StartPass = function()
-        passStarts = passStarts + 1
-        return {}
-      end,
-      EndPass = function()
-        passEnds = passEnds + 1
-      end,
-    },
     Settings = {
       GetMessage = function(_, key)
         if key == "Equip" then return config.showEquip ~= false end
@@ -79,9 +70,6 @@ local function newHarness(config)
       GetAutomation = function(_, key)
         if key == "SaveSpecSet" then return config.autoSave == true end
         return false
-      end,
-      GetPlannerMode = function()
-        return config.plannerMode or "legacy"
       end,
     },
   }
@@ -221,15 +209,13 @@ local function newHarness(config)
   }
 end
 
-test("empty plan ends the comparer pass once and does not save", function()
+test("empty native plan completes without saving", function()
   local addon, raw = newHarness({ plan = {}, autoSave = true })
 
   local result = addon.Gear:EquipBest()
 
   A.equal(result.completed, true)
   A.equal(result.planned_count, 0)
-  A.equal(raw.passStarts(), 1)
-  A.equal(raw.passEnds(), 1)
   A.equal(#raw.saves, 0)
   A.truthy(containsMessage(raw.printed, "No upgrades found."))
 end)
@@ -268,7 +254,6 @@ test("verified equip success updates result and saves when enabled", function()
   A.equal(raw.ignores[2], 19)
   A.equal(raw.unignores[1], 4)
   A.equal(raw.unignores[2], 19)
-  A.equal(raw.passEnds(), 1)
 end)
 
 test("explicit native planner path executes through the existing equip runner without a legacy comparer pass", function()
@@ -296,17 +281,14 @@ test("explicit native planner path executes through the existing equip runner wi
   raw.runTimers()
 
   A.truthy(nativeCalled, "explicit native planner path should call PlanBestNative")
-  A.equal(raw.passStarts(), 0)
-  A.equal(raw.passEnds(), 0)
   A.equal(result.succeeded, 1)
   A.equal(raw.equipped[1], newLink)
 end)
 
-test("planner mode native routes normal equip through the native planner", function()
+test("normal equip routes through the native planner", function()
   local newLink = itemLink(303)
   local addon, raw = newHarness({
     keepPlanBest = true,
-    plannerMode = "native",
     equipped = { [1] = itemLink(101) },
   })
   local nativeCalled = false
@@ -322,31 +304,9 @@ test("planner mode native routes normal equip through the native planner", funct
   local result = addon.Gear:EquipBest()
   raw.runTimers()
 
-  A.truthy(nativeCalled, "planner mode native should call PlanBestNative")
-  A.equal(raw.passStarts(), 0)
-  A.equal(raw.passEnds(), 0)
+  A.truthy(nativeCalled, "normal equip should call PlanBestNative")
   A.equal(result.succeeded, 1)
   A.equal(raw.equipped[1], newLink)
-end)
-
-test("explicit legacy planner overrides native planner mode", function()
-  local legacyLink = itemLink(304)
-  local addon, raw = newHarness({
-    plannerMode = "native",
-    equipped = { [1] = itemLink(101) },
-    plan = { { targetSlot = 1, link = legacyLink } },
-  })
-  addon.Gear.PlanBestNative = function()
-    error("native planner should not be called")
-  end
-
-  local result = addon.Gear:EquipBest({ planner = "legacy" })
-  raw.runTimers()
-
-  A.equal(raw.passStarts(), 1)
-  A.equal(raw.passEnds(), 1)
-  A.equal(result.succeeded, 1)
-  A.equal(raw.equipped[1], legacyLink)
 end)
 
 test("explicit unequip plan step clears the target slot through the verified executor", function()
@@ -392,8 +352,6 @@ test("native planner failure aborts without equipping or invoking legacy planner
   raw.runTimers()
 
   A.equal(legacyCalled, false, "native failure must not invoke legacy planners")
-  A.equal(raw.passStarts(), 0)
-  A.equal(raw.passEnds(), 0)
   A.equal(result.completed, true)
   A.equal(result.succeeded, 0)
   A.equal(result.failed, 1)
@@ -444,31 +402,6 @@ test("native planner failure logs a concise visible error and keeps traceback in
   A.falsy(errors[1]:find("\n", 1, true), "visible error log should not contain a traceback")
   A.truthy(#debugDetails >= 1)
   A.truthy(debugDetails[1]:find("\n", 1, true), "full traceback belongs in debug detail")
-end)
-
-test("legacy StartPass failure does not call EndPass", function()
-  local addon, raw = newHarness({ keepPlanBest = true })
-  addon.Comparers.StartPass = function()
-    error("start failed")
-  end
-
-  local ok = pcall(function() addon.Gear:EquipBest({ planner = "legacy" }) end)
-
-  A.falsy(ok)
-  A.equal(raw.passEnds(), 0)
-end)
-
-test("legacy planning exception after comparer acquisition releases exactly once", function()
-  local addon, raw = newHarness({ keepPlanBest = true })
-  addon.Gear.PlanBest = function()
-    error("planner exploded")
-  end
-
-  local ok = pcall(function() addon.Gear:EquipBest({ planner = "legacy" }) end)
-
-  A.falsy(ok)
-  A.equal(raw.passStarts(), 1)
-  A.equal(raw.passEnds(), 1)
 end)
 
 test("ordinary auto-save does not overwrite an existing set's icon", function()
@@ -597,8 +530,6 @@ test("validation fails and does not save when the post-equip re-plan still recom
   raw.runTimers()
 
   A.equal(calls, 2)
-  A.equal(raw.passStarts(), 2)
-  A.equal(raw.passEnds(), 2)
   A.equal(raw.creates[1], "backup.xive")
   A.falsy(raw.creates[2], "spec set should not be created when validation fails")
   A.equal(#raw.saves, 1, "only backup.xive should be saved")
@@ -632,8 +563,6 @@ test("validation fails and does not save when the post-equip re-plan is still pe
   raw.runTimers()
 
   A.equal(calls, 2)
-  A.equal(raw.passStarts(), 2)
-  A.equal(raw.passEnds(), 2)
   A.equal(raw.creates[1], "backup.xive")
   A.falsy(raw.creates[2], "spec set should not be created while optimality is unconfirmed")
   A.equal(#raw.saves, 1, "only backup.xive should be saved")
@@ -689,7 +618,6 @@ test("validation aborts when Birthday Suit set is missing", function()
   A.equal(raw.creates[1], "backup.xive")
   A.equal(#raw.uses, 0)
   A.equal(raw.equipped[1], head)
-  A.equal(raw.passStarts(), 0)
   A.truthy(containsMessage(raw.printed, "could not equip Birthday Suit"))
 end)
 
@@ -753,7 +681,6 @@ test("equip exception records failure and still ends the pass once", function()
   A.equal(result.succeeded, 0)
   A.equal(result.set_saved, false)
   A.equal(#raw.saves, 0)
-  A.equal(raw.passEnds(), 1)
 end)
 
 test("permanently locked slot times out without hanging", function()
@@ -768,7 +695,6 @@ test("permanently locked slot times out without hanging", function()
 
   A.equal(result.timed_out, 1)
   A.equal(result.succeeded, 0)
-  A.equal(raw.passEnds(), 1)
 end)
 
 test("unbound BoE is reported as manual-required and does not save", function()
@@ -818,8 +744,6 @@ test("pending item data retries and later applies the available plan", function(
   A.equal(completed, 1)
   A.equal(final.succeeded, 1)
   A.equal(raw.equipped[1], link)
-  A.equal(raw.passStarts(), 2)
-  A.equal(raw.passEnds(), 2)
   A.falsy(containsMessage(raw.printed, "No upgrades found."))
 end)
 
@@ -850,7 +774,6 @@ test("combat during locked-slot wait skips the plan before protected equip", fun
   A.equal(equipAttempts, 0)
   A.equal(result.skipped, 1)
   A.equal(result.failed, 0)
-  A.equal(raw.passEnds(), 1)
 end)
 
 test("pending item data reaches a bounded timeout", function()
@@ -868,7 +791,6 @@ test("pending item data reaches a bounded timeout", function()
   A.equal(result.pending_data, true)
   A.equal(result.timed_out, 1)
   A.equal(result.completed, true)
-  A.equal(raw.passEnds(), 1)
 end)
 
 test("combat during execution skips remaining steps and prevents save", function()

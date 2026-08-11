@@ -312,9 +312,8 @@ test("planning coordinator closes live runtime when planning throws", function()
     },
   }
 
-  _G.XIVEquip_Settings = { SelectedComparer = "ilvl" }
+  _G.XIVEquip_Settings = {}
   loadAddonFile("Global" .. sep .. "Settings.lua", addon)
-  loadAddonFile("Core" .. sep .. "ComparerBootstrapper.lua", addon)
   Bootstrap.LoadCore(root, addon)
   Bootstrap.LoadWeights(root, addon)
   Bootstrap.LoadPolicyContext(root, addon)
@@ -322,18 +321,7 @@ test("planning coordinator closes live runtime when planning throws", function()
   Bootstrap.LoadOptimization(root, addon)
   Bootstrap.LoadPlanning(root, addon)
 
-  addon.Comparers:RegisterComparer("ilvl", {
-    Label = "Item Level",
-    IsAvailable = function() return true end,
-  })
-
   local passStarts, passEnds, runtimeCloses = 0, 0, 0
-  addon.Comparers.StartPass = function()
-    passStarts = passStarts + 1
-  end
-  addon.Comparers.EndPass = function()
-    passEnds = passEnds + 1
-  end
 
   local realLive = addon.Planning.Runtime.Live
   addon.Planning.Runtime.Live = function(...)

@@ -30,14 +30,11 @@ if type(table.freeze) ~= "function" then
 end
 
 local specs = {
-  "comparer_spec",
   "planning_runtime_spec",
   "planning_plan_builder_spec",
-  "command_router_compare_spec",
   "settings_spec",
   "settings_window_spec",
-  "weapons_spec",
-  "paired_slots_spec",
+  "ui_preview_spec",
   "equip_execution_spec",
   "fixture_spec",
   "black_box_scenario_spec",
