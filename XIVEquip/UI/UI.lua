@@ -191,27 +191,21 @@ local function nativeScaleHeader(result)
       or "Default | current specialization"
 end
 
-local function showEquipPreviewTooltip(owner, anchor)
-  GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
-  GameTooltip:ClearLines()
-  GameTooltip:AddLine(L.ButtonTooltip, 0.2, 0.8, 1.0)
+local PREVIEW_CACHE_SECONDS = 2
+local previewCache = { expires = 0, token = 0 }
 
-  if InCombatLockdown() then
-    GameTooltip:AddLine("|cffaaaaaa(Disabled in combat)|r")
-    GameTooltip:Show()
-    return
-  end
+local function nowSeconds()
+  if type(GetTime) == "function" then return GetTime() end
+  if type(time) == "function" then return time() end
+  return 0
+end
 
-  local settings = XIVEquip.Settings
-  local previewEnabled = true
-  if settings and type(settings.GetMessage) == "function" then
-    previewEnabled = settings:GetMessage("Preview") ~= false
-  end
-  if not previewEnabled then
-    GameTooltip:Show()
-    return
-  end
+local function ownerStillHovered(owner)
+  if MouseIsOver and owner then return MouseIsOver(owner) == true end
+  return true
+end
 
+local function computePreview()
   local changes, pending, weaponPlan, tooltipHeader
 
   withLoginSilenced(function()
@@ -229,8 +223,48 @@ local function showEquipPreviewTooltip(owner, anchor)
     end
   end)
 
+  return {
+    changes = changes,
+    pending = pending,
+    weaponPlan = weaponPlan,
+    tooltipHeader = tooltipHeader,
+  }
+end
+
+local function renderPreview(owner, anchor, payload)
+  GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+  GameTooltip:ClearLines()
+  GameTooltip:AddLine(L.ButtonTooltip, 0.2, 0.8, 1.0)
+
+  if InCombatLockdown() then
+    GameTooltip:AddLine("|cffaaaaaa(Disabled in combat)|r")
+    GameTooltip:Show()
+    return false
+  end
+
+  local settings = XIVEquip.Settings
+  local previewEnabled = true
+  if settings and type(settings.GetMessage) == "function" then
+    previewEnabled = settings:GetMessage("Preview") ~= false
+  end
+  if not previewEnabled then
+    GameTooltip:Show()
+    return false
+  end
+
+  local changes = payload and payload.changes
+  local pending = payload and payload.pending
+  local weaponPlan = payload and payload.weaponPlan
+  local tooltipHeader = payload and payload.tooltipHeader
+
   if tooltipHeader and tooltipHeader ~= "" then
     GameTooltip:AddLine("|cffffd200" .. tooltipHeader .. "|r")
+  end
+
+  if not payload then
+    GameTooltip:AddLine("|cffaaaaaaCalculating recommendations...|r")
+    GameTooltip:Show()
+    return true
   end
 
   if pending then
@@ -305,6 +339,35 @@ local function showEquipPreviewTooltip(owner, anchor)
   end
 
   GameTooltip:Show()
+  return false
+end
+
+local function showEquipPreviewTooltip(owner, anchor)
+  local now = nowSeconds()
+  if previewCache.payload and (previewCache.expires or 0) > now then
+    renderPreview(owner, anchor, previewCache.payload)
+    return
+  end
+
+  previewCache.token = (previewCache.token or 0) + 1
+  local token = previewCache.token
+  if not renderPreview(owner, anchor, nil) then return end
+
+  local function finish()
+    if token ~= previewCache.token or not ownerStillHovered(owner) then return end
+    local payload = computePreview()
+    previewCache.payload = payload
+    previewCache.expires = nowSeconds() + PREVIEW_CACHE_SECONDS
+    renderPreview(owner, anchor, payload)
+  end
+
+  if C_Timer and C_Timer.After then C_Timer.After(0.05, finish) else finish() end
+end
+
+function XIVEquip.UI.ClearPreviewCache()
+  previewCache.payload = nil
+  previewCache.expires = 0
+  previewCache.token = (previewCache.token or 0) + 1
 end
 
 XIVEquip.UI.RenderEquipPreviewTooltip = showEquipPreviewTooltip
@@ -409,6 +472,7 @@ local function createButton()
 
   -- Callback used in UI.lua to run inline logic.
   btn:SetScript("OnClick", function()
+    if XIVEquip.UI and XIVEquip.UI.ClearPreviewCache then XIVEquip.UI.ClearPreviewCache() end
     if XIVEquip and XIVEquip.EquipBestGear then
       XIVEquip:EquipBestGear()
     end

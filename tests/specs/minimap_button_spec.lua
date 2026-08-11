@@ -119,6 +119,16 @@ test("shift hover renders the shared equip preview", function()
   A.equal(calls.previewAnchor, "ANCHOR_LEFT")
 end)
 
+test("shift hover does not immediately rerender the preview on the first update", function()
+  local _, calls, button = harness()
+  _G.IsShiftKeyDown = function() return true end
+
+  button.scripts.OnEnter(button)
+  button.scripts.OnUpdate(button)
+
+  A.equal(calls.preview, 1)
+end)
+
 test("drag restores shift-hover update handling", function()
   local _, _, button = harness()
 

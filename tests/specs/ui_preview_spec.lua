@@ -69,6 +69,8 @@ local function newHarness(overrides)
   _G.GetItemInfo = function() return nil end
   _G.C_Timer = { After = function(_, fn) fn() end }
   _G.InCombatLockdown = function() return false end
+  _G.MouseIsOver = function() return true end
+  _G.GetTime = function() return overrides.now or 100 end
   _G.geterrorhandler = function()
     return function(err) error(err, 0) end
   end
@@ -171,6 +173,27 @@ test("hover preview preserves explicit zero score deltas instead of recomputing 
   button.scripts.OnEnter(button)
 
   A.equal(calls.pawnScores, 0)
+end)
+
+test("hover preview reuses a short-lived native plan cache", function()
+  local _, calls, button = newHarness()
+
+  button.scripts.OnEnter(button)
+  button.scripts.OnEnter(button)
+
+  A.equal(#calls.plan, 1)
+end)
+
+test("hover preview does not schedule planning when preview messages are disabled", function()
+  local addon, calls, button = newHarness()
+  addon.Settings.GetMessage = function(_, key)
+    if key == "Preview" then return false end
+    return true
+  end
+
+  button.scripts.OnEnter(button)
+
+  A.equal(#calls.plan, 0)
 end)
 
 return tests

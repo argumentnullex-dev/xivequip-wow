@@ -33,6 +33,10 @@ local function showTooltip(btn)
   end
 end
 
+local function setShiftState(btn)
+  btn._xiveShifted = IsShiftKeyDown and IsShiftKeyDown() or false
+end
+
 local function hoverUpdate(self)
   local shifted = IsShiftKeyDown and IsShiftKeyDown() or false
   if self._xiveShifted ~= shifted and MouseIsOver and MouseIsOver(self) then
@@ -122,6 +126,7 @@ function Button.Create()
     if button == "RightButton" and XIVEquip.UI.SettingsWindow and XIVEquip.UI.SettingsWindow.Toggle then
       XIVEquip.UI.SettingsWindow.Toggle()
     elseif button == "LeftButton" and XIVEquip.EquipBestGear then
+      if XIVEquip.UI and XIVEquip.UI.ClearPreviewCache then XIVEquip.UI.ClearPreviewCache() end
       XIVEquip:EquipBestGear()
     end
   end)
@@ -133,6 +138,7 @@ function Button.Create()
     Button.Refresh()
   end)
   btn:SetScript("OnEnter", function(self)
+    setShiftState(self)
     showTooltip(self)
   end)
   btn:SetScript("OnUpdate", hoverUpdate)
