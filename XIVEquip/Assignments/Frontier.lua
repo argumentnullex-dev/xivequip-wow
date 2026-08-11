@@ -70,31 +70,31 @@ local function dominanceSummary(assignment)
 end
 
 local function numericMapNoWorse(aMap, bMap)
-  aMap, bMap = aMap or {}, bMap or {}
-  local allKeys = {}
-  for key in pairs(aMap) do allKeys[key] = true end
-  for key in pairs(bMap) do allKeys[key] = true end
-
   local strict = false
-  for key in pairs(allKeys) do
-    local aValue, bValue = tonumber(aMap[key]) or 0, tonumber(bMap[key]) or 0
+  for key, bRaw in pairs(bMap or {}) do
+    local aValue, bValue = tonumber(aMap and aMap[key]) or 0, tonumber(bRaw) or 0
     if aValue < bValue then return false, false end
     if aValue > bValue then strict = true end
+  end
+  for key, aRaw in pairs(aMap or {}) do
+    if not (bMap and bMap[key] ~= nil) then
+      local aValue = tonumber(aRaw) or 0
+      if aValue < 0 then return false, false end
+      if aValue > 0 then strict = true end
+    end
   end
   return true, strict
 end
 
 local function flagMapNoWorse(aMap, bMap)
-  aMap, bMap = aMap or {}, bMap or {}
-  local allKeys = {}
-  for key in pairs(aMap) do allKeys[key] = true end
-  for key in pairs(bMap) do allKeys[key] = true end
-
   local strict = false
-  for key in pairs(allKeys) do
-    local aValue, bValue = aMap[key] == true, bMap[key] == true
+  for key, bRaw in pairs(bMap or {}) do
+    local aValue, bValue = aMap and aMap[key] == true, bRaw == true
     if bValue and not aValue then return false, false end
     if aValue and not bValue then strict = true end
+  end
+  for key, aRaw in pairs(aMap or {}) do
+    if aRaw == true and not (bMap and bMap[key] == true) then strict = true end
   end
   return true, strict
 end
@@ -164,20 +164,24 @@ function Frontier.Dominates(a, b)
 
   local aUsage, bUsage = aSummary.uniqueUsage, bSummary.uniqueUsage
 
-  local allKeys = {}
-  for key in pairs(aUsage) do allKeys[key] = true end
-  for key in pairs(bUsage) do allKeys[key] = true end
-
   local usageStrictlyBetter = false
-  for key in pairs(allKeys) do
-    local aEntry = aUsage[key] or { count = 0, limit = math.huge }
-    local bEntry = bUsage[key] or { count = 0, limit = math.huge }
+  for key, aEntry in pairs(aUsage) do
+    local bEntry = bUsage[key]
+    local bCount = bEntry and bEntry.count or 0
+    local bLimit = bEntry and bEntry.limit or math.huge
 
-    if aEntry.count > bEntry.count then return false end
-    if aEntry.limit < bEntry.limit then return false end
+    if aEntry.count > bCount then return false end
+    if aEntry.limit < bLimit then return false end
 
-    if aEntry.count < bEntry.count then usageStrictlyBetter = true end
-    if aEntry.limit > bEntry.limit then usageStrictlyBetter = true end
+    if aEntry.count < bCount then usageStrictlyBetter = true end
+    if aEntry.limit > bLimit then usageStrictlyBetter = true end
+  end
+  for key, bEntry in pairs(bUsage) do
+    if not aUsage[key] then
+      if bEntry.count > 0 or bEntry.limit < math.huge then
+        usageStrictlyBetter = true
+      end
+    end
   end
 
   local setNoWorse, setStrict = numericMapNoWorse(aSummary.setCounts, bSummary.setCounts)

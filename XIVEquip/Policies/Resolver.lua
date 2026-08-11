@@ -17,6 +17,24 @@ Policies.Resolver = Resolver
 -- the order.
 Resolver.PHASES = { "evaluation_context", "candidate", "assignment", "loadout", "preference" }
 
+local ALL_GROUPS_CACHE_KEY = "\0all"
+
+local function policyAppliesToGroup(policy, groupId)
+  if not policy.groups then return true end
+  if groupId == nil then return false end
+  for _, g in ipairs(policy.groups) do
+    if g == groupId then return true end
+  end
+  return false
+end
+
+local function cacheCounter(context, field)
+  local caches = context and context.caches
+  if type(caches) ~= "table" then return end
+  caches.policyResolutionStats = caches.policyResolutionStats or { hits = 0, misses = 0 }
+  caches.policyResolutionStats[field] = (caches.policyResolutionStats[field] or 0) + 1
+end
+
 -- Rejects anything that isn't a clean 1..N array of strings -- see
 -- Policies/Registry.lua's identical check for why ipairs alone isn't
 -- enough (it silently tolerates non-array keys and holes).
@@ -93,20 +111,40 @@ function Resolver.IsActive(policy, context)
 end
 
 local function groupMatches(policy, groupId)
-  if not policy.groups then return true end
-  for _, g in ipairs(policy.groups) do
-    if g == groupId then return true end
-  end
-  return false
+  return policyAppliesToGroup(policy, groupId)
 end
 
+-- ActiveForPhase(context, phase, groupId) -> ordered active policies
+-- EvaluationContext is immutable after the evaluation-context phase has
+-- completed; only context.caches is mutable. That makes policy activation
+-- stable for the lifetime of one planning operation, so scoped/active
+-- policy arrays can be prepared once per phase/group and reused by the hot
+-- candidate, assignment, loadout, and preference loops.
 function Resolver.ActiveForPhase(context, phase, groupId)
   local all = (context and context.policies and context.policies[phase]) or {}
+  local caches = context and context.caches
+  local groupKey = groupId == nil and ALL_GROUPS_CACHE_KEY or tostring(groupId)
+
+  if type(caches) == "table" then
+    caches.activePolicies = caches.activePolicies or {}
+    caches.activePolicies[phase] = caches.activePolicies[phase] or {}
+    local cached = caches.activePolicies[phase][groupKey]
+    if cached then
+      cacheCounter(context, "hits")
+      return cached
+    end
+  end
+
+  cacheCounter(context, "misses")
   local active = {}
   for _, policy in ipairs(all) do
     if groupMatches(policy, groupId) and Resolver.IsActive(policy, context) then
       active[#active + 1] = policy
     end
+  end
+
+  if type(caches) == "table" then
+    caches.activePolicies[phase][groupKey] = active
   end
   return active
 end

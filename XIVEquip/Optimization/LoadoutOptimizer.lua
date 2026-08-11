@@ -266,11 +266,10 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
     if type(policy.upperBound) ~= "function" then policiesBounded = false end
   end
 
+  local remainingGroupsByIndex
   local function policyUpperBound(index, chosen, additions, score)
     if not policiesBounded then return nil end
     if not hasLoadoutPolicies and not hasPreferencePolicies then return 0 end
-    local remainingGroups = {}
-    for i = index, n do remainingGroups[#remainingGroups + 1] = ordered[i] end
     local partial = {
       assignments = chosen,
       additions = additions,
@@ -279,10 +278,10 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
     }
     local bound = 0
     for _, policy in ipairs(loadoutPolicies) do
-      bound = bound + (tonumber(policy.upperBound(partial, remainingGroups, context)) or 0)
+      bound = bound + (tonumber(policy.upperBound(partial, remainingGroupsByIndex[index], context)) or 0)
     end
     for _, policy in ipairs(preferencePolicies) do
-      bound = bound + (tonumber(policy.upperBound(partial, remainingGroups, context)) or 0)
+      bound = bound + (tonumber(policy.upperBound(partial, remainingGroupsByIndex[index], context)) or 0)
     end
     return bound
   end
@@ -344,6 +343,27 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
   local allSlots = {}
   for _, group in ipairs(ordered) do appendAll(allSlots, group.slots) end
   local uniqueSearchState = buildUniqueSearchState(loadoutState, allSlots)
+
+  remainingGroupsByIndex = {}
+  remainingGroupsByIndex[n + 1] = {}
+  for i = n, 1, -1 do
+    local suffix = { ordered[i] }
+    appendAll(suffix, remainingGroupsByIndex[i + 1])
+    remainingGroupsByIndex[i] = suffix
+  end
+
+  for _, group in ipairs(ordered) do
+    local prepared = {}
+    for i, assignment in ipairs(group.frontier) do
+      prepared[i] = {
+        assignment = assignment,
+        additions = nonNilPicks(assignment),
+        invalid = invalidCost(assignment),
+        filled = filledCount(assignment),
+      }
+    end
+    group.preparedFrontier = prepared
+  end
 
   local bestCombination, bestScore, bestInvalidCount, bestFilledCount = nil, -math.huge, math.huge, -math.huge
 
@@ -407,17 +427,20 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
     end
 
     local group = ordered[index]
-    for _, assignment in ipairs(group.frontier) do
+    for _, entry in ipairs(group.preparedFrontier) do
+      local assignment = entry.assignment
       local uniqueChanges = pushUniqueness(uniqueSearchState, assignment)
       if uniqueChanges then
-        local additions = {}
-        appendAll(additions, accumulatedAdditions)
-        appendAll(additions, nonNilPicks(assignment))
+        local previousAdditionCount = #accumulatedAdditions
+        appendAll(accumulatedAdditions, entry.additions)
 
         chosen[group.id] = assignment
-        search(index + 1, additions, accumulatedScore + assignment.score,
-          accumulatedInvalid + invalidCost(assignment), accumulatedFilled + filledCount(assignment), chosen)
+        search(index + 1, accumulatedAdditions, accumulatedScore + assignment.score,
+          accumulatedInvalid + entry.invalid, accumulatedFilled + entry.filled, chosen)
         chosen[group.id] = nil
+        for i = #accumulatedAdditions, previousAdditionCount + 1, -1 do
+          accumulatedAdditions[i] = nil
+        end
         popUniqueness(uniqueSearchState, uniqueChanges)
       elseif perf then
         perf:Add("optimizer.uniqueness_prunes", 1)

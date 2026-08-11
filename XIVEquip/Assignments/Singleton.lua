@@ -28,8 +28,8 @@ local function evaluateCandidate(candidate, spec)
     role = "slot",
     slot = spec.slot,
     currentCandidate = spec.current,
-    currentByRole = { slot = spec.current },
-    currentBySlot = { [spec.slot] = spec.current },
+    currentByRole = spec.currentByRole or { slot = spec.current },
+    currentBySlot = spec.currentBySlot or { [spec.slot] = spec.current },
     score = spec.score and function(c, context) return spec.score(c, context, spec.slot, "slot") end or nil,
   })
 end
@@ -59,9 +59,14 @@ function Singleton.Evaluate(spec)
   local isCurrent = candidate == spec.current
   if eval.eligible == false and not isCurrent then return nil end
 
-  local additions = {}
-  if candidate then additions[#additions + 1] = candidate end
-  if not spec.loadoutState:CheckAssignment(additions, spec.allSlots or { spec.slot }) then
+  local checker = spec.assignmentChecker
+  local legal
+  if checker then
+    legal = candidate and checker:CheckOne(candidate) or checker:Check(nil)
+  else
+    legal = spec.loadoutState:CheckAssignment(candidate and { candidate } or nil, spec.allSlots or { spec.slot })
+  end
+  if not legal then
     return nil
   end
 
@@ -89,6 +94,10 @@ end
 function Singleton.Frontier(spec)
   local all = {}
   local seenCurrent = false
+  local removalSlots = spec.allSlots or { spec.slot }
+  local checker = spec.loadoutState:PrepareAssignmentChecker(removalSlots)
+  local currentByRole = { slot = spec.current }
+  local currentBySlot = { [spec.slot] = spec.current }
 
   for _, candidate in ipairs(spec.candidates or {}) do
     if candidate == spec.current then seenCurrent = true end
@@ -100,6 +109,9 @@ function Singleton.Frontier(spec)
       context = spec.context,
       loadoutState = spec.loadoutState,
       allSlots = spec.allSlots,
+      assignmentChecker = checker,
+      currentByRole = currentByRole,
+      currentBySlot = currentBySlot,
       score = spec.score,
     })
     if assignment then all[#all + 1] = assignment end
@@ -114,6 +126,9 @@ function Singleton.Frontier(spec)
       context = spec.context,
       loadoutState = spec.loadoutState,
       allSlots = spec.allSlots,
+      assignmentChecker = checker,
+      currentByRole = currentByRole,
+      currentBySlot = currentBySlot,
       score = spec.score,
     })
     if currentAssignment then all[#all + 1] = currentAssignment end
@@ -126,6 +141,9 @@ function Singleton.Frontier(spec)
       context = spec.context,
       loadoutState = spec.loadoutState,
       allSlots = spec.allSlots,
+      assignmentChecker = checker,
+      currentByRole = currentByRole,
+      currentBySlot = currentBySlot,
       score = spec.score,
     })
     if emptyAssignment then all[#all + 1] = emptyAssignment end

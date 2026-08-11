@@ -229,6 +229,26 @@ test("candidate policies adjust paired assignment score and summary state", func
   A.truthy(assignment.requiredFlags.locked)
 end)
 
+test("Solve evaluates each candidate once per role before enumerating pairs", function()
+  local addon = newAddon()
+  local a, b, c = item("a", 10), item("b", 20), item("c", 30)
+  local originalEvaluate = addon.Evaluation.CandidateEvaluator.Evaluate
+  local evaluateCalls = 0
+  addon.Evaluation.CandidateEvaluator.Evaluate = function(...)
+    evaluateCalls = evaluateCalls + 1
+    return originalEvaluate(...)
+  end
+
+  local best, allLegal = addon.Assignments.Paired.Solve(baseSpec(addon, {
+    candidates = { a, b, c },
+  }))
+
+  addon.Evaluation.CandidateEvaluator.Evaluate = originalEvaluate
+  A.truthy(best)
+  A.equal(#allLegal, 6, "three distinct candidates should still enumerate all legal ordered pairs")
+  A.equal(evaluateCalls, 6, "three candidates should be evaluated once for each of the two roles, not once per pair side")
+end)
+
 test("an ineligible literal current state remains representable as policy-invalid", function()
   local addon = newAddon()
   local current = item("current", 100)
