@@ -129,8 +129,9 @@ local function singletonGroup(spec)
   return { id = spec.id, slots = { spec.slot }, frontier = frontier, slot = spec.slot, kind = "singleton" }
 end
 
-local function buildGroups(collection, context, loadoutState, allSlots, score)
+local function buildGroups(collection, context, loadoutState, allSlots, score, perf)
   local groups = {}
+  local singletonToken = perf and perf:Start("  singleton total")
   for _, def in ipairs(SINGLETON_SLOTS) do
     groups[#groups + 1] = singletonGroup({
       id = def.id,
@@ -142,34 +143,58 @@ local function buildGroups(collection, context, loadoutState, allSlots, score)
       score = score,
     })
   end
+  if perf then perf:Stop(singletonToken) end
 
+  local ringCandidates = candidatesForEquipLoc(collection.candidates, "INVTYPE_FINGER", collection.equippedBySlot[11], collection.equippedBySlot[12])
+  if perf then perf:Set("rings.candidates", #ringCandidates) end
+  local ringToken = perf and perf:Start("  rings")
   groups[#groups + 1] = {
     id = "rings",
     kind = "paired",
     roles = { first = 11, second = 12 },
     slots = { 11, 12 },
     frontier = XIVEquip.Assignments.Groups.Rings.Frontier(
-      candidatesForEquipLoc(collection.candidates, "INVTYPE_FINGER", collection.equippedBySlot[11], collection.equippedBySlot[12]),
-      context, loadoutState, collection.equippedBySlot[11], collection.equippedBySlot[12], allSlots, score),
+      ringCandidates,
+      context, loadoutState, collection.equippedBySlot[11], collection.equippedBySlot[12], allSlots, score, perf),
   }
+  if perf then
+    perf:Stop(ringToken)
+    perf:Set("rings.final_frontier_size", #(groups[#groups].frontier or {}))
+  end
+
+  local trinketCandidates = candidatesForEquipLoc(collection.candidates, "INVTYPE_TRINKET", collection.equippedBySlot[13], collection.equippedBySlot[14])
+  if perf then perf:Set("trinkets.candidates", #trinketCandidates) end
+  local trinketToken = perf and perf:Start("  trinkets")
   groups[#groups + 1] = {
     id = "trinkets",
     kind = "paired",
     roles = { first = 13, second = 14 },
     slots = { 13, 14 },
     frontier = XIVEquip.Assignments.Groups.Trinkets.Frontier(
-      candidatesForEquipLoc(collection.candidates, "INVTYPE_TRINKET", collection.equippedBySlot[13], collection.equippedBySlot[14]),
-      context, loadoutState, collection.equippedBySlot[13], collection.equippedBySlot[14], allSlots, score),
+      trinketCandidates,
+      context, loadoutState, collection.equippedBySlot[13], collection.equippedBySlot[14], allSlots, score, perf),
   }
+  if perf then
+    perf:Stop(trinketToken)
+    perf:Set("trinkets.final_frontier_size", #(groups[#groups].frontier or {}))
+  end
+
+  local weaponCandidatesList = weaponCandidates(collection.candidates, collection.equippedBySlot[16], collection.equippedBySlot[17])
+  if perf then perf:Set("weapons.candidates", #weaponCandidatesList) end
+  local weaponToken = perf and perf:Start("  weapons")
   groups[#groups + 1] = {
     id = "weapons",
     kind = "paired",
     roles = { mh = 16, oh = 17 },
     slots = { 16, 17 },
     frontier = XIVEquip.Assignments.Groups.Weapons.Frontier(
-      weaponCandidates(collection.candidates, collection.equippedBySlot[16], collection.equippedBySlot[17]),
-      context, loadoutState, collection.equippedBySlot[16], collection.equippedBySlot[17], allSlots, score),
+      weaponCandidatesList,
+      context, loadoutState, collection.equippedBySlot[16], collection.equippedBySlot[17], allSlots, score, perf),
   }
+  if perf then
+    perf:Stop(weaponToken)
+    perf:Set("weapons.final_frontier_size", #(groups[#groups].frontier or {}))
+  end
 
   return groups
 end
@@ -276,7 +301,7 @@ local function currentScores(collection, context, runtime)
   return scores, groupScores
 end
 
-local function diagnosticsFor(collection, groups, runtime, context)
+local function diagnosticsFor(collection, groups, runtime, context, perf)
   local diagnostics = {
     unresolved = collection.unresolved,
     groupFrontierSizes = {},
@@ -300,11 +325,13 @@ local function diagnosticsFor(collection, groups, runtime, context)
       }
     end
   end
+  if perf then diagnostics.performance = perf:Snapshot() end
   return diagnostics
 end
 
 function Coordinator.Plan(opts)
   opts = opts or {}
+  local perf = opts.perf
   local runtime = opts.runtime or Planning.Runtime.Live()
   local closed = false
   local function closeRuntime()
@@ -313,24 +340,48 @@ function Coordinator.Plan(opts)
     runtime.Close()
   end
 
+  local totalToken = perf and perf:Start("Total Plan")
   local ok, result = xpcall(function()
-    local context = buildContext({ context = opts.context, resolved = opts.resolved, runtime = runtime })
-    local optimizerContext = setmetatable({ preferFilledSlots = true }, { __index = context })
-    local collection = opts.collection or XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS })
+    local context = perf and perf:Measure("Context build", function()
+      return buildContext({ context = opts.context, resolved = opts.resolved, runtime = runtime })
+    end) or buildContext({ context = opts.context, resolved = opts.resolved, runtime = runtime })
+    local optimizerContext = setmetatable({ preferFilledSlots = true, perf = perf }, { __index = context })
+    local collection = opts.collection or (perf and perf:Measure("Inventory enumeration", function()
+      return XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS, perf = perf })
+    end) or XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS }))
     local allSlots = copyArray(OPTIMIZED_SLOTS)
     local loadoutState = XIVEquip.Assignments.LoadoutState.New()
     loadoutState:SeedFromEquipped(collection.equippedBySlot)
 
     local score = groupScoreFn(opts, runtime)
-    local groups = buildGroups(collection, context, loadoutState, allSlots, score)
-    local selected, scoreTotal = XIVEquip.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, optimizerContext)
+    local groups = perf and perf:Measure("Group/frontier construction", function()
+      return buildGroups(collection, context, loadoutState, allSlots, score, perf)
+    end) or buildGroups(collection, context, loadoutState, allSlots, score)
+    local selected, scoreTotal
+    if perf then
+      selected, scoreTotal = perf:Measure("Global optimizer", function()
+        return XIVEquip.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, optimizerContext)
+      end)
+    else
+      selected, scoreTotal = XIVEquip.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, optimizerContext)
+    end
 
     local finalSlots = {}
     for _, slotID in ipairs(OPTIMIZED_SLOTS) do
       finalSlots[slotID] = collection.equippedBySlot[slotID]
     end
     local finalSlotScores, finalGroupScores = applyAssignments(finalSlots, groups, selected)
-    local currentSlotScores, currentGroupScores = currentScores(collection, context, runtime)
+    local currentSlotScores, currentGroupScores
+    if perf then
+      currentSlotScores, currentGroupScores = perf:Measure("Current-loadout scoring", function()
+        return currentScores(collection, context, runtime)
+      end)
+    else
+      currentSlotScores, currentGroupScores = currentScores(collection, context, runtime)
+    end
+    local diagnostics = perf and perf:Measure("Diagnostics", function()
+      return diagnosticsFor(collection, groups, runtime, context, perf)
+    end) or diagnosticsFor(collection, groups, runtime, context)
 
     return {
       finalSlots = finalSlots,
@@ -343,7 +394,7 @@ function Coordinator.Plan(opts)
       pending = collection.pending == true,
       weights = context.weights,
       score = scoreTotal or 0,
-      diagnostics = diagnosticsFor(collection, groups, runtime, context),
+      diagnostics = diagnostics,
       selectedAssignments = selected or {},
     }
   end, function(err)
@@ -351,6 +402,7 @@ function Coordinator.Plan(opts)
     return tostring(err)
   end)
 
+  if perf then perf:Stop(totalToken) end
   closeRuntime()
   if not ok then error(result, 0) end
   return result

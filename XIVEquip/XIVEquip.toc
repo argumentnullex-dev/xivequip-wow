@@ -2,7 +2,7 @@
 ## Title: XIVEquip
 ## Notes: FFXIV-style 'Equip Recommended Gear' button using Pawn when available.
 ## Author: argument.null.ex@gmail.com (aka Code Ninja)
-## Version: 2.0.0-dev.62
+## Version: 2.0.0-dev.64
 ## SavedVariables: XIVEquip_Settings
 ## IconTexture: Interface\AddOns\XIVEquip\Assets\icon_blue_128
 # Third-party addons reach XIVEquip:RegisterPolicy (PublicAPI/Policies.lua)
@@ -31,6 +31,7 @@ Global/Settings.lua
 Global/Constants.lua
 Global/Localization.lua
 Global/Logger.lua
+Diagnostics/Perf.lua
 
 # v2 settings profiles
 Profiles/Config.lua

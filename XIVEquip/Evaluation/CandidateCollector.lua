@@ -67,6 +67,7 @@ end
 
 local function collectLocation(result, location, source)
   if not location then return nil end
+  local perf = result.perf
   local link = locationLink(location)
   local itemID = parseItemID(link) or source.itemID
   source.guid = source.guid or itemGUID(location)
@@ -90,6 +91,7 @@ local function collectLocation(result, location, source)
     appendUnresolved(result, source, normalizeReason or "pending-item-data", link, itemID)
     return nil
   end
+  if perf then perf:Add("inventory.equipment_candidates_discovered", 1) end
   result.candidates[#result.candidates + 1] = candidate
   return candidate
 end
@@ -111,10 +113,13 @@ end
 function CandidateCollector.Collect(opts)
   opts = opts or {}
   local slots = opts.slots or DEFAULT_SLOTS
-  local result = { candidates = {}, equippedBySlot = {}, pending = false, unresolved = {} }
+  local result = { candidates = {}, equippedBySlot = {}, pending = false, unresolved = {}, perf = opts.perf }
+  local perf = opts.perf
 
   for _, slotID in ipairs(slots) do
+    if perf then perf:Add("inventory.locations_scanned", 1) end
     local loc = equipmentLocation(slotID)
+    if locationHasItem(loc) and perf then perf:Add("inventory.occupied_locations", 1) end
     local candidate = collectLocation(result, loc, {
       kind = "equipped",
       slot = slotID,
@@ -128,8 +133,10 @@ function CandidateCollector.Collect(opts)
     for bag = 0, (_G.NUM_BAG_SLOTS or 4) do
       local count = C_Container.GetContainerNumSlots(bag) or 0
       for slot = 1, count do
+        if perf then perf:Add("inventory.locations_scanned", 1) end
         local info = C_Container.GetContainerItemInfo and C_Container.GetContainerItemInfo(bag, slot) or nil
         if info and info.itemID then
+          if perf then perf:Add("inventory.occupied_locations", 1) end
           local loc = bagLocation(bag, slot)
           collectLocation(result, loc, {
             kind = "bag",
@@ -144,5 +151,6 @@ function CandidateCollector.Collect(opts)
     end
   end
 
+  result.perf = nil
   return result
 end

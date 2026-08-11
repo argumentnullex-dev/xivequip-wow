@@ -291,6 +291,8 @@ function Paired.Solve(spec)
   if emptyAllowed[roleA] then poolA[#poolA + 1] = EMPTY end
   if emptyAllowed[roleB] then poolB[#poolB + 1] = EMPTY end
 
+  local perf = spec.perf
+  if perf then perf:Add(tostring(spec.groupId or "paired") .. ".raw_pair_combinations", #poolA * #poolB) end
   local allLegal = {}
   for _, a in ipairs(poolA) do
     for _, b in ipairs(poolB) do
@@ -317,6 +319,7 @@ function Paired.Solve(spec)
       if assignment then allLegal[#allLegal + 1] = assignment end
     end
   end
+  if perf then perf:Add(tostring(spec.groupId or "paired") .. ".legal_assignments", #allLegal) end
 
   local best = nil
   for _, assignment in ipairs(allLegal) do

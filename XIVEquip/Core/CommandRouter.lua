@@ -56,6 +56,7 @@ C.Help(" /xive equip – equip recommended gear")
 C.Help(" /xive validate – save backup.xive, unequip gear, equip recommendations, confirm slots are filled with the top-recommended item")
 C.Help(" /xive smoke – run /xive test, then /xive validate if tests pass")
 C.Help(" /xive status – print selected settings and active native scale")
+C.Help(" /xive perf – run a native planning pass and print timing/counter diagnostics")
 
 -- print_help: Core addon plumbing: print help.
 local function print_help()
@@ -73,6 +74,7 @@ local function print_help()
   print("  /xive auto sets on|off           – auto-save set on equip")
   print("  /xive status                     – print settings and active native scale")
   print("  /xive plan                       – print recommended equip plan")
+  print("  /xive perf                       – print native planner performance diagnostics")
   print("  /xive validate                   – backup, unequip, equip recommended gear, confirm it's the top recommendation")
   print("  /xive smoke                      – run test, then validation if tests pass")
   for _, line in ipairs(helplines) do print("  " .. line) end
@@ -235,6 +237,40 @@ C.RegisterRoot("plan", function(rest)
 
   print(PREFIX .. "Planner: native")
   printPlan(plan, pending)
+end)
+
+-- /xive perf
+-- Performs a native planning pass and prints compact timing/work counters.
+C.RegisterRoot("perf", function(rest)
+  if trim(rest) ~= "" then
+    print(PREFIX .. "Usage: /xive perf")
+    return
+  end
+
+  local Perf = XIVEquip.Diagnostics and XIVEquip.Diagnostics.Perf
+  local Gear = XIVEquip.Gear
+  if not (Perf and Perf.New and Gear and Gear.PlanBest) then
+    print(PREFIX .. "Performance diagnostics not available.")
+    return
+  end
+
+  local recorder = Perf.New(true)
+  local _, pending, plan, result, nativeFailure = Gear:PlanBest({ native = { perf = recorder } })
+  if nativeFailure then
+    print(PREFIX .. "Native planner failed; no performance report available. Check the debug log for details.")
+    return
+  end
+
+  print(PREFIX .. string.format("Perf: native plan produced %d item%s%s.",
+    #(plan or {}),
+    #(plan or {}) == 1 and "" or "s",
+    pending and " (item data pending)" or ""))
+  if result and result.diagnostics and result.diagnostics.scoreSource then
+    print(PREFIX .. "Score source: " .. tostring(result.diagnostics.scoreSource))
+  end
+  for _, line in ipairs(recorder:Lines()) do
+    print(PREFIX .. line)
+  end
 end)
 
 -- /xive equip

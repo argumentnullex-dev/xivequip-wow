@@ -158,6 +158,7 @@ local function frontierPaired(spec)
       removalSlots = spec.allSlots,
       currentByRole = currentByRole,
       currentBySlot = currentBySlot,
+      perf = spec.perf,
   })
 
   if not alreadyRepresents(allLegal, roleA, roleB, spec.currentA, spec.currentB) then
@@ -182,7 +183,7 @@ local function frontierPaired(spec)
     spec.decorateAssignments(allLegal)
   end
 
-  return Frontier.Prune(allLegal)
+  return Frontier.Prune(allLegal, spec.perf)
 end
 
 -------------------------------------------------------------------------
@@ -344,7 +345,7 @@ end
 -- loadout even when other groups have valid upgrades.
 --
 -- `allSlots` (optional): see frontierPaired's doc comment.
-function Groups.Weapons.Frontier(candidates, context, loadoutState, currentMH, currentOH, allSlots, score)
+function Groups.Weapons.Frontier(candidates, context, loadoutState, currentMH, currentOH, allSlots, score, perf)
   return frontierPaired({
     groupId = Groups.Weapons.id,
     slots = Groups.Weapons.slots,
@@ -358,6 +359,7 @@ function Groups.Weapons.Frontier(candidates, context, loadoutState, currentMH, c
     currentB = currentOH,
     allSlots = allSlots,
     score = score,
+    perf = perf,
     prepareAssignments = prepareWeaponAssignments,
     decorateAssignments = function(assignments)
       for _, assignment in ipairs(assignments) do
@@ -459,7 +461,7 @@ local function pairedChangeCount(assignment, roleA, roleB, currentA, currentB)
   return n
 end
 
-local function jewelryFrontier(groupId, slots, candidates, context, loadoutState, currentA, currentB, allSlots, score)
+local function jewelryFrontier(groupId, slots, candidates, context, loadoutState, currentA, currentB, allSlots, score, perf)
   local floor = emptySlotIlvlFloor(candidates, currentA, currentB)
   local function build(pool)
     return frontierPaired({
@@ -475,6 +477,7 @@ local function jewelryFrontier(groupId, slots, candidates, context, loadoutState
       currentB = currentB,
       allSlots = allSlots,
       score = score,
+      perf = perf,
       decorateAssignments = function(assignments)
         for _, assignment in ipairs(assignments) do
           assignment.tieBreak = {
@@ -552,16 +555,16 @@ Groups.Rings = { id = "rings", slots = { first = 11, second = 12 } }
 function Groups.Rings.Solve(candidates, context, loadoutState, currentA, currentB)
   return solvePaired(Groups.Rings.id, Groups.Rings.slots, candidates, context, loadoutState, currentA, currentB)
 end
-function Groups.Rings.Frontier(candidates, context, loadoutState, currentA, currentB, allSlots, score)
+function Groups.Rings.Frontier(candidates, context, loadoutState, currentA, currentB, allSlots, score, perf)
   return jewelryFrontier(Groups.Rings.id, Groups.Rings.slots, candidates, context, loadoutState,
-    currentA, currentB, allSlots, score)
+    currentA, currentB, allSlots, score, perf)
 end
 
 Groups.Trinkets = { id = "trinkets", slots = { first = 13, second = 14 } }
 function Groups.Trinkets.Solve(candidates, context, loadoutState, currentA, currentB)
   return solvePaired(Groups.Trinkets.id, Groups.Trinkets.slots, candidates, context, loadoutState, currentA, currentB)
 end
-function Groups.Trinkets.Frontier(candidates, context, loadoutState, currentA, currentB, allSlots, score)
+function Groups.Trinkets.Frontier(candidates, context, loadoutState, currentA, currentB, allSlots, score, perf)
   return jewelryFrontier(Groups.Trinkets.id, Groups.Trinkets.slots, candidates, context, loadoutState,
-    currentA, currentB, allSlots, score)
+    currentA, currentB, allSlots, score, perf)
 end

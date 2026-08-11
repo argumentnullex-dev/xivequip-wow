@@ -187,17 +187,22 @@ end
 -- Keeps only assignments not dominated by any other assignment in the
 -- list. O(n^2) -- frontiers at this scale (single-digit to low tens of
 -- legal pairings per group) make anything more elaborate unnecessary.
-function Frontier.Prune(assignments)
+function Frontier.Prune(assignments, perf)
   local survivors = {}
   for i, candidate in ipairs(assignments) do
     local dominated = false
     for j, other in ipairs(assignments) do
+      if perf then perf:Add("frontier.dominance_comparisons", 1) end
       if i ~= j and Frontier.Dominates(other, candidate) then
         dominated = true
         break
       end
     end
-    if not dominated then survivors[#survivors + 1] = candidate end
+    if not dominated then
+      survivors[#survivors + 1] = candidate
+    elseif perf then
+      perf:Add("frontier.candidates_discarded", 1)
+    end
   end
   return survivors
 end

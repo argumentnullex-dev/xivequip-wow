@@ -34,6 +34,7 @@ local function newAddon(settings)
   end
 
   loadAddonFile("Global" .. sep .. "Settings.lua", addon)
+  loadAddonFile("Diagnostics" .. sep .. "Perf.lua", addon)
   loadAddonFile("Profiles" .. sep .. "Config.lua", addon)
   loadAddonFile("Core" .. sep .. "CommandRouter.lua", addon)
   return addon
@@ -46,6 +47,8 @@ local function commandHarness(settings)
   addon.Gear = {
     PlanBest = function(_, opts)
       calls.plan[#calls.plan + 1] = opts or {}
+      local perf = opts and opts.native and opts.native.perf
+      if perf and perf.Add then perf:Add("optimizer.nodes_visited", 3) end
       return {}, false, {}, { diagnostics = { scoreSource = "Default | Retribution" } }
     end,
     EquipBest = function(_, opts)
@@ -206,6 +209,19 @@ test("plan and equip commands use the native-only entry points", function()
   SlashCmdList.XIVE("equip")
   A.equal(#calls.plan, 1)
   A.equal(#calls.equip, 1)
+end)
+
+test("/xive perf runs a native plan with a performance recorder", function()
+  local addon, calls = commandHarness({})
+  SlashCmdList.XIVE("perf")
+
+  A.equal(#calls.plan, 1)
+  A.truthy(calls.plan[1].native)
+  A.truthy(calls.plan[1].native.perf)
+  A.contains(_G.printed, "Perf: native plan produced")
+  A.contains(_G.printed, "Score source: Default | Retribution")
+  A.contains(_G.printed, "Performance:")
+  A.contains(_G.printed, "optimizer.nodes_visited: 3")
 end)
 
 test("legacy planner arguments and commands are rejected", function()

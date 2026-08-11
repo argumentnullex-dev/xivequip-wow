@@ -161,6 +161,7 @@ end
 -- exactly what's equipped" is always a member of a real Frontier() call's
 -- result, so this is a degenerate-input case, not an expected outcome).
 function LoadoutOptimizer.FindBest(groups, loadoutState, context)
+  local perf = context and context.perf
   -- Copy + sort by frontier size ascending (doc 24.2: "favor groups with
   -- small frontiers") -- restrictive groups fail fast and prune more of
   -- the search tree earlier.
@@ -256,6 +257,7 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
   local bestCombination, bestScore, bestInvalidCount, bestFilledCount = nil, -math.huge, math.huge, -math.huge
 
   local function search(index, accumulatedAdditions, accumulatedScore, accumulatedInvalid, accumulatedFilled, chosen)
+    if perf then perf:Add("optimizer.nodes_visited", 1) end
     -- Branch-and-bound (doc 24.3), lexicographic: a branch that can't
     -- possibly reach as FEW invalid assignments as the current best is
     -- dead regardless of score. One that CAN reach fewer must always be
@@ -263,18 +265,26 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
     -- matter the score -- the score bound only applies once tied on the
     -- best-achievable invalid count.
     local bestPossibleInvalid = accumulatedInvalid + (minRemainingInvalid[index] or 0)
-    if bestPossibleInvalid > bestInvalidCount then return end
+    if bestPossibleInvalid > bestInvalidCount then
+      if perf then perf:Add("optimizer.invalid_count_prunes", 1) end
+      return
+    end
     local bestPossibleFilled = preferFilledSlots and (accumulatedFilled + (maxRemainingFilled[index] or 0)) or 0
-    if preferFilledSlots and bestPossibleInvalid == bestInvalidCount and bestPossibleFilled < bestFilledCount then return end
+    if preferFilledSlots and bestPossibleInvalid == bestInvalidCount and bestPossibleFilled < bestFilledCount then
+      if perf then perf:Add("optimizer.filled_slot_prunes", 1) end
+      return
+    end
     if not hasLoadoutPolicies
         and not hasPreferencePolicies
         and bestPossibleInvalid == bestInvalidCount
         and (not preferFilledSlots or bestPossibleFilled == bestFilledCount)
         and accumulatedScore + (maxRemainingScore[index] or 0) <= bestScore then
+      if perf then perf:Add("optimizer.score_bound_prunes", 1) end
       return
     end
 
     if index > n then
+      if perf then perf:Add("optimizer.complete_leaves", 1) end
       local allowed, finalScore = applyLoadoutPolicies(chosen, accumulatedAdditions, accumulatedScore, context)
       if allowed then
         local loadout = {
@@ -310,6 +320,8 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
         search(index + 1, additions, accumulatedScore + assignment.score,
           accumulatedInvalid + invalidCost(assignment), accumulatedFilled + filledCount(assignment), chosen)
         chosen[group.id] = nil
+      elseif perf then
+        perf:Add("optimizer.uniqueness_prunes", 1)
       end
     end
   end
