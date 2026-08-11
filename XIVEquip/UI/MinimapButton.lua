@@ -13,6 +13,34 @@ local ICON_SIZE = 18
 
 local function settingsApi() return XIVEquip.Settings end
 
+local function showHelpTooltip(btn)
+  if not GameTooltip then return end
+  GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
+  GameTooltip:ClearLines()
+  GameTooltip:AddLine("XIVEquip")
+  GameTooltip:AddLine("Left Click - Equip Best", 0.8, 0.8, 0.8)
+  GameTooltip:AddLine("Right Click - Open Config", 0.8, 0.8, 0.8)
+  GameTooltip:AddLine("Hold Shift - Preview recommendations", 0.8, 0.8, 0.8)
+  GameTooltip:Show()
+end
+
+local function showTooltip(btn)
+  if IsShiftKeyDown and IsShiftKeyDown()
+      and XIVEquip.UI and XIVEquip.UI.RenderEquipPreviewTooltip then
+    XIVEquip.UI.RenderEquipPreviewTooltip(btn, "ANCHOR_LEFT")
+  else
+    showHelpTooltip(btn)
+  end
+end
+
+local function hoverUpdate(self)
+  local shifted = IsShiftKeyDown and IsShiftKeyDown() or false
+  if self._xiveShifted ~= shifted and MouseIsOver and MouseIsOver(self) then
+    self._xiveShifted = shifted
+    showTooltip(self)
+  end
+end
+
 local function minimapPoint(angle)
   local rad = math.rad(tonumber(angle) or 220)
   local radius = ((Minimap and Minimap.GetWidth and Minimap:GetWidth() or 174) / 2) + BUTTON_EDGE_OFFSET
@@ -90,26 +118,24 @@ function Button.Create()
       self.Icon:SetPoint("CENTER", 0, 0)
     end
   end)
-  btn:SetScript("OnClick", function()
-    if XIVEquip.UI.SettingsWindow and XIVEquip.UI.SettingsWindow.Toggle then
+  btn:SetScript("OnClick", function(_, button)
+    if button == "RightButton" and XIVEquip.UI.SettingsWindow and XIVEquip.UI.SettingsWindow.Toggle then
       XIVEquip.UI.SettingsWindow.Toggle()
+    elseif button == "LeftButton" and XIVEquip.EquipBestGear then
+      XIVEquip:EquipBestGear()
     end
   end)
   btn:SetScript("OnDragStart", function(self)
     self:SetScript("OnUpdate", updateAngle)
   end)
   btn:SetScript("OnDragStop", function(self)
-    self:SetScript("OnUpdate", nil)
+    self:SetScript("OnUpdate", hoverUpdate)
     Button.Refresh()
   end)
   btn:SetScript("OnEnter", function(self)
-    if GameTooltip then
-      GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-      GameTooltip:AddLine("XIVEquip")
-      GameTooltip:AddLine("Open settings", 0.8, 0.8, 0.8)
-      GameTooltip:Show()
-    end
+    showTooltip(self)
   end)
+  btn:SetScript("OnUpdate", hoverUpdate)
   btn:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
 
   Button.Frame = btn

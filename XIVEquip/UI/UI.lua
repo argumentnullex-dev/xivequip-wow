@@ -36,6 +36,7 @@ local GetItemStats             = _G.GetItemStats or GetItemStats
 local GetDetailedItemLevelInfo = _G.GetDetailedItemLevelInfo or GetDetailedItemLevelInfo
 
 XIVEquip                       = XIVEquip or {}
+XIVEquip.UI                    = XIVEquip.UI or {}
 local L                        = XIVEquip.L or {}
 
 -- Fallback strings
@@ -190,6 +191,124 @@ local function nativeScaleHeader(result)
       or "Default | current specialization"
 end
 
+local function showEquipPreviewTooltip(owner, anchor)
+  GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+  GameTooltip:ClearLines()
+  GameTooltip:AddLine(L.ButtonTooltip, 0.2, 0.8, 1.0)
+
+  if InCombatLockdown() then
+    GameTooltip:AddLine("|cffaaaaaa(Disabled in combat)|r")
+    GameTooltip:Show()
+    return
+  end
+
+  local settings = XIVEquip.Settings
+  local previewEnabled = true
+  if settings and type(settings.GetMessage) == "function" then
+    previewEnabled = settings:GetMessage("Preview") ~= false
+  end
+  if not previewEnabled then
+    GameTooltip:Show()
+    return
+  end
+
+  local changes, pending, weaponPlan, tooltipHeader
+
+  withLoginSilenced(function()
+    local result, nativeFailure
+    if XIVEquip.Gear and XIVEquip.Gear.PlanBest then
+      changes, pending, _, result, nativeFailure = XIVEquip.Gear:PlanBest()
+    else
+      changes, pending = {}, false
+    end
+    if nativeFailure then
+      tooltipHeader = "Native planner failed"
+      changes, pending = {}, false
+    else
+      tooltipHeader = nativeScaleHeader(result)
+    end
+  end)
+
+  if tooltipHeader and tooltipHeader ~= "" then
+    GameTooltip:AddLine("|cffffd200" .. tooltipHeader .. "|r")
+  end
+
+  if pending then
+    GameTooltip:AddLine("|cffFFD100Loading item data…|r")
+  end
+
+  if (not changes or #changes == 0) and not weaponPlan then
+    GameTooltip:AddLine("|cffaaaaaaNo upgrades.|r")
+  else
+    for _, c in ipairs(changes or {}) do
+      GameTooltip:AddLine(string.format("|cffdddddd%s|r", c.slotName or " "))
+
+      ensureDeltas(c)
+
+      local dIlvl   = c.deltaIlvl or 0
+      local raw     = computeStatDiff(c.oldLink, c.newLink) or {}
+      local values  = c.scaleValues
+      local _, wsum = weightDeltas(raw, values)
+      local link    = c.newLink or ""
+      GameTooltip:AddLine(string.format(
+        "  %s%s  |cff7fff7f%+.1f score|r  |cff7fbfff%+d ilvl|r",
+        link, GetBoEText(link, c.newLoc), c.deltaScore or 0, dIlvl))
+
+      local rows = {}
+      for blizzKey, delta in pairs(raw) do
+        local map = STAT_TO_PAWN[blizzKey]
+        if map and delta ~= 0 then rows[#rows + 1] = { label = map.label, d = delta } end
+      end
+      table.sort(rows, function(a, b) return math.abs(a.d) > math.abs(b.d) end)
+
+      for i, row in ipairs(rows) do
+        if i > 8 then
+          GameTooltip:AddLine("     |cffaaaaaa(…more)|r"); break
+        end
+        local color = row.d > 0 and "|cff7fff7f" or "|cffff3a3a"
+        GameTooltip:AddLine(string.format("     %s%+d %s|r", color, row.d, row.label))
+      end
+
+      if wsum and wsum ~= 0 then
+        local color = wsum > 0 and "|cff7fff7f" or "|cffff3a3a"
+        GameTooltip:AddLine(string.format("     %s%+.1f weighted|r", color, wsum))
+      end
+    end
+
+    if weaponPlan then
+      GameTooltip:AddLine(" ")
+      GameTooltip:AddLine("|cffddddddWeapons|r")
+      GameTooltip:AddLine("  " .. weaponPlan.newText)
+    end
+  end
+
+  local potentials = (XIVEquip.Gear and XIVEquip.Gear.GetSocketPotential and XIVEquip.Gear:GetSocketPotential()) or {}
+  if type(potentials) == "table" and #potentials > 0 then
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("|cffddddddPotential socket upgrades|r")
+    for _, r in ipairs(potentials) do
+      local assumed = string.format("+%d %s", tonumber(r.assumedAmount) or 10,
+        tostring(r.assumedStat or "best secondary"))
+      local delta = tonumber(r.potentialDeltaScore) or 0
+      GameTooltip:AddLine(string.format("  %s |cffaaaaaa(%s, potential %+0.1f score)|r", tostring(r.link or ""),
+        assumed, delta))
+    end
+  end
+
+  local boes = (XIVEquip.Gear and XIVEquip.Gear.GetBoEReminders and XIVEquip.Gear:GetBoEReminders()) or {}
+  if type(boes) == "table" and #boes > 0 then
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("|cffddddddBind-on-Equip reminders|r")
+    for _, r in ipairs(boes) do
+      GameTooltip:AddLine(string.format("  %s |cffffaa66([BoE] equip the piece manually)|r", tostring(r.link or "")))
+    end
+  end
+
+  GameTooltip:Show()
+end
+
+XIVEquip.UI.RenderEquipPreviewTooltip = showEquipPreviewTooltip
+
 -- Use saved button position if present, otherwise sensible defaults near the portrait
 -- [XIVEquip-AUTO] anchorButton: Helper for UI module.
 local function anchorButton()
@@ -282,128 +401,7 @@ local function createButton()
   -- PREVIEW TOOLTIP (no equipping, no chat spam)
   -- [XIVEquip-AUTO] Callback: Callback used by UI.lua to respond to a timer/event/script hook.
   btn:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:ClearLines()
-    GameTooltip:AddLine(L.ButtonTooltip, 0.2, 0.8, 1.0)
-
-    if InCombatLockdown() then
-      GameTooltip:AddLine("|cffaaaaaa(Disabled in combat)|r")
-      GameTooltip:Show()
-      return
-    end
-
-    local settings = XIVEquip.Settings
-    local previewEnabled = true
-    if settings and type(settings.GetMessage) == "function" then
-      previewEnabled = settings:GetMessage("Preview") ~= false
-    end
-    if not previewEnabled then
-      GameTooltip:Show()
-      return
-    end
-
-    local changes, pending, weaponPlan, tooltipHeader
-
-    -- Callback used in UI.lua to run inline logic.
-    withLoginSilenced(function()
-      local result, nativeFailure
-      if XIVEquip.Gear and XIVEquip.Gear.PlanBest then
-        changes, pending, _, result, nativeFailure = XIVEquip.Gear:PlanBest()
-      else
-        changes, pending = {}, false
-      end
-      if nativeFailure then
-        tooltipHeader = "Native planner failed"
-        changes, pending = {}, false
-      else
-        tooltipHeader = nativeScaleHeader(result)
-      end
-    end)
-
-    if tooltipHeader and tooltipHeader ~= "" then
-      GameTooltip:AddLine("|cffffd200" .. tooltipHeader .. "|r")
-    end
-
-    if pending then
-      GameTooltip:AddLine("|cffFFD100Loading item data…|r")
-    end
-
-    if (not changes or #changes == 0) and not weaponPlan then
-      GameTooltip:AddLine("|cffaaaaaaNo upgrades.|r")
-    else
-      for _, c in ipairs(changes or {}) do
-        GameTooltip:AddLine(string.format("|cffdddddd%s|r", c.slotName or " "))
-
-        -- compute deltas if missing/zero
-        ensureDeltas(c)
-
-        local dIlvl   = c.deltaIlvl or 0
-        local raw     = computeStatDiff(c.oldLink, c.newLink) or {}
-        local values  = c.scaleValues
-        local _, wsum = weightDeltas(raw, values)
-
-        -- main line: new link, score, ilvl
-        local link    = c.newLink or ""
-        GameTooltip:AddLine(string.format(
-          "  %s%s  |cff7fff7f%+.1f score|r  |cff7fbfff%+d ilvl|r",
-          link, GetBoEText(link, c.newLoc), c.deltaScore or 0, dIlvl))
-
-        -- pretty-print mapped secondaries, sorted by |delta|
-        local rows = {}
-        for blizzKey, delta in pairs(raw) do
-          local map = STAT_TO_PAWN[blizzKey]
-          if map and delta ~= 0 then rows[#rows + 1] = { label = map.label, d = delta } end
-        end
-        -- Callback used in UI.lua to run inline logic.
-        table.sort(rows, function(a, b) return math.abs(a.d) > math.abs(b.d) end)
-
-        for i, row in ipairs(rows) do
-          if i > 8 then
-            GameTooltip:AddLine("     |cffaaaaaa(…more)|r"); break
-          end
-          local color = row.d > 0 and "|cff7fff7f" or "|cffff3a3a"
-          GameTooltip:AddLine(string.format("     %s%+d %s|r", color, row.d, row.label))
-        end
-
-        if wsum and wsum ~= 0 then
-          local color = wsum > 0 and "|cff7fff7f" or "|cffff3a3a"
-          GameTooltip:AddLine(string.format("     %s%+.1f weighted|r", color, wsum))
-        end
-      end
-
-      if weaponPlan then
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("|cffddddddWeapons|r")
-        GameTooltip:AddLine("  " .. weaponPlan.newText) -- no arrow; proposed only
-      end
-    end
-
-    -- Socket potential hints (append at very bottom)
-    local potentials = (XIVEquip.Gear and XIVEquip.Gear.GetSocketPotential and XIVEquip.Gear:GetSocketPotential()) or {}
-    if type(potentials) == "table" and #potentials > 0 then
-      GameTooltip:AddLine(" ")
-      GameTooltip:AddLine("|cffddddddPotential socket upgrades|r")
-      for _, r in ipairs(potentials) do
-        local assumed = string.format("+%d %s", tonumber(r.assumedAmount) or 10,
-          tostring(r.assumedStat or "best secondary"))
-        local delta = tonumber(r.potentialDeltaScore) or 0
-        GameTooltip:AddLine(string.format("  %s |cffaaaaaa(%s, potential %+0.1f score)|r", tostring(r.link or ""),
-          assumed, delta))
-      end
-    end
-
-
-    -- BoE reminders (append after socket hints, at very bottom)
-    local boes = (XIVEquip.Gear and XIVEquip.Gear.GetBoEReminders and XIVEquip.Gear:GetBoEReminders()) or {}
-    if type(boes) == "table" and #boes > 0 then
-      GameTooltip:AddLine(" ")
-      GameTooltip:AddLine("|cffddddddBind-on-Equip reminders|r")
-      for _, r in ipairs(boes) do
-        GameTooltip:AddLine(string.format("  %s |cffffaa66([BoE] equip the piece manually)|r", tostring(r.link or "")))
-      end
-    end
-
-    GameTooltip:Show()
+    showEquipPreviewTooltip(self, "ANCHOR_RIGHT")
   end)
 
   -- Callback used in UI.lua to run inline logic.
