@@ -345,7 +345,8 @@ function Coordinator.Plan(opts)
     local context = perf and perf:Measure("Context build", function()
       return buildContext({ context = opts.context, resolved = opts.resolved, runtime = runtime })
     end) or buildContext({ context = opts.context, resolved = opts.resolved, runtime = runtime })
-    local optimizerContext = setmetatable({ preferFilledSlots = true, perf = perf }, { __index = context })
+    local evaluationContext = perf and setmetatable({ perf = perf, caches = context.caches }, { __index = context }) or context
+    local optimizerContext = setmetatable({ preferFilledSlots = true, perf = perf }, { __index = evaluationContext })
     local collection = opts.collection or (perf and perf:Measure("Inventory enumeration", function()
       return XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS, perf = perf })
     end) or XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS }))
@@ -355,7 +356,7 @@ function Coordinator.Plan(opts)
 
     local score = groupScoreFn(opts, runtime)
     local groups = perf and perf:Measure("Group/frontier construction", function()
-      return buildGroups(collection, context, loadoutState, allSlots, score, perf)
+      return buildGroups(collection, evaluationContext, loadoutState, allSlots, score, perf)
     end) or buildGroups(collection, context, loadoutState, allSlots, score)
     local selected, scoreTotal
     if perf then
@@ -374,13 +375,13 @@ function Coordinator.Plan(opts)
     local currentSlotScores, currentGroupScores
     if perf then
       currentSlotScores, currentGroupScores = perf:Measure("Current-loadout scoring", function()
-        return currentScores(collection, context, runtime)
+        return currentScores(collection, evaluationContext, runtime)
       end)
     else
       currentSlotScores, currentGroupScores = currentScores(collection, context, runtime)
     end
     local diagnostics = perf and perf:Measure("Diagnostics", function()
-      return diagnosticsFor(collection, groups, runtime, context, perf)
+      return diagnosticsFor(collection, groups, runtime, evaluationContext, perf)
     end) or diagnosticsFor(collection, groups, runtime, context)
 
     return {

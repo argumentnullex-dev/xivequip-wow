@@ -48,6 +48,41 @@ test("Score matches a manual weighted sum against a hand-built scale", function(
   A.equal(score, 100 * 1.0 + 40 * 0.5)
 end)
 
+test("intrinsic score is calculated once per item per EvaluationContext", function()
+  local addon = newAddon()
+  local calls = 0
+  local original = addon.XIVWeights.Scorer.Score
+  addon.XIVWeights.Scorer.Score = function(...)
+    calls = calls + 1
+    return original(...)
+  end
+  local candidate = { guid = "guid-score", stats = { strength = 100 }, weapon = {} }
+  local scale = addon.XIVWeights.NewScale({ weights = { strength = 1.0 } })
+  local context = { weights = scale, caches = {} }
+
+  A.equal(addon.Evaluation.CandidateEvaluator.Score(candidate, context), 100)
+  A.equal(addon.Evaluation.CandidateEvaluator.Score(candidate, context), 100)
+
+  A.equal(calls, 1)
+end)
+
+test("a new EvaluationContext performs a fresh intrinsic score", function()
+  local addon = newAddon()
+  local calls = 0
+  local original = addon.XIVWeights.Scorer.Score
+  addon.XIVWeights.Scorer.Score = function(...)
+    calls = calls + 1
+    return original(...)
+  end
+  local candidate = { guid = "guid-score", stats = { strength = 100 }, weapon = {} }
+  local scale = addon.XIVWeights.NewScale({ weights = { strength = 1.0 } })
+
+  addon.Evaluation.CandidateEvaluator.Score(candidate, { weights = scale, caches = {} })
+  addon.Evaluation.CandidateEvaluator.Score(candidate, { weights = scale, caches = {} })
+
+  A.equal(calls, 2)
+end)
+
 test("Evaluate applies candidate eligibility policies before score can make an item attractive", function()
   local addon = newAddon()
   local candidate = { itemID = 42, stats = { strength = 1000 }, weapon = {} }
@@ -74,6 +109,44 @@ test("Evaluate applies candidate eligibility policies before score can make an i
   A.equal(result.baseScore, 1000)
   A.equal(result.score, 1000, "eligibility is separate from raw score")
   A.equal(result.reasons[1], "excluded")
+end)
+
+test("placement caching preserves role and slot sensitive policy context", function()
+  local addon = newAddon()
+  local calls = 0
+  local candidate = { guid = "guid-placement", stats = { strength = 10 }, weapon = {} }
+  local scale = addon.XIVWeights.NewScale({ weights = { strength = 1.0 } })
+  local context = {
+    weights = scale,
+    caches = {},
+    policies = {
+      candidate = {
+        {
+          id = "Test.role_sensitive",
+          apply = function(_, _, policyContext)
+            calls = calls + 1
+            return { targetFlags = { [policyContext.role .. ":" .. tostring(policyContext.slot)] = true } }
+          end,
+        },
+      },
+      preference = {},
+    },
+  }
+
+  local first = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, context, {
+    groupId = "rings", role = "first", slot = 11,
+  })
+  local second = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, context, {
+    groupId = "rings", role = "second", slot = 12,
+  })
+  local firstAgain = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, context, {
+    groupId = "rings", role = "first", slot = 11,
+  })
+
+  A.equal(calls, 2)
+  A.truthy(first.targetFlags["first:11"])
+  A.truthy(second.targetFlags["second:12"])
+  A.truthy(firstAgain.targetFlags["first:11"])
 end)
 
 test("Evaluate applies candidate score adjustments and carries summary state", function()
@@ -109,6 +182,42 @@ test("Evaluate applies candidate score adjustments and carries summary state", f
   A.equal(result.setCounts.tier, 1)
   A.truthy(result.targetFlags.wanted)
   A.truthy(result.requiredFlags.locked)
+end)
+
+test("paired enumeration does not rescore the same candidate for every combination", function()
+  local addon = newAddon()
+  Bootstrap.LoadAssignments(root, addon)
+  local calls = 0
+  local original = addon.XIVWeights.Scorer.Score
+  addon.XIVWeights.Scorer.Score = function(...)
+    calls = calls + 1
+    return original(...)
+  end
+  local scale = addon.XIVWeights.NewScale({ weights = { strength = 1.0 } })
+  local context = {
+    weights = scale,
+    caches = {},
+    policies = { candidate = {}, assignment = {}, preference = {} },
+  }
+  local candidates = {
+    { guid = "guid-a", physicalID = "a", stats = { strength = 10 }, weapon = {} },
+    { guid = "guid-b", physicalID = "b", stats = { strength = 20 }, weapon = {} },
+    { guid = "guid-c", physicalID = "c", stats = { strength = 30 }, weapon = {} },
+  }
+
+  addon.Assignments.Paired.Solve({
+    roles = { "first", "second" },
+    slots = { first = 11, second = 12 },
+    candidates = candidates,
+    context = context,
+    loadoutState = addon.Assignments.LoadoutState.New(),
+    groupId = "rings",
+    compare = function(candidate, current)
+      return (candidate.score or 0) > (current.score or 0)
+    end,
+  })
+
+  A.equal(calls, 3)
 end)
 
 test("Evaluate supplies current candidate state to candidate policies", function()
