@@ -24,6 +24,17 @@ local function visibleForPlayer(options)
   return type(option) == "table" and option.Visible == true
 end
 
+local function normalized(value)
+  return tostring(value or ""):lower():gsub("[%s%p]+", "")
+end
+
+local function playerScaleContext()
+  local _, _, classID = UnitClass and UnitClass("player")
+  local specIndex = GetSpecialization and GetSpecialization()
+  local specName = specIndex and GetSpecializationInfo and select(2, GetSpecializationInfo(specIndex)) or ""
+  return tonumber(classID), tonumber(specIndex), normalized(specName)
+end
+
 function Pawn.GetAllScales()
   local result = {}
   for key, scale in pairs(allSavedScales()) do
@@ -37,7 +48,9 @@ function Pawn.GetAllScales()
         active = visibleForPlayer(scale.PerCharacterOptions),
         values = values,
         class = scale.ClassID or scale.Class,
-        spec = scale.Spec or scale.SpecIndex,
+        -- Pawn SavedVariables use SpecID for the class-local specialization
+        -- index returned by GetSpecialization(), not Blizzard's global spec ID.
+        spec = scale.SpecID or scale.Spec or scale.SpecIndex,
       }
     end
   end
@@ -68,24 +81,53 @@ local function providerValues(key)
   return nil
 end
 
-local function bestActiveScale()
-  local _, _, classID = UnitClass and UnitClass("player")
-  local index = GetSpecialization and GetSpecialization()
-  local specName = index and GetSpecializationInfo and select(2, GetSpecializationInfo(index)) or ""
-  local normalizedSpec = tostring(specName):lower():gsub("[%s%p]+", "")
-  local firstForClass
-  for _, scale in ipairs(Pawn.GetActiveScales()) do
-    if scale.class == nil or scale.class == classID then
-      firstForClass = firstForClass or scale
-      local name = tostring(scale.name or scale.key):lower():gsub("[%s%p]+", "")
-      if name == normalizedSpec or name:find(normalizedSpec, 1, true) then return scale end
+local function classMatches(scale, classID)
+  local scaleClass = tonumber(scale and scale.class)
+  return scaleClass == nil or classID == nil or scaleClass == classID
+end
+
+local function specMatches(scale, specIndex)
+  local scaleSpec = tonumber(scale and scale.spec)
+  return scaleSpec ~= nil and specIndex ~= nil and scaleSpec == specIndex
+end
+
+local function nameMatches(scale, normalizedSpec)
+  if normalizedSpec == "" then return false end
+  local name = normalized(scale and (scale.name or scale.key))
+  return name == normalizedSpec or name:find(normalizedSpec, 1, true) ~= nil
+end
+
+local function exactMatch(scales, classID, specIndex, normalizedSpec)
+  for _, scale in ipairs(scales or {}) do
+    if classMatches(scale, classID) then
+      if specMatches(scale, specIndex) then return scale end
     end
   end
-  return firstForClass
+  for _, scale in ipairs(scales or {}) do
+    if classMatches(scale, classID) and nameMatches(scale, normalizedSpec) then return scale end
+  end
+  return nil
+end
+
+local function firstClassMatch(scales, classID)
+  for _, scale in ipairs(scales or {}) do
+    if classMatches(scale, classID) then return scale end
+  end
+  return nil
+end
+
+local function bestScaleForPlayer()
+  local classID, specIndex, normalizedSpec = playerScaleContext()
+  local active = Pawn.GetActiveScales()
+  local all = Pawn.GetAllScales()
+  return exactMatch(active, classID, specIndex, normalizedSpec)
+      or exactMatch(all, classID, specIndex, normalizedSpec)
+      or firstClassMatch(active, classID)
+      or firstClassMatch(all, classID)
 end
 
 function Pawn.GetBestActiveScaleForPlayer()
-  return bestActiveScale()
+  return bestScaleForPlayer()
 end
 
 local function valuesFor(scale)
@@ -95,13 +137,13 @@ local function valuesFor(scale)
 end
 
 function Pawn.GetBestScaleValuesForPlayer()
-  local scale = bestActiveScale()
+  local scale = bestScaleForPlayer()
   return valuesFor(scale), scale
 end
 
 function Pawn.GetScaleValues(keyOrName)
   if not keyOrName then return Pawn.GetBestScaleValuesForPlayer() end
-  for _, scale in ipairs(Pawn.GetActiveScales()) do
+  for _, scale in ipairs(Pawn.GetAllScales()) do
     if scale.key == keyOrName or scale.name == keyOrName then
       return valuesFor(scale), scale
     end

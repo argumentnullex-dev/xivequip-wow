@@ -50,6 +50,7 @@ local specs = {
   "xivweights_config_spec",
   "xivweights_import_spec",
   "integrations_registry_spec",
+  "integrations_pawn_spec",
   "xivweights_manual_provider_spec",
   "xivweights_pawn_provider_spec",
   "policy_registry_spec",
