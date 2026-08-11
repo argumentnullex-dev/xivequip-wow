@@ -149,6 +149,63 @@ test("placement caching preserves role and slot sensitive policy context", funct
   A.truthy(firstAgain.targetFlags["first:11"])
 end)
 
+test("placement caching keys current role and slot maps exposed to policies", function()
+  local addon = newAddon()
+  local calls = 0
+  local candidate = { guid = "guid-placement-current", stats = { strength = 10 }, weapon = {} }
+  local firstCurrent = { guid = "current-first", stats = {}, weapon = {} }
+  local secondCurrentA = { guid = "current-second-a", stats = {}, weapon = {} }
+  local secondCurrentB = { guid = "current-second-b", stats = {}, weapon = {} }
+  local scale = addon.XIVWeights.NewScale({ weights = { strength = 1.0 } })
+  local context = {
+    weights = scale,
+    caches = {},
+    policies = {
+      candidate = {
+        {
+          id = "Test.partner_sensitive",
+          apply = function(_, _, policyContext)
+            calls = calls + 1
+            local partner = policyContext.currentByRole and policyContext.currentByRole.second
+            return { targetFlags = { [partner and partner.guid or "none"] = true } }
+          end,
+        },
+      },
+      preference = {},
+    },
+  }
+
+  local first = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, context, {
+    groupId = "rings",
+    role = "first",
+    slot = 11,
+    currentCandidate = firstCurrent,
+    currentByRole = { first = firstCurrent, second = secondCurrentA },
+    currentBySlot = { [11] = firstCurrent, [12] = secondCurrentA },
+  })
+  local second = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, context, {
+    groupId = "rings",
+    role = "first",
+    slot = 11,
+    currentCandidate = firstCurrent,
+    currentByRole = { first = firstCurrent, second = secondCurrentB },
+    currentBySlot = { [11] = firstCurrent, [12] = secondCurrentB },
+  })
+  local firstAgain = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, context, {
+    groupId = "rings",
+    role = "first",
+    slot = 11,
+    currentCandidate = firstCurrent,
+    currentByRole = { first = firstCurrent, second = secondCurrentA },
+    currentBySlot = { [11] = firstCurrent, [12] = secondCurrentA },
+  })
+
+  A.equal(calls, 2)
+  A.truthy(first.targetFlags["current-second-a"])
+  A.truthy(second.targetFlags["current-second-b"])
+  A.truthy(firstAgain.targetFlags["current-second-a"])
+end)
+
 test("Evaluate applies candidate score adjustments and carries summary state", function()
   local addon = newAddon()
   local candidate = { itemID = 101, stats = { strength = 100 }, weapon = {} }

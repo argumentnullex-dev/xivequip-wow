@@ -194,6 +194,7 @@ end
 local PREVIEW_CACHE_SECONDS = 30
 local previewCache = { expires = 0, token = 0 }
 local previewRefreshPending = false
+local previewRefreshDirty = false
 
 local function nowSeconds()
   if type(GetTime) == "function" then return GetTime() end
@@ -373,19 +374,34 @@ function XIVEquip.UI.ClearPreviewCache()
   previewCache.payload = nil
   previewCache.expires = 0
   previewCache.token = (previewCache.token or 0) + 1
+  previewRefreshDirty = true
+  if XIVEquip.UI and XIVEquip.UI.SchedulePreviewCacheRefresh then
+    XIVEquip.UI.SchedulePreviewCacheRefresh(1.0)
+  end
 end
 
 function XIVEquip.UI.SchedulePreviewCacheRefresh(delay)
-  if previewRefreshPending or not (C_Timer and C_Timer.After) then return end
+  if previewRefreshPending then
+    previewRefreshDirty = true
+    return
+  end
+  if not (C_Timer and C_Timer.After) then return end
   if InCombatLockdown() or not previewEnabled() then return end
   previewRefreshPending = true
+  previewRefreshDirty = false
   local token = previewCache.token or 0
   C_Timer.After(delay or 1.0, function()
     previewRefreshPending = false
-    if token ~= (previewCache.token or 0) then return end
+    if token ~= (previewCache.token or 0) or previewRefreshDirty then
+      XIVEquip.UI.SchedulePreviewCacheRefresh(delay or 1.0)
+      return
+    end
     if InCombatLockdown() or not previewEnabled() then return end
     local payload = computePreview()
-    if token ~= (previewCache.token or 0) then return end
+    if token ~= (previewCache.token or 0) or previewRefreshDirty then
+      XIVEquip.UI.SchedulePreviewCacheRefresh(delay or 1.0)
+      return
+    end
     previewCache.payload = payload
     previewCache.expires = nowSeconds() + PREVIEW_CACHE_SECONDS
   end)
@@ -534,9 +550,6 @@ f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 f:SetScript("OnEvent", function(_, event)
   if event ~= "PLAYER_LOGIN" then
     if XIVEquip.UI and XIVEquip.UI.ClearPreviewCache then XIVEquip.UI.ClearPreviewCache() end
-    if event ~= "BAG_UPDATE_DELAYED" and XIVEquip.UI and XIVEquip.UI.SchedulePreviewCacheRefresh then
-      XIVEquip.UI.SchedulePreviewCacheRefresh(1.0)
-    end
     return
   end
 

@@ -116,6 +116,16 @@ local function currentKey(candidate)
   return candidate and candidateKey(candidate) or "empty"
 end
 
+local function currentMapKey(map)
+  if type(map) ~= "table" then return "none" end
+  local parts = {}
+  for key, candidate in pairs(map) do
+    parts[#parts + 1] = tostring(key) .. "=" .. currentKey(candidate)
+  end
+  table.sort(parts)
+  return table.concat(parts, ",")
+end
+
 local function placementKey(candidate, opts)
   return table.concat({
     candidateKey(candidate),
@@ -123,6 +133,8 @@ local function placementKey(candidate, opts)
     tostring(opts.role or ""),
     tostring(opts.slot or ""),
     currentKey(opts.currentCandidate),
+    currentMapKey(opts.currentByRole),
+    currentMapKey(opts.currentBySlot),
   }, "|")
 end
 

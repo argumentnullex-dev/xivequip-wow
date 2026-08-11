@@ -118,6 +118,31 @@ test("automatic Pawn selection can use a provider scale by class and spec when n
   A.equal(values.Strength, 20)
 end)
 
+test("automatic Pawn selection does not fall back to a different spec in the same class", function()
+  clearGlobals()
+  installPaladinGlobals()
+  _G.GetSpecialization = function() return 1 end
+  _G.PawnCommon = {
+    Scales = {
+      ["Retribution"] = {
+        LocalizedName = "Retribution",
+        ClassID = 2,
+        SpecID = 3,
+        PerCharacterOptions = {
+          ["Talkamar-Wyrmrest Accord"] = { Visible = true },
+        },
+        Values = { Strength = 10, HasteRating = 5 },
+      },
+    },
+  }
+  local addon = loadPawn()
+
+  local values, entry = addon.Pawn.GetBestScaleValuesForPlayer()
+
+  A.falsy(values)
+  A.falsy(entry)
+end)
+
 test("explicit Pawn scale lookup is not limited to visible active scales", function()
   clearGlobals()
   installPaladinGlobals()

@@ -197,13 +197,39 @@ test("cold hover preview does not run planning on hover", function()
 end)
 
 test("bag updates invalidate preview without immediately planning", function()
+  local timers = {}
   local _, calls, _, eventFrame = newHarness({
-    timerAfter = function(_, fn) fn() end,
+    timerAfter = function(_, fn) timers[#timers + 1] = fn end,
   })
-  A.equal(#calls.plan, 1, "login should warm the first preview")
+  A.equal(#calls.plan, 0, "login should schedule but not synchronously warm the first preview")
+  timers[2]()
+  A.equal(#calls.plan, 1, "login timer should warm the first preview")
 
   eventFrame.scripts.OnEvent(eventFrame, "BAG_UPDATE_DELAYED")
 
+  A.equal(#calls.plan, 1)
+  A.equal(#timers, 3)
+  timers[3]()
+  A.equal(#calls.plan, 2, "bag update should eventually refresh the preview cache")
+end)
+
+test("preview invalidation during a pending refresh still schedules a replacement refresh", function()
+  local timers = {}
+  local _, calls, _, eventFrame = newHarness({
+    timerAfter = function(_, fn) timers[#timers + 1] = fn end,
+  })
+  A.equal(#calls.plan, 0)
+  A.equal(#timers, 2)
+
+  eventFrame.scripts.OnEvent(eventFrame, "BAG_UPDATE_DELAYED")
+  A.equal(#calls.plan, 0)
+  A.equal(#timers, 2, "rapid invalidation should collapse into the existing pending timer")
+
+  timers[2]()
+  A.equal(#calls.plan, 0, "stale pending timer should not compute against invalidated state")
+  A.equal(#timers, 3, "stale pending timer should schedule a replacement")
+
+  timers[3]()
   A.equal(#calls.plan, 1)
 end)
 

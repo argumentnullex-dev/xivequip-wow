@@ -159,9 +159,13 @@ local function bestScaleForPlayer(context)
   local classID, specIndex, normalizedSpec = playerScaleContext(context)
   local active = Pawn.GetActiveScales()
   local all = Pawn.GetAllScales()
-  return exactMatch(active, classID, specIndex, normalizedSpec)
+  local exact = exactMatch(active, classID, specIndex, normalizedSpec)
       or exactMatch(all, classID, specIndex, normalizedSpec)
-      or firstClassMatch(active, classID)
+  if exact then return exact end
+
+  if specIndex ~= nil or normalizedSpec ~= "" then return nil end
+
+  return firstClassMatch(active, classID)
       or firstClassMatch(all, classID)
 end
 
