@@ -93,7 +93,8 @@ local function font(parent, template, text)
   local f = pooled(parent, "font", function()
     return parent:CreateFontString(nil, "ARTWORK", template or "GameFontNormal")
   end)
-  if f.SetFontObject and template then f:SetFontObject(template) end
+  local fontObject = type(template) == "string" and _G[template] or template
+  if f.SetFontObject and fontObject then f:SetFontObject(fontObject) end
   f:SetText(text or "")
   f:SetJustifyH("LEFT")
   return f
@@ -652,8 +653,19 @@ local function integrationItems(C, providerID, runtime, specID)
     local ok, resolved = pcall(entry.Resolve, context)
     if ok and resolved then guessed = resolved.name or (resolved.meta and resolved.meta.specName) end
   end
-  out[1].label = guessed and ("Automatic: " .. tostring(guessed)) or "Automatic provider scale"
-  local rows = entry and entry.ListScales and entry.ListScales(context) or {}
+  local providerLabel = entry and (entry.label or entry.id) or tostring(providerID or "provider")
+  if guessed then
+    out[1].label = "Automatic: " .. tostring(guessed)
+  elseif available then
+    out[1].label = "Default - no suitable " .. tostring(providerLabel) .. " scale"
+  else
+    out[1].label = "Default - " .. tostring(providerLabel) .. " unavailable"
+  end
+  local rows = {}
+  if available and entry and entry.ListScales then
+    local ok, resolved = pcall(entry.ListScales, context)
+    if ok and type(resolved) == "table" then rows = resolved end
+  end
   for _, row in ipairs(rows or {}) do
     out[#out + 1] = { value = row.key or row.name, label = row.name or row.key or "Unnamed scale" }
   end
@@ -926,8 +938,10 @@ local function showConfig(content)
     { id = "integration", label = "Integration", note = "Use an installed provider such as Pawn." },
   }
   for index, item in ipairs(modes) do
-    local active = profile and profile.automatic == false and mode == item.id
-    local choice = button(modePanel, (active and "[Active] " or "") .. item.label, 126, 24)
+    local selected = profile and mode == item.id
+    local active = manualEditable and selected
+    local prefix = active and "[Active] " or (selected and "[Stored] " or "")
+    local choice = button(modePanel, prefix .. item.label, 126, 24)
     choice:SetPoint("TOPLEFT", 14 + ((index - 1) * 150), -42)
     if not manualEditable then choice:Disable() end
     choice:SetScript("OnClick", function()
@@ -1337,24 +1351,19 @@ local function showScales(content)
     editor:SetHeight(548)
     return
   end
-  local info = panel(editor, 0, 0, 210, 196)
+  local info = panel(editor, 0, 0, 210, 170)
   sectionTitle(info, "Scale Info", 14, -14)
   local specLine = font(info, "GameFontHighlightSmall", "Specialization: " .. tostring(C.SpecName(specID) or specID))
   specLine:SetPoint("TOPLEFT", 14, -46)
-  local based = font(info, "GameFontHighlightSmall", "Based on: Default")
-  based:SetPoint("TOPLEFT", 14, -70)
   local provenance = provenanceLabel(C, selectedScale)
-  local provenanceLine
-  if provenance then
-    provenanceLine = font(info, "GameFontHighlightSmall", provenance)
-    provenanceLine:SetPoint("TOPLEFT", 14, -94)
-    provenanceLine:SetWidth(180)
-  end
+  local based = font(info, "GameFontHighlightSmall", provenance or "Based on: Default")
+  based:SetPoint("TOPLEFT", 14, -70)
+  based:SetWidth(180)
   local status = font(info, "GameFontHighlightSmall", "Autosaved ✓")
-  status:SetPoint("TOPLEFT", 14, provenanceLine and -126 or -102)
+  status:SetPoint("TOPLEFT", 14, -102)
   textColor(status, 0.4, 1, 0.4)
   local errorLine = font(info, "GameFontDisableSmall", "")
-  errorLine:SetPoint("TOPLEFT", 14, provenanceLine and -150 or -126)
+  errorLine:SetPoint("TOPLEFT", 14, -126)
   errorLine:SetWidth(180)
   local work = {}
   for key, value in pairs(selectedScale.weights or {}) do work[key] = tonumber(value) or 0 end
