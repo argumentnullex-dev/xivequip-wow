@@ -113,21 +113,11 @@ end
 -- `groups` field applies everywhere; one with a `groups` array only
 -- applies when groupId is listed in it.
 local function assignmentPoliciesFor(context, groupId)
-  local all = (context and context.policies and context.policies.assignment) or {}
-  local scoped = {}
-  for _, policy in ipairs(all) do
-    if not policy.groups then
-      scoped[#scoped + 1] = policy
-    else
-      for _, g in ipairs(policy.groups) do
-        if g == groupId then
-          scoped[#scoped + 1] = policy
-          break
-        end
-      end
-    end
+  local resolver = XIVEquip.Policies and XIVEquip.Policies.Resolver
+  if resolver and resolver.ActiveForPhase then
+    return resolver.ActiveForPhase(context, "assignment", groupId)
   end
-  return scoped
+  return (context and context.policies and context.policies.assignment) or {}
 end
 
 local function policiesAllow(policies, assignment, context)

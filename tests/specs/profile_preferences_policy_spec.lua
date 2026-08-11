@@ -130,6 +130,30 @@ test("normalization preserves an item's set ID for candidate policies", function
   A.equal(candidate.setID, 4242)
 end)
 
+test("set membership only contributes summary state when an active policy consumes it", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local setMembership = policyByID(resolved.candidate, "XIVEquip.set_membership")
+  local setPreference = policyByID(resolved.preference, "XIVEquip.prefer_set_bonuses")
+  local candidate = { itemID = 901, setID = 77, stats = {}, weapon = {} }
+
+  local disabled = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, {
+    profilePreferences = { preferSetBonuses = false },
+    policies = { candidate = { setMembership }, assignment = {}, loadout = {}, preference = { setPreference } },
+  }, {
+    score = function() return 100 end,
+  })
+  A.same(disabled.setCounts, {}, "inactive set preference should not expand frontier dimensions")
+
+  local enabled = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, {
+    profilePreferences = { preferSetBonuses = true },
+    policies = { candidate = { setMembership }, assignment = {}, loadout = {}, preference = { setPreference } },
+  }, {
+    score = function() return 100 end,
+  })
+  A.equal(enabled.setCounts["set:77"], 1)
+end)
+
 test("set preference chooses two set pieces when their five-percent threshold bonus outweighs local scores", function()
   local addon = newAddon()
   local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())

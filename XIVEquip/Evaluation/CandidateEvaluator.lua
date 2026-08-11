@@ -65,24 +65,6 @@ function CandidateEvaluator.Score(candidate, context)
   return score
 end
 
-local function policiesFor(context, phase, groupId)
-  local all = (context and context.policies and context.policies[phase]) or {}
-  local scoped = {}
-  for _, policy in ipairs(all) do
-    if not policy.groups then
-      scoped[#scoped + 1] = policy
-    else
-      for _, g in ipairs(policy.groups) do
-        if g == groupId then
-          scoped[#scoped + 1] = policy
-          break
-        end
-      end
-    end
-  end
-  return scoped
-end
-
 local function appendReason(reasons, reason)
   if type(reason) == "string" and reason ~= "" then reasons[#reasons + 1] = reason end
 end
@@ -216,7 +198,11 @@ function CandidateEvaluator.Evaluate(candidate, context, opts)
     baseScore = baseScore,
   }
 
-  for _, policy in ipairs(policiesFor(context, "candidate", opts.groupId)) do
+  local resolver = XIVEquip.Policies and XIVEquip.Policies.Resolver
+  local policies = resolver and resolver.ActiveForPhase
+      and resolver.ActiveForPhase(context, "candidate", opts.groupId)
+      or ((context and context.policies and context.policies.candidate) or {})
+  for _, policy in ipairs(policies) do
     applyPolicyResult(result, policy.apply(candidate, context, policyContext), {
       canDeny = true,
       defaultReason = policy.id,

@@ -87,6 +87,30 @@ function Resolver.Freeze(source)
   return table.freeze(source)
 end
 
+function Resolver.IsActive(policy, context)
+  if not policy or type(policy.isActive) ~= "function" then return true end
+  return policy.isActive(context) ~= false
+end
+
+local function groupMatches(policy, groupId)
+  if not policy.groups then return true end
+  for _, g in ipairs(policy.groups) do
+    if g == groupId then return true end
+  end
+  return false
+end
+
+function Resolver.ActiveForPhase(context, phase, groupId)
+  local all = (context and context.policies and context.policies[phase]) or {}
+  local active = {}
+  for _, policy in ipairs(all) do
+    if groupMatches(policy, groupId) and Resolver.IsActive(policy, context) then
+      active[#active + 1] = policy
+    end
+  end
+  return active
+end
+
 -- topoSortPhase(decls, satisfiedBeforePhase) -> orderedDecls
 -- decls: declarations belonging to exactly one phase, in registration order.
 -- satisfiedBeforePhase: set of requires-tokens already provided by an

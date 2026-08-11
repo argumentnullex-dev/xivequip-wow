@@ -105,8 +105,16 @@ local function summarizeChosen(chosen)
   return summary
 end
 
-local function applyLoadoutPolicies(chosen, additions, score, context)
-  local policies = (context and context.policies and context.policies.loadout) or {}
+local function activePolicies(context, phase)
+  local resolver = XIVEquip.Policies and XIVEquip.Policies.Resolver
+  if resolver and resolver.ActiveForPhase then
+    return resolver.ActiveForPhase(context, phase)
+  end
+  return (context and context.policies and context.policies[phase]) or {}
+end
+
+local function applyLoadoutPolicies(chosen, additions, score, context, policies)
+  policies = policies or activePolicies(context, "loadout")
   if #policies == 0 then return true, score end
 
   local loadout = {
@@ -128,8 +136,8 @@ local function applyLoadoutPolicies(chosen, additions, score, context)
   return true, finalScore
 end
 
-local function applyPreferencePolicies(loadout, score, context)
-  local policies = (context and context.policies and context.policies.preference) or {}
+local function applyPreferencePolicies(loadout, score, context, policies)
+  policies = policies or activePolicies(context, "preference")
   local finalScore = score
   for _, policy in ipairs(policies) do
     local result = policy.apply(loadout, context)
@@ -193,9 +201,39 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
   end
 
   local n = #ordered
-  local hasLoadoutPolicies = #(context and context.policies and context.policies.loadout or {}) > 0
-  local hasPreferencePolicies = #(context and context.policies and context.policies.preference or {}) > 0
+  local loadoutPolicies = activePolicies(context, "loadout")
+  local preferencePolicies = activePolicies(context, "preference")
+  local hasLoadoutPolicies = #loadoutPolicies > 0
+  local hasPreferencePolicies = #preferencePolicies > 0
   local preferFilledSlots = context and context.preferFilledSlots == true
+  local policiesBounded = true
+  for _, policy in ipairs(loadoutPolicies) do
+    if type(policy.upperBound) ~= "function" then policiesBounded = false end
+  end
+  for _, policy in ipairs(preferencePolicies) do
+    if type(policy.upperBound) ~= "function" then policiesBounded = false end
+  end
+
+  local function policyUpperBound(index, chosen, additions, score)
+    if not policiesBounded then return nil end
+    if not hasLoadoutPolicies and not hasPreferencePolicies then return 0 end
+    local remainingGroups = {}
+    for i = index, n do remainingGroups[#remainingGroups + 1] = ordered[i] end
+    local partial = {
+      assignments = chosen,
+      additions = additions,
+      score = score,
+      summaries = summarizeChosen(chosen),
+    }
+    local bound = 0
+    for _, policy in ipairs(loadoutPolicies) do
+      bound = bound + (tonumber(policy.upperBound(partial, remainingGroups, context)) or 0)
+    end
+    for _, policy in ipairs(preferencePolicies) do
+      bound = bound + (tonumber(policy.upperBound(partial, remainingGroups, context)) or 0)
+    end
+    return bound
+  end
 
   -- maxRemainingScore[i] = best possible total from group i through the
   -- last group, inclusive, ignoring cross-group legality AND policy
@@ -274,18 +312,24 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
       if perf then perf:Add("optimizer.filled_slot_prunes", 1) end
       return
     end
-    if not hasLoadoutPolicies
-        and not hasPreferencePolicies
+    local policyBound = policyUpperBound(index, chosen, accumulatedAdditions, accumulatedScore)
+    if policiesBounded
         and bestPossibleInvalid == bestInvalidCount
         and (not preferFilledSlots or bestPossibleFilled == bestFilledCount)
-        and accumulatedScore + (maxRemainingScore[index] or 0) <= bestScore then
-      if perf then perf:Add("optimizer.score_bound_prunes", 1) end
+        and accumulatedScore + (maxRemainingScore[index] or 0) + (policyBound or 0) <= bestScore then
+      if perf then
+        if hasLoadoutPolicies or hasPreferencePolicies then
+          perf:Add("optimizer.policy_bound_prunes", 1)
+        else
+          perf:Add("optimizer.score_bound_prunes", 1)
+        end
+      end
       return
     end
 
     if index > n then
       if perf then perf:Add("optimizer.complete_leaves", 1) end
-      local allowed, finalScore = applyLoadoutPolicies(chosen, accumulatedAdditions, accumulatedScore, context)
+      local allowed, finalScore = applyLoadoutPolicies(chosen, accumulatedAdditions, accumulatedScore, context, loadoutPolicies)
       if allowed then
         local loadout = {
           assignments = chosen,
@@ -293,7 +337,7 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
           score = finalScore,
           summaries = summarizeChosen(chosen),
         }
-        finalScore = applyPreferencePolicies(loadout, finalScore, context)
+        finalScore = applyPreferencePolicies(loadout, finalScore, context, preferencePolicies)
       end
       if allowed and (accumulatedInvalid < bestInvalidCount
           or (preferFilledSlots and accumulatedInvalid == bestInvalidCount and accumulatedFilled > bestFilledCount)

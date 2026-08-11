@@ -11,14 +11,44 @@ local function thresholdForSet(setCounts, setID)
   return 0, 0
 end
 
+local function isEnabled(context)
+  local preferences = context and context.profilePreferences
+  return preferences and preferences.preferSetBonuses == true
+end
+
+local function assignmentSetScore(assignment)
+  local total = 0
+  for role, candidate in pairs((assignment and assignment.picks) or {}) do
+    local setID = candidate and tonumber(candidate.setID)
+    if setID and setID > 0 then
+      local score = tonumber(assignment.scores and assignment.scores[role]) or 0
+      if score > 0 then total = total + score end
+    end
+  end
+  return total
+end
+
 XIVEquip:RegisterPolicy({
   id = "XIVEquip.prefer_set_bonuses",
   phase = "preference",
   requires = { "profile.preferences" },
+  summaryDimensions = { setCounts = { thresholds = { 2, 4 } } },
+  isActive = isEnabled,
+  upperBound = function(partialLoadout, remainingGroups)
+    local possibleSetScore = 0
+    for _, assignment in pairs((partialLoadout and partialLoadout.assignments) or {}) do
+      possibleSetScore = possibleSetScore + assignmentSetScore(assignment)
+    end
+    for _, group in ipairs(remainingGroups or {}) do
+      local best = 0
+      for _, assignment in ipairs(group.frontier or {}) do
+        best = math.max(best, assignmentSetScore(assignment))
+      end
+      possibleSetScore = possibleSetScore + best
+    end
+    return possibleSetScore * 0.10
+  end,
   apply = function(loadout, context)
-    local preferences = context and context.profilePreferences
-    if not (preferences and preferences.preferSetBonuses) then return nil end
-
     local scoresBySet = {}
     for _, assignment in pairs((loadout and loadout.assignments) or {}) do
       for role, candidate in pairs(assignment.picks or {}) do
