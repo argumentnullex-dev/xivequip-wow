@@ -570,7 +570,7 @@ local function setDropdown(menu, items, selected, onSelect)
     end
   end)
   UIDropDownMenu_SetSelectedValue(menu, selected)
-  UIDropDownMenu_SetText(selectedLabel or "Select", menu)
+  UIDropDownMenu_SetText(menu, selectedLabel or "Select")
 end
 
 local function setDropdownEnabled(menu, enabled)
@@ -1390,7 +1390,7 @@ local function showScales(content)
     Window.ScaleRevision = (Window.ScaleRevision or 0) + 1
     errorLine:SetText("")
     status:SetText("Autosaved ✓")
-    if UIDropDownMenu_SetText then UIDropDownMenu_SetText(value, scaleMenu) end
+    if UIDropDownMenu_SetText then UIDropDownMenu_SetText(scaleMenu, value) end
   end
   nameEdit:SetScript("OnEnterPressed", function(self) commitName(); self:ClearFocus() end)
   nameEdit:SetScript("OnEditFocusLost", commitName)

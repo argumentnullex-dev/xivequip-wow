@@ -95,7 +95,12 @@ local function loadWindow(addon, calls)
     menu.dropdownWidth = width
   end
   _G.UIDropDownMenu_SetSelectedValue = function() end
-  _G.UIDropDownMenu_SetText = function(text, menu) menu.dropdownText = text end
+  _G.UIDropDownMenu_SetText = function(menu, text)
+    if type(menu) ~= "table" or type(text) ~= "string" then
+      error("UIDropDownMenu_SetText expects (frame, text)")
+    end
+    menu.dropdownText = text
+  end
   _G.GameFontNormal = { name = "GameFontNormal" }
   _G.GameFontNormalLarge = { name = "GameFontNormalLarge" }
   _G.GameFontNormalSmall = { name = "GameFontNormalSmall" }
