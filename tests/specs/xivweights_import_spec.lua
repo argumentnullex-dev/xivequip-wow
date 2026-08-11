@@ -25,15 +25,17 @@ test("detects and parses exported XIVEquip JSON", function()
   A.equal(parsed.weights.haste, 0.5)
 end)
 
-test("detects Pawn and converts common pasted stat-key formats", function()
+test("detects Pawn and converts canonical Pawn stat-key formats", function()
   local addon = newAddon()
   local importer = addon.XIVWeights.Import.Serialized
-  local text = 'Pawn: v1: "My Scale", Strength=200, Haste=100, Mastery=50, Speed=20'
+  local text = 'Pawn: v1: "My Scale", Strength=200, HasteRating=100, MasteryRating=50, CritRating=40, AvoidanceRating=20, Speed=20'
   A.equal(importer.Detect(text), "pawn")
   local parsed = assert(importer.Parse(text, 70))
   A.equal(parsed.weights.strength, 1)
   A.equal(parsed.weights.haste, 0.5)
   A.equal(parsed.weights.mastery, 0.25)
+  A.equal(parsed.weights.criticalStrike, 0.2)
+  A.equal(parsed.weights.avoidance, 0.1)
   A.equal(parsed.weights.weaponSwingIntervalSeconds, 0.1)
 end)
 

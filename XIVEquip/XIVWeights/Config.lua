@@ -372,6 +372,7 @@ end
 function Config.ResolveResultForSpec(specID, runtime)
   local profileSelection, context = Config.GetProfileSelection(specID, runtime)
   local sel = profileSelection or Config.GetSpecSelection(specID)
+  local configuredSelection = copy(sel)
   local fallback = false
   local fallbackReason
   local scale
@@ -469,11 +470,14 @@ function Config.ResolveResultForSpec(specID, runtime)
     fallbackReason = fallbackReason,
     automaticResolution = sel.mode == "automatic" and sourceKind or nil,
     profileID = sel.profile and sel.profile.id or nil,
+    configuredProvider = configuredSelection and configuredSelection.provider,
+    configuredMode = configuredSelection and configuredSelection.mode,
   }
   return {
     scale = effective,
     profile = sel.profile,
     selection = sel,
+    configuredSelection = configuredSelection,
     context = context,
     fallback = fallback,
     fallbackReason = fallbackReason,

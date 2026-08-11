@@ -41,11 +41,58 @@ local function currentClassFile()
   return UnitClass and select(2, UnitClass("player")) or nil
 end
 
+local function pooled(parent, kind, create)
+  parent._xivEquipPool = parent._xivEquipPool or { items = {}, cursors = {} }
+  local pool = parent._xivEquipPool
+  pool.items[kind] = pool.items[kind] or {}
+  pool.cursors[kind] = (pool.cursors[kind] or 0) + 1
+  local index = pool.cursors[kind]
+  local item = pool.items[kind][index]
+  if not item then
+    item = create()
+    pool.items[kind][index] = item
+  end
+  if item.ClearAllPoints then item:ClearAllPoints() end
+  if item.Show then item:Show() end
+  return item
+end
+
+local function beginRender(parent)
+  parent._xivEquipPool = parent._xivEquipPool or { items = {}, cursors = {} }
+  local pool = parent._xivEquipPool
+  pool.cursors = {}
+  for _, items in pairs(pool.items) do
+    for _, item in ipairs(items) do if item.Hide then item:Hide() end end
+  end
+end
+
+local function pooledFrame(parent, key, frameType, template)
+  parent._xivEquipFrames = parent._xivEquipFrames or {}
+  local frame = parent._xivEquipFrames[key]
+  if not frame then
+    frame = CreateFrame(frameType or "Frame", nil, parent, template)
+    parent._xivEquipFrames[key] = frame
+  end
+  if frame.ClearAllPoints then frame:ClearAllPoints() end
+  if frame.Show then frame:Show() end
+  return frame
+end
+
+local function hidePooledFrames(parent)
+  for _, frame in pairs(parent._xivEquipFrames or {}) do if frame.Hide then frame:Hide() end end
+end
+
 local function font(parent, template, text)
-  local f = parent:CreateFontString(nil, "ARTWORK", template or "GameFontNormal")
+  local f = pooled(parent, "font", function()
+    return parent:CreateFontString(nil, "ARTWORK", template or "GameFontNormal")
+  end)
   f:SetText(text or "")
   f:SetJustifyH("LEFT")
   return f
+end
+
+local function texture(parent)
+  return pooled(parent, "texture", function() return parent:CreateTexture(nil, "ARTWORK") end)
 end
 
 local function textColor(fontString, r, g, b)
@@ -53,14 +100,18 @@ local function textColor(fontString, r, g, b)
 end
 
 local function button(parent, text, width, height)
-  local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+  local b = pooled(parent, "button", function()
+    return CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+  end)
   b:SetSize(width or 120, height or 24)
   b:SetText(text)
   return b
 end
 
 local function checkbox(parent, text, checked, onClick)
-  local cb = CreateFrame("CheckButton", nil, parent, "InterfaceOptionsCheckButtonTemplate")
+  local cb = pooled(parent, "checkbox", function()
+    return CreateFrame("CheckButton", nil, parent, "InterfaceOptionsCheckButtonTemplate")
+  end)
   cb.Text:SetText(text)
   cb:SetChecked(checked == true)
   cb:SetScript("OnClick", function(self) onClick(self:GetChecked()) end)
@@ -74,9 +125,15 @@ local function clearContent(frame)
     page:SetAllPoints(frame)
     frame.page = page
   end
+  beginRender(page)
+  hidePooledFrames(page)
   if page.GetChildren then
     local children = { page:GetChildren() }
     for _, child in ipairs(children) do child:Hide() end
+  end
+  if page.GetRegions then
+    local regions = { page:GetRegions() }
+    for _, region in ipairs(regions) do if region.Hide then region:Hide() end end
   end
   page:Show()
   return page
@@ -267,12 +324,18 @@ local function selectedScaleID()
 end
 
 local function createScroll(parent, x, y, width, height)
-  local scroll = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
+  local scroll = pooledFrame(parent, "settings-scroll", "ScrollFrame", "UIPanelScrollFrameTemplate")
   scroll:SetPoint("TOPLEFT", x, y)
   scroll:SetSize(width, height)
-  local child = CreateFrame("Frame", nil, scroll)
+  local child = scroll._xivEquipScrollChild
+  if not child then
+    child = CreateFrame("Frame", nil, scroll)
+    scroll._xivEquipScrollChild = child
+  end
   child:SetSize(width - 24, height)
   scroll:SetScrollChild(child)
+  beginRender(child)
+  hidePooledFrames(child)
   return scroll, child
 end
 
@@ -445,7 +508,9 @@ local function currentState()
 end
 
 local function panel(parent, x, y, width, height)
-  local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+  local frame = pooled(parent, "panel", function()
+    return CreateFrame("Frame", nil, parent, "BackdropTemplate")
+  end)
   frame:SetSize(width, height)
   frame:SetPoint("TOPLEFT", x, y)
   if frame.SetBackdrop then
@@ -469,7 +534,9 @@ local function sectionTitle(parent, text, x, y)
 end
 
 local function dropdown(parent, width)
-  local menu = CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
+  local menu = pooled(parent, "dropdown", function()
+    return CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
+  end)
   if UIDropDownMenu_SetWidth then UIDropDownMenu_SetWidth(width, menu) end
   return menu
 end
@@ -601,6 +668,15 @@ local function confirmDeleteProfile(profile, usage, onConfirm)
   StaticPopup_Show(dialogName, tostring(profile.name or profile.id), tonumber(usage and usage.count) or 0)
 end
 
+local function mapStateKey(values)
+  local keys = {}
+  for key in pairs(values or {}) do keys[#keys + 1] = tonumber(key) or tostring(key) end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  local out = {}
+  for _, key in ipairs(keys) do out[#out + 1] = tostring(key) .. "=" .. tostring(values[key]) end
+  return table.concat(out, ",")
+end
+
 local function showProfileDialog()
   local C, Profiles, runtime, context, _, classFile, selected = currentState()
   if not Profiles or not classFile then return end
@@ -633,13 +709,15 @@ local function showProfileDialog()
     body:SetAllPoints(frame)
     frame.body = body
   end
+  beginRender(body)
+  hidePooledFrames(body)
   if body.GetChildren then
     local children = { body:GetChildren() }
     for _, child in ipairs(children) do child:Hide() end
   end
   selected = selected or profiles[1]
   local listTitle = sectionTitle(body, "Profiles for " .. tostring(classFile), 18, -42)
-  local list = CreateFrame("Frame", nil, body)
+  local list = pooledFrame(body, "profile-list", "Frame")
   list:SetPoint("TOPLEFT", 16, -66)
   list:SetSize(230, 255)
   for index, profile in ipairs(profiles) do
@@ -697,6 +775,9 @@ local function showProfileDialog()
   end)
   local delete = button(detail, "Delete", 70, 22)
   delete:SetPoint("LEFT", rename, "RIGHT", 8, 0)
+  if selectedProfile and selectedProfile.id == Profiles.DefaultProfileID(classFile) and delete.Disable then
+    delete:Disable()
+  end
   delete:SetScript("OnClick", function()
     if selectedProfile then
       confirmDeleteProfile(selectedProfile, usage, function()
@@ -721,13 +802,17 @@ local function showConfig(content)
     "config", tostring(classFile), tostring(specID), tostring(profile and profile.id or ""),
     tostring(profile and profile.automatic), tostring(manual.mode),
     tostring(manual.integration and manual.integration.provider),
+    mapStateKey(manual.customOverrides),
+    mapStateKey(manual.integration and manual.integration.overrides),
+    tostring(resolved and resolved.scale and resolved.scale.resolution and resolved.scale.resolution.sourceLabel),
+    tostring(resolved and resolved.scale and resolved.scale.resolution and resolved.scale.resolution.scaleLabel),
     tostring(resolved and resolved.fallback), tostring(resolved and resolved.fallbackReason),
   }, "|")
   if content.page and content.page._viewKey == viewKey then content.page:Show(); return end
   local page = clearContent(content)
   page._viewKey = viewKey
   local defaults = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Builtin and XIVEquip.XIVWeights.Builtin.Defaults
-  local logo = page:CreateTexture(nil, "ARTWORK")
+  local logo = texture(page)
   logo:SetSize(64, 64)
   logo:SetPoint("TOPLEFT", 4, -2)
   logo:SetTexture("Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128")
@@ -761,7 +846,8 @@ local function showConfig(content)
   textColor(effective, 0.4, 1, 0.4)
   if resolved and resolved.fallback then textColor(effective, 1, 0.55, 0.2) end
   if resolved and resolved.fallback then
-    local provider = resolved.selection and resolved.selection.provider
+    local configured = resolved.configuredSelection or resolved.selection
+    local provider = configured and configured.provider
     local providerLabel = provider and tostring(provider) or "selected Integration"
     for _, entry in ipairs(C and C.ListIntegrations and C.ListIntegrations() or {}) do
       if entry.id == provider then providerLabel = entry.label or entry.id end
@@ -965,7 +1051,7 @@ local function showImportDialog(specID, C)
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("LEFT", frame.TitleBg, "LEFT", 6, 0)
     title:SetText("Import Scale")
-    local note = font(frame, "GameFontHighlightSmall", "Paste Pawn, Raidbots, SimC, AMR, Wowhead, or XIVEquip JSON, then detect and import it as a Custom scale.")
+    local note = font(frame, "GameFontHighlightSmall", "Paste Pawn or stat-weight export text (Raidbots, SimC, AMR, Wowhead), or XIVEquip JSON, then detect and import it as a Custom scale.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
@@ -1023,21 +1109,48 @@ local function showImportDialog(specID, C)
       end
       local baseName = frame.nameEdit:GetText()
       if tostring(baseName or ""):match("^%s*$") then baseName = parsed.name or ("Imported " .. tostring(parsed.format)) end
-      local name = uniqueScaleName(C, frame.specID, baseName)
-      local imported, importReason = C.CreateManualScale(uniqueScaleID("manual:import"), name, parsed.weights, frame.specID)
-      if not imported then
-        frame.detected:SetText("Import failed: " .. tostring(importReason or "could not create scale"))
-        textColor(frame.detected, 1, 0.55, 0.2)
-        return
+      local existing
+      for _, scale in ipairs(manualScalesForSpec(C, frame.specID)) do
+        if string.lower(tostring(scale.name or "")) == string.lower(tostring(baseName)) then existing = scale; break end
       end
-      imported.meta = imported.meta or {}
-      imported.meta.importedFrom = parsed.format
-      imported.source = { kind = "manual", importedFrom = parsed.format, specID = frame.specID }
-      C.SaveScale(imported)
-      Window.SelectedSpecID = frame.specID
-      Window.SelectedScaleID = imported.id
-      frame:Hide()
-      Window.ShowTab(2)
+      local function saveImported(target)
+        local imported = target
+        local importReason
+        if not imported then
+          imported, importReason = C.CreateManualScale(uniqueScaleID("manual:import"), tostring(baseName), parsed.weights, frame.specID)
+        else
+          imported.name = tostring(baseName)
+          imported.weights = parsed.weights
+        end
+        if not imported then
+          frame.detected:SetText("Import failed: " .. tostring(importReason or "could not create scale"))
+          textColor(frame.detected, 1, 0.55, 0.2)
+          return
+        end
+        imported.meta = imported.meta or {}
+        imported.meta.importedFrom = parsed.format
+        imported.source = { kind = "manual", importedFrom = parsed.format, specID = frame.specID }
+        C.SaveScale(imported)
+        Window.SelectedSpecID = frame.specID
+        Window.SelectedScaleID = imported.id
+        frame:Hide()
+        Window.ShowTab(2)
+      end
+      if existing then
+        local dialogName = "XIVEquip_REPLACE_SCALE"
+        if not StaticPopupDialogs or not StaticPopup_Show then
+          saveImported(existing)
+        else
+          StaticPopupDialogs[dialogName] = {
+            text = "Replace existing scale %s for this specialization?",
+            button1 = "Replace", button2 = "Cancel", timeout = 0, whileDead = true, hideOnEscape = true,
+            OnAccept = function() saveImported(existing) end,
+          }
+          StaticPopup_Show(dialogName, tostring(existing.name or existing.id))
+        end
+      else
+        saveImported(nil)
+      end
     end)
     frame.import = import
     local close = button(frame, "Cancel", 80, 22)
@@ -1055,7 +1168,19 @@ local function showImportDialog(specID, C)
   frame:Show()
 end
 
-local function confirmDeleteScale(scale, onConfirm)
+local function scaleUsage(C, Profiles, classFile, scaleID)
+  local count = 0
+  for _, profile in ipairs(Profiles and Profiles.List(classFile) or {}) do
+    local manual = profile.manual or {}
+    local custom = manual.customOverrides or {}
+    for _, selectedID in pairs(custom) do
+      if selectedID == scaleID then count = count + 1; break end
+    end
+  end
+  return count
+end
+
+local function confirmDeleteScale(scale, usageCount, onConfirm)
   if not scale then return end
   if not StaticPopupDialogs or not StaticPopup_Show then
     onConfirm()
@@ -1063,7 +1188,7 @@ local function confirmDeleteScale(scale, onConfirm)
   end
   local dialogName = "XIVEquip_DELETE_SCALE"
   StaticPopupDialogs[dialogName] = {
-    text = "Delete scale %s?",
+    text = "Delete scale %s?\n\nReferenced by %d Profile(s). Those Profiles will return to Default.",
     button1 = "Delete",
     button2 = "Cancel",
     OnAccept = function() onConfirm() end,
@@ -1071,7 +1196,7 @@ local function confirmDeleteScale(scale, onConfirm)
     whileDead = true,
     hideOnEscape = true,
   }
-  StaticPopup_Show(dialogName, tostring(scale.name or scale.id))
+  StaticPopup_Show(dialogName, tostring(scale.name or scale.id), tonumber(usageCount) or 0)
 end
 
 local function showScales(content)
@@ -1137,9 +1262,16 @@ local function showScales(content)
   delete:SetPoint("LEFT", duplicate, "RIGHT", 4, 0)
   delete:SetScript("OnClick", function()
     if not selectedScale then return end
-    confirmDeleteScale(selectedScale, function()
+    local Profiles = XIVEquip.Profiles and XIVEquip.Profiles.Config
+    local classFile = currentClassFile()
+    local usageCount = scaleUsage(C, Profiles, classFile, selectedScale.id)
+    confirmDeleteScale(selectedScale, usageCount, function()
       local ok = C.DeleteScale(selectedScale.id)
-      if ok then Window.SelectedScaleID = nil; Window.ShowTab(2) else print(PREFIX .. "Unable to delete scale.") end
+      if ok then
+        Window.SelectedScaleID = nil
+        if usageCount > 0 then print(PREFIX .. "Scale deleted. " .. tostring(usageCount) .. " Profile(s) now use Default for this specialization.") end
+        Window.ShowTab(2)
+      else print(PREFIX .. "Unable to delete scale.") end
     end)
   end)
 
@@ -1166,7 +1298,7 @@ local function showScales(content)
   for key, value in pairs(selectedScale.weights or {}) do work[key] = tonumber(value) or 0 end
   local nameLabel = font(editor, "GameFontNormal", "Name")
   nameLabel:SetPoint("TOPLEFT", 232, -10)
-  local nameEdit = CreateFrame("EditBox", nil, editor, "InputBoxTemplate")
+  local nameEdit = pooledFrame(editor, "scale-name", "EditBox", "InputBoxTemplate")
   nameEdit:SetSize(260, 22)
   nameEdit:SetPoint("TOPLEFT", 280, -6)
   nameEdit:SetAutoFocus(false)
@@ -1194,12 +1326,12 @@ local function showScales(content)
   local function addWeightRow(feature, label)
     local rowLabel = font(editor, "GameFontHighlightSmall", label)
     rowLabel:SetPoint("TOPLEFT", 232, y)
-    local edit = CreateFrame("EditBox", nil, editor, "InputBoxTemplate")
+    local edit = pooledFrame(editor, "weight-edit:" .. feature, "EditBox", "InputBoxTemplate")
     edit:SetSize(54, 20)
     edit:SetPoint("TOPLEFT", 352, y + 2)
     edit:SetAutoFocus(false)
     edit:SetText(string.format("%.2f", tonumber(work[feature]) or 0))
-    local slider = CreateFrame("Slider", nil, editor, "OptionsSliderTemplate")
+    local slider = pooledFrame(editor, "weight-slider:" .. feature, "Slider", "OptionsSliderTemplate")
     slider:SetPoint("TOPLEFT", 418, y + 1)
     slider:SetWidth(190)
     slider:SetMinMaxValues(0, 1)
