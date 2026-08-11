@@ -223,6 +223,7 @@ The suite loads addon modules with mocked WoW APIs and covers scale resolution, 
 - `/xive status` — print settings schema, planner, auto-equip state, and auto-save state
 - `/xive plan` — print the current native equip plan without equipping it
 - `/xive equip` — equip the current native recommendation
+- `/xive perf` — run a native planning pass and print timing/counter diagnostics
 - `/xive test` — run in-game regression checks that do not equip gear
 - `/xive fixture capture` — save current character, equipped item, bag item, and active Pawn scale data to `XIVEquip_Settings.TestFixtures.LastCapture`
 - `/xive fixture clear` — remove captured fixture data
