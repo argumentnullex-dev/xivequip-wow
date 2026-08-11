@@ -80,6 +80,8 @@ local function loadWindow(addon, calls)
     function f:SetText(text) self.text = text; calls.buttons[text] = self end
     function f:SetID(id) self.id = id end
     function f:GetID() return self.id end
+    function f:LockHighlight() self.locked = true end
+    function f:UnlockHighlight() self.locked = false end
     function f:SetChecked(value) self.checked = value end
     function f:GetChecked() return self.checked end
     f.TitleBg = frame
@@ -455,8 +457,7 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.falsy(modePanel._xivEquipPool.items.button[1].enabled, "automatic mode should disable manual mode controls")
   A.equal(modePanel._xivEquipPool.items.button[2].text, "Custom", "Automatic should retain the selected manual mode as disabled context")
   local mapPanel = page._xivEquipPool.items.panel[3]
-  A.truthy(mapPanel:IsShown(), "Automatic should retain the stored per-spec mapping as visible context")
-  A.falsy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "Automatic should disable stored per-spec mapping controls")
+  A.falsy(mapPanel:IsShown(), "Automatic should hide per-spec mappings when its effective source is Default")
 
   profile.automatic = false
   Window.ShowTab(2)
@@ -466,6 +467,79 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode controls should remain pooled after tab switches")
   A.truthy(modePanel._xivEquipPool.items.button[1].enabled, "rebound manual mode controls should be enabled again")
   A.truthy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "stored mapping controls should re-enable with manual mode")
+end)
+
+test("clicking Automatic highlights Pawn integration when Pawn is the effective source", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default",
+    automatic = false,
+    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = {
+      Defaults = {
+        SpecsForClass = function() return { { id = 70, name = "Retribution" } } end,
+      },
+    },
+    Config = {
+      ResolveResultForSpec = function()
+        if profile.automatic then
+          return {
+            scale = { resolution = { sourceKind = "integration", sourceLabel = "Pawn", scaleLabel = "Retribution" } },
+          }
+        end
+        return {
+          scale = { resolution = { sourceKind = "default", sourceLabel = "Default", scaleLabel = "Retribution" } },
+        }
+      end,
+      ListIntegrations = function()
+        return {
+          {
+            id = "pawn",
+            label = "Pawn",
+            IsAvailable = function() return true end,
+            Resolve = function() return { name = "Retribution" } end,
+            ListScales = function() return { { key = "ret", name = "Retribution" } } end,
+          },
+        }
+      end,
+      ListManualScales = function() return {} end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = 1 } end,
+      SetAutomatic = function(_, value) profile.automatic = value == true; return profile end,
+      SetManualMode = function(_, value) profile.manual.mode = value; return profile end,
+      SetPreferSetBonuses = function() return profile end,
+      ClearIntegrationOverride = function() return profile end,
+      SetIntegrationOverride = function() return profile end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local page = Window.Frame.content.page
+  local modePanel = page._xivEquipPool.items.panel[2]
+  local automaticBox = modePanel._xivEquipPool.items.checkbox[1]
+  automaticBox:SetChecked(true)
+  automaticBox.scripts.OnClick(automaticBox)
+
+  A.equal(profile.automatic, true, "Automatic click should enable Automatic on the Profile")
+  A.equal(profile.manual.mode, "default", "Automatic click should not mutate the stored manual mode")
+  local refreshedModePanel = page._xivEquipPool.items.panel[2]
+  A.falsy(refreshedModePanel._xivEquipPool.items.button[1].locked, "Default should no longer be highlighted when Pawn wins Automatic")
+  A.truthy(refreshedModePanel._xivEquipPool.items.button[3].locked, "Addon Integration should be highlighted when Pawn wins Automatic")
+  local text = table.concat(calls.fontText, "\n")
+  A.truthy(text:find("Active weights: Pawn | Retribution", 1, true), "Active source should show Pawn after enabling Automatic")
 end)
 
 test("Profile Management reuses its name field and refreshes profile usage", function()
