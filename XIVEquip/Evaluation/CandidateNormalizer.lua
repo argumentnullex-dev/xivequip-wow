@@ -59,6 +59,16 @@ local WEAPON_TOKEN_MAP = {
   Speed = "swingIntervalSeconds",
 }
 
+local WEAPON_EQUIPLOCS = {
+  INVTYPE_WEAPON = true,
+  INVTYPE_WEAPONMAINHAND = true,
+  INVTYPE_WEAPONOFFHAND = true,
+  INVTYPE_2HWEAPON = true,
+  INVTYPE_RANGED = true,
+  INVTYPE_RANGEDRIGHT = true,
+  INVTYPE_THROWN = true,
+}
+
 local function parseItemID(link)
   if type(link) ~= "string" then return nil end
   return tonumber(link:match("|Hitem:(%d+)") or link:match("item:(%d+)"))
@@ -70,8 +80,9 @@ local function getItemStatsCompat(link)
   return fn(link) or {}
 end
 
-local function getWeaponDamageAndSpeed(link)
+local function getWeaponDamageAndSpeed(link, perf)
   if not (link and C_TooltipInfo and type(C_TooltipInfo.GetHyperlink) == "function") then return nil end
+  if perf then perf:Add("normalization.tooltip_reads", 1) end
   local tip = C_TooltipInfo.GetHyperlink(link)
   if not (tip and type(tip.lines) == "table") then return nil end
 
@@ -146,8 +157,9 @@ end
 -- source: caller-supplied identity/location metadata, e.g.
 --   { kind = "bag", bag = 0, slot = 4, guid = "...", physicalID = "bag:0:4" }
 -- Passed through verbatim on the returned candidate.
-function CandidateNormalizer.FromLink(link, source)
+function CandidateNormalizer.FromLink(link, source, opts)
   source = source or {}
+  opts = opts or {}
   local itemID = parseItemID(link) or source.itemID
   local itemInfo = itemID or link
   if itemInfo == nil then return nil, "invalid-item-info" end
@@ -195,10 +207,13 @@ function CandidateNormalizer.FromLink(link, source)
       weapon[field] = amount
     end
   end
-  local tmin, tmax, tspeed = getWeaponDamageAndSpeed(link)
-  if type(tmin) == "number" and weapon.minimumDamage == 0 then weapon.minimumDamage = tmin end
-  if type(tmax) == "number" and weapon.maximumDamage == 0 then weapon.maximumDamage = tmax end
-  if type(tspeed) == "number" and weapon.swingIntervalSeconds == 0 then weapon.swingIntervalSeconds = tspeed end
+  if WEAPON_EQUIPLOCS[equipLoc]
+      and (weapon.minimumDamage == 0 or weapon.maximumDamage == 0 or weapon.swingIntervalSeconds == 0) then
+    local tmin, tmax, tspeed = getWeaponDamageAndSpeed(link, opts.perf)
+    if type(tmin) == "number" and weapon.minimumDamage == 0 then weapon.minimumDamage = tmin end
+    if type(tmax) == "number" and weapon.maximumDamage == 0 then weapon.maximumDamage = tmax end
+    if type(tspeed) == "number" and weapon.swingIntervalSeconds == 0 then weapon.swingIntervalSeconds = tspeed end
+  end
   if weapon.dps == 0 and weapon.minimumDamage > 0 and weapon.maximumDamage > 0 and weapon.swingIntervalSeconds > 0 then
     weapon.dps = ((weapon.minimumDamage + weapon.maximumDamage) / 2) / weapon.swingIntervalSeconds
   end

@@ -264,4 +264,26 @@ test("extracts weapon speed and tooltip damage fallback for native Pawn scoring"
   A.equal(candidate.weapon.dps, 50)
 end)
 
+test("does not tooltip-parse ordinary armor for weapon fallback values", function()
+  local addon = newAddon()
+  local tooltipReads = 0
+  FakeWorld.Install({
+    items = {
+      helm = { itemID = 6003, equipLoc = "INVTYPE_HEAD", stats = {} },
+    },
+  })
+  _G.C_TooltipInfo = {
+    GetHyperlink = function()
+      tooltipReads = tooltipReads + 1
+      return { lines = { { leftText = "120 - 240 Damage", rightText = "Speed 3.60" } } }
+    end,
+  }
+
+  local candidate = addon.Evaluation.CandidateNormalizer.FromLink(FakeWorld.ItemLink(6003), {})
+
+  A.equal(tooltipReads, 0)
+  A.equal(candidate.weapon.minimumDamage, 0)
+  A.equal(candidate.weapon.swingIntervalSeconds, 0)
+end)
+
 return tests
