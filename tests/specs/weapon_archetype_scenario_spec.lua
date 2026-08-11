@@ -1,8 +1,8 @@
 -- tests/specs/weapon_archetype_scenario_spec.lua
 -- Runs the weapon archetype matrix (doc section 6) plus its skipped
 -- weapon-policy-override placeholders through the black-box scenario
--- harness. Layer B (weapons_spec.lua) stays in place and keeps testing the
--- same behavior at the planner/unit level -- this is the whole-addon,
+-- harness. Focused assignment-policy tests cover the same behavior at the
+-- planner/unit level; this is the whole-addon,
 -- final-state view (doc migration Step 3).
 
 local root = ...

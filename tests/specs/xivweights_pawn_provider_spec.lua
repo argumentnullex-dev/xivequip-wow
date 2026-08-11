@@ -2,7 +2,7 @@
 -- Doc section 12/31: Pawn scale-weight conversion, hash-based caching, and
 -- converter-version invalidation. Uses a fake adapter (not the real Pawn
 -- addon) -- this Provider only converts scale weights, so it has no
--- dependency on Comparers/Pawn/Interface's item-stat/tooltip code.
+-- dependency on planner item-stat/tooltip code.
 
 local root = ...
 local sep = package.config:sub(1, 1)

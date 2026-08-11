@@ -2,7 +2,7 @@
 -- Loads production XIVEquip modules into a fresh addon table, mirroring the
 -- WoW `local addonName, ns = ...` chunk convention every production file uses.
 -- Split into phases so callers (ScenarioRunner) can patch the addon table
--- between phases -- e.g. installing fake Comparers/Settings/L and patching
+-- between phases -- e.g. installing fake Settings/L modules and patching
 -- Core.equipByBasics before Gear/Interface.lua loads and captures it as an
 -- upvalue.
 
@@ -26,14 +26,7 @@ function Bootstrap.LoadCore(root, addon)
   loadAddonFile(root, { "Core", "GearCore.lua" }, addon)
 end
 
--- The three per-category planners. None of these need Comparers/Settings/L.
-function Bootstrap.LoadPlanners(root, addon)
-  loadAddonFile(root, { "Gear", "Weapons.lua" }, addon)
-  loadAddonFile(root, { "Gear", "Jewelry.lua" }, addon)
-  loadAddonFile(root, { "Gear", "Armor.lua" }, addon)
-end
-
--- Gear/Interface.lua captures L/Comparers/Settings/Core.equipByBasics as
+-- Gear/Interface.lua captures L/Settings/Core.equipByBasics as
 -- upvalues at load time -- callers that need Gear:EquipBest must patch the
 -- addon table with fakes for those before calling this.
 function Bootstrap.LoadInterface(root, addon)
@@ -41,7 +34,7 @@ function Bootstrap.LoadInterface(root, addon)
 end
 
 -- The native XIVWeights valuation module tree. Self-contained -- doesn't
--- need Const/Gear_Core/Comparers/Settings, so it can be loaded in isolation
+-- need Const/GearCore/Settings, so it can be loaded in isolation
 -- for unit tests that never touch the planner stack.
 function Bootstrap.LoadWeights(root, addon)
   loadAddonFile(root, { "Profiles", "Config.lua" }, addon)
@@ -75,11 +68,15 @@ function Bootstrap.LoadPolicyContext(root, addon)
   loadAddonFile(root, { "Policies", "EvaluationContext", "ClassSpecWeaponCapabilities.lua" }, addon)
   loadAddonFile(root, { "Policies", "EvaluationContext", "DualWieldOverride.lua" }, addon)
   loadAddonFile(root, { "Policies", "EvaluationContext", "WeightsResolution.lua" }, addon)
+  loadAddonFile(root, { "Policies", "EvaluationContext", "ProfilePreferences.lua" }, addon)
   loadAddonFile(root, { "Policies", "Candidate", "RequiredLevel.lua" }, addon)
   loadAddonFile(root, { "Policies", "Candidate", "Equippable.lua" }, addon)
   loadAddonFile(root, { "Policies", "Candidate", "ArmorProficiency.lua" }, addon)
   loadAddonFile(root, { "Policies", "Candidate", "JewelryIlvlFloor.lua" }, addon)
+  loadAddonFile(root, { "Policies", "Candidate", "ProfileLists.lua" }, addon)
+  loadAddonFile(root, { "Policies", "Candidate", "SetMembership.lua" }, addon)
   loadAddonFile(root, { "Evaluation", "ContextBuilder.lua" }, addon)
+  loadAddonFile(root, { "Evaluation", "NormalizedItemCache.lua" }, addon)
   loadAddonFile(root, { "Evaluation", "CandidateNormalizer.lua" }, addon)
   loadAddonFile(root, { "Evaluation", "CandidateCollector.lua" }, addon)
   loadAddonFile(root, { "Evaluation", "CandidateEvaluator.lua" }, addon)
@@ -107,6 +104,7 @@ end
 -- combining real group frontiers still need Bootstrap.LoadAssignments too.
 function Bootstrap.LoadOptimization(root, addon)
   loadAddonFile(root, { "Optimization", "LoadoutOptimizer.lua" }, addon)
+  loadAddonFile(root, { "Policies", "Preference", "PreferSetBonuses.lua" }, addon)
 end
 
 function Bootstrap.LoadPlanning(root, addon)

@@ -1,5 +1,5 @@
 -- Planning/Coordinator.lua
--- Shadow RecommendationResult coordinator for the 2.0 evaluation pipeline.
+-- RecommendationResult coordinator for the 2.0 evaluation pipeline.
 -- It does not equip anything; it builds frontiers and asks the whole-loadout
 -- optimizer for a desired final slot assignment.
 local addonName, XIVEquip = ...
@@ -105,6 +105,61 @@ local function buildContext(opts)
   return XIVEquip.Evaluation.ContextBuilder.BuildContext(resolved, runtime)
 end
 
+local function activePolicies(context, phase)
+  local resolver = XIVEquip.Policies and XIVEquip.Policies.Resolver
+  if resolver and resolver.ActiveForPhase then return resolver.ActiveForPhase(context, phase) end
+  return (context and context.policies and context.policies[phase]) or {}
+end
+
+local function requiredSetThreshold(context)
+  local threshold = nil
+  for _, phase in ipairs({ "loadout", "preference" }) do
+    for _, policy in ipairs(activePolicies(context, phase)) do
+      local setCounts = policy.summaryDimensions and policy.summaryDimensions.setCounts
+      if setCounts then
+        local thresholds = type(setCounts) == "table" and setCounts.thresholds or nil
+        if type(thresholds) == "table" and #thresholds > 0 then
+          for _, value in ipairs(thresholds) do
+            value = tonumber(value)
+            if value and value > 0 then threshold = threshold and math.min(threshold, value) or value end
+          end
+        else
+          threshold = threshold and math.min(threshold, 1) or 1
+        end
+      end
+    end
+  end
+  return threshold
+end
+
+local function prepareRelevantSetIDs(context, collection)
+  if not (context and context.caches) then return end
+  local threshold = requiredSetThreshold(context)
+  if not threshold then
+    context.caches.relevantSetIDs = nil
+    return
+  end
+
+  local counts = {}
+  local seen = {}
+  for _, candidate in ipairs((collection and collection.candidates) or {}) do
+    local setID = tonumber(candidate and candidate.setID)
+    if setID and setID > 0 then
+      local key = candidate.guid or candidate.physicalID or tostring(candidate)
+      if not seen[key] then
+        seen[key] = true
+        counts[setID] = (counts[setID] or 0) + 1
+      end
+    end
+  end
+
+  local relevant = {}
+  for setID, count in pairs(counts) do
+    if count >= threshold then relevant[setID] = true end
+  end
+  context.caches.relevantSetIDs = relevant
+end
+
 local function groupScoreFn(opts, runtime)
   if opts.score then return opts.score end
   if runtime and type(runtime.ScoreCandidate) == "function" then
@@ -129,8 +184,9 @@ local function singletonGroup(spec)
   return { id = spec.id, slots = { spec.slot }, frontier = frontier, slot = spec.slot, kind = "singleton" }
 end
 
-local function buildGroups(collection, context, loadoutState, allSlots, score)
+local function buildGroups(collection, context, loadoutState, allSlots, score, perf)
   local groups = {}
+  local singletonToken = perf and perf:Start("  singleton total")
   for _, def in ipairs(SINGLETON_SLOTS) do
     groups[#groups + 1] = singletonGroup({
       id = def.id,
@@ -142,34 +198,58 @@ local function buildGroups(collection, context, loadoutState, allSlots, score)
       score = score,
     })
   end
+  if perf then perf:Stop(singletonToken) end
 
+  local ringCandidates = candidatesForEquipLoc(collection.candidates, "INVTYPE_FINGER", collection.equippedBySlot[11], collection.equippedBySlot[12])
+  if perf then perf:Set("rings.candidates", #ringCandidates) end
+  local ringToken = perf and perf:Start("  rings")
   groups[#groups + 1] = {
     id = "rings",
     kind = "paired",
     roles = { first = 11, second = 12 },
     slots = { 11, 12 },
     frontier = XIVEquip.Assignments.Groups.Rings.Frontier(
-      candidatesForEquipLoc(collection.candidates, "INVTYPE_FINGER", collection.equippedBySlot[11], collection.equippedBySlot[12]),
-      context, loadoutState, collection.equippedBySlot[11], collection.equippedBySlot[12], allSlots, score),
+      ringCandidates,
+      context, loadoutState, collection.equippedBySlot[11], collection.equippedBySlot[12], allSlots, score, perf),
   }
+  if perf then
+    perf:Stop(ringToken)
+    perf:Set("rings.final_frontier_size", #(groups[#groups].frontier or {}))
+  end
+
+  local trinketCandidates = candidatesForEquipLoc(collection.candidates, "INVTYPE_TRINKET", collection.equippedBySlot[13], collection.equippedBySlot[14])
+  if perf then perf:Set("trinkets.candidates", #trinketCandidates) end
+  local trinketToken = perf and perf:Start("  trinkets")
   groups[#groups + 1] = {
     id = "trinkets",
     kind = "paired",
     roles = { first = 13, second = 14 },
     slots = { 13, 14 },
     frontier = XIVEquip.Assignments.Groups.Trinkets.Frontier(
-      candidatesForEquipLoc(collection.candidates, "INVTYPE_TRINKET", collection.equippedBySlot[13], collection.equippedBySlot[14]),
-      context, loadoutState, collection.equippedBySlot[13], collection.equippedBySlot[14], allSlots, score),
+      trinketCandidates,
+      context, loadoutState, collection.equippedBySlot[13], collection.equippedBySlot[14], allSlots, score, perf),
   }
+  if perf then
+    perf:Stop(trinketToken)
+    perf:Set("trinkets.final_frontier_size", #(groups[#groups].frontier or {}))
+  end
+
+  local weaponCandidatesList = weaponCandidates(collection.candidates, collection.equippedBySlot[16], collection.equippedBySlot[17])
+  if perf then perf:Set("weapons.candidates", #weaponCandidatesList) end
+  local weaponToken = perf and perf:Start("  weapons")
   groups[#groups + 1] = {
     id = "weapons",
     kind = "paired",
     roles = { mh = 16, oh = 17 },
     slots = { 16, 17 },
     frontier = XIVEquip.Assignments.Groups.Weapons.Frontier(
-      weaponCandidates(collection.candidates, collection.equippedBySlot[16], collection.equippedBySlot[17]),
-      context, loadoutState, collection.equippedBySlot[16], collection.equippedBySlot[17], allSlots, score),
+      weaponCandidatesList,
+      context, loadoutState, collection.equippedBySlot[16], collection.equippedBySlot[17], allSlots, score, perf),
   }
+  if perf then
+    perf:Stop(weaponToken)
+    perf:Set("weapons.final_frontier_size", #(groups[#groups].frontier or {}))
+  end
 
   return groups
 end
@@ -276,7 +356,7 @@ local function currentScores(collection, context, runtime)
   return scores, groupScores
 end
 
-local function diagnosticsFor(collection, groups, runtime, context)
+local function diagnosticsFor(collection, groups, runtime, context, perf)
   local diagnostics = {
     unresolved = collection.unresolved,
     groupFrontierSizes = {},
@@ -300,11 +380,13 @@ local function diagnosticsFor(collection, groups, runtime, context)
       }
     end
   end
+  if perf then diagnostics.performance = perf:Snapshot() end
   return diagnostics
 end
 
 function Coordinator.Plan(opts)
   opts = opts or {}
+  local perf = opts.perf
   local runtime = opts.runtime or Planning.Runtime.Live()
   local closed = false
   local function closeRuntime()
@@ -313,24 +395,50 @@ function Coordinator.Plan(opts)
     runtime.Close()
   end
 
+  local totalToken = perf and perf:Start("Total Plan")
   local ok, result = xpcall(function()
-    local context = buildContext({ context = opts.context, resolved = opts.resolved, runtime = runtime })
-    local optimizerContext = setmetatable({ preferFilledSlots = true }, { __index = context })
-    local collection = opts.collection or XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS })
+    local context = perf and perf:Measure("Context build", function()
+      return buildContext({ context = opts.context, resolved = opts.resolved, runtime = runtime })
+    end) or buildContext({ context = opts.context, resolved = opts.resolved, runtime = runtime })
+    local evaluationContext = perf and setmetatable({ perf = perf, caches = context.caches }, { __index = context }) or context
+    local optimizerContext = setmetatable({ preferFilledSlots = true, perf = perf }, { __index = evaluationContext })
+    local collection = opts.collection or (perf and perf:Measure("Inventory enumeration", function()
+      return XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS, perf = perf })
+    end) or XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS }))
+    prepareRelevantSetIDs(evaluationContext, collection)
     local allSlots = copyArray(OPTIMIZED_SLOTS)
     local loadoutState = XIVEquip.Assignments.LoadoutState.New()
     loadoutState:SeedFromEquipped(collection.equippedBySlot)
 
     local score = groupScoreFn(opts, runtime)
-    local groups = buildGroups(collection, context, loadoutState, allSlots, score)
-    local selected, scoreTotal = XIVEquip.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, optimizerContext)
+    local groups = perf and perf:Measure("Group/frontier construction", function()
+      return buildGroups(collection, evaluationContext, loadoutState, allSlots, score, perf)
+    end) or buildGroups(collection, context, loadoutState, allSlots, score)
+    local selected, scoreTotal
+    if perf then
+      selected, scoreTotal = perf:Measure("Global optimizer", function()
+        return XIVEquip.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, optimizerContext)
+      end)
+    else
+      selected, scoreTotal = XIVEquip.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, optimizerContext)
+    end
 
     local finalSlots = {}
     for _, slotID in ipairs(OPTIMIZED_SLOTS) do
       finalSlots[slotID] = collection.equippedBySlot[slotID]
     end
     local finalSlotScores, finalGroupScores = applyAssignments(finalSlots, groups, selected)
-    local currentSlotScores, currentGroupScores = currentScores(collection, context, runtime)
+    local currentSlotScores, currentGroupScores
+    if perf then
+      currentSlotScores, currentGroupScores = perf:Measure("Current-loadout scoring", function()
+        return currentScores(collection, evaluationContext, runtime)
+      end)
+    else
+      currentSlotScores, currentGroupScores = currentScores(collection, context, runtime)
+    end
+    local diagnostics = perf and perf:Measure("Diagnostics", function()
+      return diagnosticsFor(collection, groups, runtime, evaluationContext, perf)
+    end) or diagnosticsFor(collection, groups, runtime, context)
 
     return {
       finalSlots = finalSlots,
@@ -341,8 +449,9 @@ function Coordinator.Plan(opts)
       currentGroupScores = currentGroupScores,
       optimizedSlots = copyArray(OPTIMIZED_SLOTS),
       pending = collection.pending == true,
+      weights = context.weights,
       score = scoreTotal or 0,
-      diagnostics = diagnosticsFor(collection, groups, runtime, context),
+      diagnostics = diagnostics,
       selectedAssignments = selected or {},
     }
   end, function(err)
@@ -350,6 +459,7 @@ function Coordinator.Plan(opts)
     return tostring(err)
   end)
 
+  if perf then perf:Stop(totalToken) end
   closeRuntime()
   if not ok then error(result, 0) end
   return result

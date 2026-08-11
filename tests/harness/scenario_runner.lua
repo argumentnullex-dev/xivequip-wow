@@ -75,6 +75,28 @@ local function buildResult(world, before, scenario, pending)
   }
 end
 
+local function loadNativePlanner(root, addon, world)
+  local Bootstrap = loadHarnessModule(root, "addon_bootstrap.lua")
+  _G.XIVEquip_Settings = {}
+  Bootstrap.LoadCore(root, addon)
+  Bootstrap.LoadWeights(root, addon)
+  Bootstrap.LoadPolicyContext(root, addon)
+  Bootstrap.LoadAssignments(root, addon)
+  Bootstrap.LoadOptimization(root, addon)
+  Bootstrap.LoadPlanning(root, addon)
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local runtime = addon.Planning.Runtime.Live()
+  runtime.ResolveWeights = function()
+    return addon.XIVWeights.NewScale({ id = "scenario", source = { kind = "manual" }, weights = {} })
+  end
+  runtime.ScoreCandidate = function(candidate, _, slotID)
+    local item = candidate and world.byID[candidate.itemID]
+    return item and item.scores and item.scores[slotID] or 0
+  end
+  runtime.ScoreSource = function() return "Scenario" end
+  return Bootstrap, runtime, resolved
+end
+
 -- Plan: builds production modules + fake world, calls Gear:PlanBest, and
 -- reports what *would* change by running each returned pick through the
 -- real Core.equipByBasics (backed by FakeWorld's cursor-mechanics globals --
@@ -84,18 +106,16 @@ end
 -- and guaranteed to model final state identically to Run() since both call
 -- the same production function.
 function ScenarioRunner.Plan(root, scenario)
-  local Bootstrap = loadHarnessModule(root, "addon_bootstrap.lua")
   local FakeWorld = loadHarnessModule(root, "fake_world.lua")
 
   local world = FakeWorld.Install(scenario)
   local before = snapshotItemIDs(world.equippedSlot)
 
   local addon = newAddon()
-  Bootstrap.LoadCore(root, addon)
-  Bootstrap.LoadPlanners(root, addon)
+  local Bootstrap, runtime, resolved = loadNativePlanner(root, addon, world)
   Bootstrap.LoadInterface(root, addon)
 
-  local _, pending, plan = addon.Gear:PlanBest(world.cmp)
+  local _, pending, plan = addon.Gear:PlanBest({ native = { runtime = runtime, resolved = resolved } })
   for _, pick in ipairs(plan or {}) do
     addon.Gear_Core.equipByBasics(pick)
   end
@@ -109,7 +129,6 @@ end
 -- Core.equipByBasics/_runEquipPlan execution path (locks, verify steps,
 -- result counting) -- not bypassed.
 function ScenarioRunner.Run(root, scenario)
-  local Bootstrap = loadHarnessModule(root, "addon_bootstrap.lua")
   local FakeWorld = loadHarnessModule(root, "fake_world.lua")
   local FakeTimer = loadHarnessModule(root, "fake_timer.lua")
 
@@ -118,8 +137,7 @@ function ScenarioRunner.Run(root, scenario)
   local settle = FakeTimer.Install()
 
   local addon = newAddon()
-  Bootstrap.LoadCore(root, addon)
-  Bootstrap.LoadPlanners(root, addon)
+  local Bootstrap, runtime, resolved = loadNativePlanner(root, addon, world)
 
   -- Gear/Interface.lua captures these as upvalues at load time -- must be
   -- set before Bootstrap.LoadInterface runs. Core.equipByBasics is left as
@@ -132,10 +150,6 @@ function ScenarioRunner.Run(root, scenario)
     ReplacedWith = "Replaced %s with %s.",
     SpecAuto_Saved = "Saved equipment set '%s'.",
   }
-  addon.Comparers = {
-    StartPass = function() return world.cmp, {} end,
-    EndPass = function() end,
-  }
   addon.Settings = {
     GetMessage = function() return false end,
     GetAutomation = function() return false end,
@@ -146,7 +160,7 @@ function ScenarioRunner.Run(root, scenario)
   local originalPrint = _G.print
   _G.print = function() end
   local ok, err = pcall(function()
-    addon.Gear:EquipBest({ autoSave = false })
+    addon.Gear:EquipBest({ autoSave = false, native = { runtime = runtime, resolved = resolved } })
     settle()
   end)
   _G.print = originalPrint

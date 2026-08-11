@@ -113,21 +113,11 @@ end
 -- `groups` field applies everywhere; one with a `groups` array only
 -- applies when groupId is listed in it.
 local function assignmentPoliciesFor(context, groupId)
-  local all = (context and context.policies and context.policies.assignment) or {}
-  local scoped = {}
-  for _, policy in ipairs(all) do
-    if not policy.groups then
-      scoped[#scoped + 1] = policy
-    else
-      for _, g in ipairs(policy.groups) do
-        if g == groupId then
-          scoped[#scoped + 1] = policy
-          break
-        end
-      end
-    end
+  local resolver = XIVEquip.Policies and XIVEquip.Policies.Resolver
+  if resolver and resolver.ActiveForPhase then
+    return resolver.ActiveForPhase(context, "assignment", groupId)
   end
-  return scoped
+  return (context and context.policies and context.policies.assignment) or {}
 end
 
 local function policiesAllow(policies, assignment, context)
@@ -279,6 +269,17 @@ end
 -- it's already computed during enumeration, and Phase 4's frontier work
 -- can consume it later without changes here.
 function Paired.Solve(spec)
+  local allLegal = {}
+  local best = nil
+  Paired.Enumerate(spec, function(assignment)
+    allLegal[#allLegal + 1] = assignment
+    if not best or spec.compare(assignment, best) then best = assignment end
+  end)
+
+  return best, allLegal
+end
+
+function Paired.Enumerate(spec, visit)
   local roleA, roleB = spec.roles[1], spec.roles[2]
   local emptyAllowed = spec.emptyAllowed or {}
   local candidates = spec.candidates or {}
@@ -291,7 +292,9 @@ function Paired.Solve(spec)
   if emptyAllowed[roleA] then poolA[#poolA + 1] = EMPTY end
   if emptyAllowed[roleB] then poolB[#poolB + 1] = EMPTY end
 
-  local allLegal = {}
+  local perf = spec.perf
+  if perf then perf:Add(tostring(spec.groupId or "paired") .. ".raw_pair_combinations", #poolA * #poolB) end
+  local legalCount = 0
   for _, a in ipairs(poolA) do
     for _, b in ipairs(poolB) do
       -- NOT `isEmptyMarker(a) and nil or a` -- that idiom always evaluates
@@ -314,14 +317,11 @@ function Paired.Solve(spec)
         currentBySlot = spec.currentBySlot,
         picks = { [roleA] = pickA, [roleB] = pickB },
       })
-      if assignment then allLegal[#allLegal + 1] = assignment end
+      if assignment then
+        legalCount = legalCount + 1
+        visit(assignment)
+      end
     end
   end
-
-  local best = nil
-  for _, assignment in ipairs(allLegal) do
-    if not best or spec.compare(assignment, best) then best = assignment end
-  end
-
-  return best, allLegal
+  if perf then perf:Add(tostring(spec.groupId or "paired") .. ".legal_assignments", legalCount) end
 end

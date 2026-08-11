@@ -11,8 +11,8 @@
 -- here before there's an actual caller risks it silently diverging from
 -- the real thing.
 --
--- Weapon damage/speed extraction mirrors the legacy Pawn bridge's tooltip
--- fallback so native Pawn scales do not advertise supported weapon keys
+-- Weapon damage/speed extraction includes a tooltip fallback so native Pawn
+-- scales do not advertise supported weapon keys
 -- that silently score as zero when GetItemStats omits damage fields.
 local addonName, XIVEquip = ...
 XIVEquip.Evaluation = XIVEquip.Evaluation or {}
@@ -22,9 +22,8 @@ local CandidateNormalizer = {}
 Evaluation.CandidateNormalizer = CandidateNormalizer
 
 -- Blizzard GetItemStats token -> XIVWeights stat feature name. A small,
--- independent map (not a reuse of Comparers/Pawn/Interface.lua's private
--- STATMAP) -- low-churn enough that duplicating it beats reaching into
--- another module's locals.
+-- independent map -- low-churn enough that keeping it local beats coupling
+-- normalization to an integration module.
 local STAT_TOKEN_MAP = {
   ITEM_MOD_STRENGTH = "strength", ITEM_MOD_STRENGTH_SHORT = "strength",
   ITEM_MOD_AGILITY = "agility", ITEM_MOD_AGILITY_SHORT = "agility",
@@ -60,6 +59,16 @@ local WEAPON_TOKEN_MAP = {
   Speed = "swingIntervalSeconds",
 }
 
+local WEAPON_EQUIPLOCS = {
+  INVTYPE_WEAPON = true,
+  INVTYPE_WEAPONMAINHAND = true,
+  INVTYPE_WEAPONOFFHAND = true,
+  INVTYPE_2HWEAPON = true,
+  INVTYPE_RANGED = true,
+  INVTYPE_RANGEDRIGHT = true,
+  INVTYPE_THROWN = true,
+}
+
 local function parseItemID(link)
   if type(link) ~= "string" then return nil end
   return tonumber(link:match("|Hitem:(%d+)") or link:match("item:(%d+)"))
@@ -71,8 +80,9 @@ local function getItemStatsCompat(link)
   return fn(link) or {}
 end
 
-local function getWeaponDamageAndSpeed(link)
+local function getWeaponDamageAndSpeed(link, perf)
   if not (link and C_TooltipInfo and type(C_TooltipInfo.GetHyperlink) == "function") then return nil end
+  if perf then perf:Add("normalization.tooltip_reads", 1) end
   local tip = C_TooltipInfo.GetHyperlink(link)
   if not (tip and type(tip.lines) == "table") then return nil end
 
@@ -147,8 +157,9 @@ end
 -- source: caller-supplied identity/location metadata, e.g.
 --   { kind = "bag", bag = 0, slot = 4, guid = "...", physicalID = "bag:0:4" }
 -- Passed through verbatim on the returned candidate.
-function CandidateNormalizer.FromLink(link, source)
+function CandidateNormalizer.FromLink(link, source, opts)
   source = source or {}
+  opts = opts or {}
   local itemID = parseItemID(link) or source.itemID
   local itemInfo = itemID or link
   if itemInfo == nil then return nil, "invalid-item-info" end
@@ -156,7 +167,7 @@ function CandidateNormalizer.FromLink(link, source)
   local okInstant, resolvedItemID, _, _, equipLoc, _, itemClassID, itemSubclassID = pcall(GetItemInfoInstant, itemInfo)
   if not okInstant or not equipLoc then return nil, "pending-item-data" end
   itemID = itemID or resolvedItemID
-  local _, _, _, baseItemLevel, requiredLevel = GetItemInfo(link)
+  local _, _, _, baseItemLevel, requiredLevel, _, _, _, _, _, _, _, _, _, _, setID = GetItemInfo(link)
 
   -- GetItemInfo's 4th return is the item's *base* level. GetDetailedItemLevelInfo
   -- returns the *effective* level shown on the tooltip (accounting for item
@@ -196,10 +207,13 @@ function CandidateNormalizer.FromLink(link, source)
       weapon[field] = amount
     end
   end
-  local tmin, tmax, tspeed = getWeaponDamageAndSpeed(link)
-  if type(tmin) == "number" and weapon.minimumDamage == 0 then weapon.minimumDamage = tmin end
-  if type(tmax) == "number" and weapon.maximumDamage == 0 then weapon.maximumDamage = tmax end
-  if type(tspeed) == "number" and weapon.swingIntervalSeconds == 0 then weapon.swingIntervalSeconds = tspeed end
+  if WEAPON_EQUIPLOCS[equipLoc]
+      and (weapon.minimumDamage == 0 or weapon.maximumDamage == 0 or weapon.swingIntervalSeconds == 0) then
+    local tmin, tmax, tspeed = getWeaponDamageAndSpeed(link, opts.perf)
+    if type(tmin) == "number" and weapon.minimumDamage == 0 then weapon.minimumDamage = tmin end
+    if type(tmax) == "number" and weapon.maximumDamage == 0 then weapon.maximumDamage = tmax end
+    if type(tspeed) == "number" and weapon.swingIntervalSeconds == 0 then weapon.swingIntervalSeconds = tspeed end
+  end
   if weapon.dps == 0 and weapon.minimumDamage > 0 and weapon.maximumDamage > 0 and weapon.swingIntervalSeconds > 0 then
     weapon.dps = ((weapon.minimumDamage + weapon.maximumDamage) / 2) / weapon.swingIntervalSeconds
   end
@@ -217,6 +231,7 @@ function CandidateNormalizer.FromLink(link, source)
       requiredLevel = requiredLevel,
     },
     itemLevel = itemLevel,
+    setID = tonumber(setID),
     uniqueness = { key = uniqueKey, limit = uniqueLimit },
     stats = stats,
     weapon = weapon,

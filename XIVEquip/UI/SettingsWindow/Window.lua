@@ -871,12 +871,16 @@ local function showConfig(content)
   local C, Profiles, runtime, context, specID, classFile, profile = currentState()
   local resolved = C and specID and C.ResolveResultForSpec and C.ResolveResultForSpec(specID, runtime)
   local manual = profile and profile.manual or {}
+  local preferences = Profiles and Profiles.GetSpecPreferences and profile and specID
+      and Profiles.GetSpecPreferences(profile, specID) or { preferSetBonuses = false }
   local viewKey = table.concat({
     "config", tostring(classFile), tostring(specID), tostring(profile and profile.id or ""),
     tostring(profile and profile.automatic), tostring(manual.mode),
     tostring(manual.integration and manual.integration.provider),
+    tostring(preferences.preferSetBonuses == true),
     mapStateKey(manual.customOverrides),
     mapStateKey(manual.integration and manual.integration.overrides),
+    tostring(resolved and resolved.scale and resolved.scale.resolution and resolved.scale.resolution.sourceKind),
     tostring(resolved and resolved.scale and resolved.scale.resolution and resolved.scale.resolution.sourceLabel),
     tostring(resolved and resolved.scale and resolved.scale.resolution and resolved.scale.resolution.scaleLabel),
     tostring(resolved and resolved.fallback), tostring(resolved and resolved.fallbackReason),
@@ -945,6 +949,12 @@ local function showConfig(content)
   sectionTitle(modePanel, "Scoring Configuration", 14, -14)
   local mode = profile and profile.manual and string.lower(tostring(profile.manual.mode or "default")) or "default"
   local manualEditable = profile and profile.automatic == false
+  local automatic = profile and profile.automatic ~= false
+  local displayMode = mode
+  if automatic then
+    local sourceKind = resolution and resolution.sourceKind
+    displayMode = sourceKind == "integration" and "integration" or "default"
+  end
   local modes = {
     { id = "default", label = "Default", note = "Use the built-in recommended scale for every specialization." },
     { id = "custom", label = "Custom", note = "Use Default unless a specialization has its own scale." },
@@ -953,7 +963,7 @@ local function showConfig(content)
   divider(modePanel, 198, -38, 96)
   divider(modePanel, 390, -38, 96)
   for index, item in ipairs(modes) do
-    local selected = profile and mode == item.id
+    local selected = profile and displayMode == item.id
     local choice = button(modePanel, item.label, 174, 24)
     choice:SetPoint("TOPLEFT", 12 + ((index - 1) * 192), -42)
     if choice.UnlockHighlight then choice:UnlockHighlight() end
@@ -1006,28 +1016,32 @@ local function showConfig(content)
   importScale:SetPoint("LEFT", create, "RIGHT", 4, 0)
   importScale:SetScript("OnClick", function() if C and specID then showImportDialog(specID, C) end end)
 
-  local auto = checkbox(modePanel, "Automatic", profile and profile.automatic ~= false, function(value)
+  local auto = checkbox(modePanel, "Automatic", automatic, function(value)
     if profile then Profiles.SetAutomatic(profile, value); Window.ShowTab(1) end
   end)
   auto:SetPoint("TOPLEFT", 14, -144)
+  local setPreference = checkbox(modePanel, "Prefer set bonuses", preferences.preferSetBonuses == true, function(value)
+    if profile then Profiles.SetPreferSetBonuses(profile, value); Window.ShowTab(1) end
+  end)
+  setPreference:SetPoint("TOPLEFT", 302, -144)
   local recommendation = font(modePanel, "GameFontHighlightSmall", "Choose the recommended scale for your spec automatically.")
   recommendation:SetPoint("TOPLEFT", 36, -164)
   textColor(recommendation, 0.4, 1, 0.4)
 
   local specs = defaults and defaults.SpecsForClass(classFile) or {}
   local mapPanel = panel(page, 0, -348, CONTENT_WIDTH, 132)
-  local mappingTitle = mode == "custom" and "Custom scale overrides by specialization"
+  local mappingTitle = displayMode == "custom" and "Custom scale overrides by specialization"
       or "Integration scales by specialization"
   sectionTitle(mapPanel, mappingTitle, 14, -14)
   if profile and not manualEditable then
-    local stored = font(mapPanel, "GameFontDisableSmall", "Stored configuration (disabled while Automatic is enabled)")
+    local stored = font(mapPanel, "GameFontDisableSmall", "Automatic selection (disabled while Automatic is enabled)")
     stored:SetPoint("TOPRIGHT", -12, -16)
   end
   local mapY = -42
   for _, spec in ipairs(specs) do
     local label = font(mapPanel, manualEditable and "GameFontHighlightSmall" or "GameFontDisableSmall", tostring(spec.name))
     label:SetPoint("TOPLEFT", 14, mapY)
-    if profile and mode == "custom" then
+    if profile and displayMode == "custom" then
       local overrides = profile.manual.customOverrides or {}
       local items = { { value = "", label = "Default" } }
       for _, scale in ipairs(manualScalesForSpec(C, spec.id)) do
@@ -1068,7 +1082,7 @@ local function showConfig(content)
           Window.ShowTab(2)
         end
       end)
-    elseif profile and mode == "integration" then
+    elseif profile and displayMode == "integration" then
       local overrides = profile.manual.integration.overrides or {}
       local configuredOverride = overrides[spec.id]
       local items = integrationItems(C, integrationProvider, runtime, spec.id)
@@ -1097,9 +1111,9 @@ local function showConfig(content)
     end
     mapY = mapY - 27
   end
-  if not profile or mode == "default" then mapPanel:Hide() end
+  if not profile or displayMode == "default" then mapPanel:Hide() end
 
-  local generalY = (profile and mode ~= "default") and -494 or -348
+  local generalY = (profile and displayMode ~= "default") and -494 or -348
   addGeneralSettings(page, 0, generalY, CONTENT_WIDTH)
 end
 

@@ -36,6 +36,7 @@ local GetItemStats             = _G.GetItemStats or GetItemStats
 local GetDetailedItemLevelInfo = _G.GetDetailedItemLevelInfo or GetDetailedItemLevelInfo
 
 XIVEquip                       = XIVEquip or {}
+XIVEquip.UI                    = XIVEquip.UI or {}
 local L                        = XIVEquip.L or {}
 
 -- Fallback strings
@@ -153,7 +154,7 @@ local function ensureDeltas(c)
     end
   end
   -- ilvl delta
-  if (not c.deltaIlvl) or c.deltaIlvl == 0 then
+  if c.deltaIlvl == nil then
     local newI = GetIlvl(c.newLink)
     local oldI = GetIlvl(c.oldLink)
     if oldI == nil then oldI = 0 end
@@ -174,41 +175,239 @@ local function withLoginSilenced(fn)
   return ok, err
 end
 
-local function configuredPlannerMode()
-  local S = XIVEquip.Settings
-  if S and type(S.GetPlannerMode) == "function" then return S:GetPlannerMode() end
-  return "legacy"
+local function nativeScaleHeader(result)
+  local config = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
+  local scale = result and result.weights
+  if config and config.ResolvedScaleDisplayLabel and scale then
+    return config.ResolvedScaleDisplayLabel(scale)
+  end
+  local specIndex = GetSpecialization and GetSpecialization()
+  local specID = specIndex and GetSpecializationInfo and select(1, GetSpecializationInfo(specIndex))
+  local runtime = XIVEquip.Planning and XIVEquip.Planning.Runtime and XIVEquip.Planning.Runtime.Live
+      and XIVEquip.Planning.Runtime.Live() or nil
+  local resolved = config and specID and config.ResolveResultForSpec(specID, runtime)
+  if runtime and runtime.Close then runtime.Close() end
+  return config and config.ResolvedScaleDisplayLabel and config.ResolvedScaleDisplayLabel(resolved and resolved.scale)
+      or "Default | current specialization"
 end
 
-local function acquireComparerPass()
-  local M = XIVEquip.Comparers
-  if not (M and type(M.StartPass) == "function") then return nil end
-  if type(M.AcquirePass) == "function" then return M:AcquirePass() end
+local PREVIEW_CACHE_SECONDS = 30
+local previewCache = { expires = 0, token = 0 }
+local previewRefreshPending = false
+local previewRefreshDirty = false
 
-  local cmp, resolution = M:StartPass()
-  local closed = false
+local function nowSeconds()
+  if type(GetTime) == "function" then return GetTime() end
+  if type(time) == "function" then return time() end
+  return 0
+end
+
+local function ownerStillHovered(owner)
+  if MouseIsOver and owner then return MouseIsOver(owner) == true end
+  return true
+end
+
+local function previewEnabled()
+  local settings = XIVEquip.Settings
+  if settings and type(settings.GetMessage) == "function" then
+    return settings:GetMessage("Preview") ~= false
+  end
+  return true
+end
+
+local function computePreview()
+  local changes, pending, weaponPlan, tooltipHeader
+
+  withLoginSilenced(function()
+    local result, nativeFailure
+    if XIVEquip.Gear and XIVEquip.Gear.PlanBest then
+      changes, pending, _, result, nativeFailure = XIVEquip.Gear:PlanBest()
+    else
+      changes, pending = {}, false
+    end
+    if nativeFailure then
+      tooltipHeader = "Native planner failed"
+      changes, pending = {}, false
+    else
+      tooltipHeader = nativeScaleHeader(result)
+    end
+  end)
+
   return {
-    comparer = cmp,
-    resolution = resolution,
-    Close = function()
-      if closed then return end
-      closed = true
-      if M and type(M.EndPass) == "function" then M:EndPass() end
-    end,
-    EndPass = function(selfLease)
-      return selfLease:Close()
-    end,
+    changes = changes,
+    pending = pending,
+    weaponPlan = weaponPlan,
+    tooltipHeader = tooltipHeader,
   }
 end
 
-local function releaseComparerPass(lease)
-  if not lease then return end
-  if type(lease.Close) == "function" then
-    lease:Close()
-  elseif type(lease.EndPass) == "function" then
-    lease:EndPass()
+local function renderPreview(owner, anchor, payload)
+  GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+  GameTooltip:ClearLines()
+  GameTooltip:AddLine(L.ButtonTooltip, 0.2, 0.8, 1.0)
+
+  if InCombatLockdown() then
+    GameTooltip:AddLine("|cffaaaaaa(Disabled in combat)|r")
+    GameTooltip:Show()
+    return false
+  end
+
+  if not previewEnabled() then
+    GameTooltip:Show()
+    return false
+  end
+
+  local changes = payload and payload.changes
+  local pending = payload and payload.pending
+  local weaponPlan = payload and payload.weaponPlan
+  local tooltipHeader = payload and payload.tooltipHeader
+
+  if tooltipHeader and tooltipHeader ~= "" then
+    GameTooltip:AddLine("|cffffd200" .. tooltipHeader .. "|r")
+  end
+
+  if not payload then
+    GameTooltip:AddLine("|cffaaaaaaCalculating recommendations...|r")
+    GameTooltip:Show()
+    return true
+  end
+
+  if pending then
+    GameTooltip:AddLine("|cffFFD100Loading item data…|r")
+  end
+
+  if (not changes or #changes == 0) and not weaponPlan then
+    GameTooltip:AddLine("|cffaaaaaaNo upgrades.|r")
+  else
+    for _, c in ipairs(changes or {}) do
+      GameTooltip:AddLine(string.format("|cffdddddd%s|r", c.slotName or " "))
+
+      ensureDeltas(c)
+
+      local dIlvl   = c.deltaIlvl or 0
+      local raw     = computeStatDiff(c.oldLink, c.newLink) or {}
+      local values  = c.scaleValues
+      local _, wsum = weightDeltas(raw, values)
+      local link    = c.newLink or ""
+      GameTooltip:AddLine(string.format(
+        "  %s%s  |cff7fff7f%+.1f score|r  |cff7fbfff%+d ilvl|r",
+        link, GetBoEText(link, c.newLoc), c.deltaScore or 0, dIlvl))
+
+      local rows = {}
+      for blizzKey, delta in pairs(raw) do
+        local map = STAT_TO_PAWN[blizzKey]
+        if map and delta ~= 0 then rows[#rows + 1] = { label = map.label, d = delta } end
+      end
+      table.sort(rows, function(a, b) return math.abs(a.d) > math.abs(b.d) end)
+
+      for i, row in ipairs(rows) do
+        if i > 8 then
+          GameTooltip:AddLine("     |cffaaaaaa(…more)|r"); break
+        end
+        local color = row.d > 0 and "|cff7fff7f" or "|cffff3a3a"
+        GameTooltip:AddLine(string.format("     %s%+d %s|r", color, row.d, row.label))
+      end
+
+      if wsum and wsum ~= 0 then
+        local color = wsum > 0 and "|cff7fff7f" or "|cffff3a3a"
+        GameTooltip:AddLine(string.format("     %s%+.1f weighted|r", color, wsum))
+      end
+    end
+
+    if weaponPlan then
+      GameTooltip:AddLine(" ")
+      GameTooltip:AddLine("|cffddddddWeapons|r")
+      GameTooltip:AddLine("  " .. weaponPlan.newText)
+    end
+  end
+
+  local potentials = (XIVEquip.Gear and XIVEquip.Gear.GetSocketPotential and XIVEquip.Gear:GetSocketPotential()) or {}
+  if type(potentials) == "table" and #potentials > 0 then
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("|cffddddddPotential socket upgrades|r")
+    for _, r in ipairs(potentials) do
+      local assumed = string.format("+%d %s", tonumber(r.assumedAmount) or 10,
+        tostring(r.assumedStat or "best secondary"))
+      local delta = tonumber(r.potentialDeltaScore) or 0
+      GameTooltip:AddLine(string.format("  %s |cffaaaaaa(%s, potential %+0.1f score)|r", tostring(r.link or ""),
+        assumed, delta))
+    end
+  end
+
+  local boes = (XIVEquip.Gear and XIVEquip.Gear.GetBoEReminders and XIVEquip.Gear:GetBoEReminders()) or {}
+  if type(boes) == "table" and #boes > 0 then
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("|cffddddddBind-on-Equip reminders|r")
+    for _, r in ipairs(boes) do
+      GameTooltip:AddLine(string.format("  %s |cffffaa66([BoE] equip the piece manually)|r", tostring(r.link or "")))
+    end
+  end
+
+  GameTooltip:Show()
+  return false
+end
+
+local function renderColdPreview(owner, anchor)
+  GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+  GameTooltip:ClearLines()
+  GameTooltip:AddLine(L.ButtonTooltip, 0.2, 0.8, 1.0)
+  if InCombatLockdown() then
+    GameTooltip:AddLine("|cffaaaaaa(Disabled in combat)|r")
+  elseif previewEnabled() then
+    GameTooltip:AddLine("|cffaaaaaaRecommendations are refreshing.|r")
+    GameTooltip:AddLine("|cffaaaaaaClick Equip Best to calculate now.|r")
+  end
+  GameTooltip:Show()
+end
+
+local function showEquipPreviewTooltip(owner, anchor)
+  local now = nowSeconds()
+  if previewCache.payload and (previewCache.expires or 0) > now then
+    renderPreview(owner, anchor, previewCache.payload)
+    return
+  end
+
+  renderColdPreview(owner, anchor)
+end
+
+function XIVEquip.UI.ClearPreviewCache()
+  previewCache.payload = nil
+  previewCache.expires = 0
+  previewCache.token = (previewCache.token or 0) + 1
+  previewRefreshDirty = true
+  if XIVEquip.UI and XIVEquip.UI.SchedulePreviewCacheRefresh then
+    XIVEquip.UI.SchedulePreviewCacheRefresh(1.0)
   end
 end
+
+function XIVEquip.UI.SchedulePreviewCacheRefresh(delay)
+  if previewRefreshPending then
+    previewRefreshDirty = true
+    return
+  end
+  if not (C_Timer and C_Timer.After) then return end
+  if InCombatLockdown() or not previewEnabled() then return end
+  previewRefreshPending = true
+  previewRefreshDirty = false
+  local token = previewCache.token or 0
+  C_Timer.After(delay or 1.0, function()
+    previewRefreshPending = false
+    if token ~= (previewCache.token or 0) or previewRefreshDirty then
+      XIVEquip.UI.SchedulePreviewCacheRefresh(delay or 1.0)
+      return
+    end
+    if InCombatLockdown() or not previewEnabled() then return end
+    local payload = computePreview()
+    if token ~= (previewCache.token or 0) or previewRefreshDirty then
+      XIVEquip.UI.SchedulePreviewCacheRefresh(delay or 1.0)
+      return
+    end
+    previewCache.payload = payload
+    previewCache.expires = nowSeconds() + PREVIEW_CACHE_SECONDS
+  end)
+end
+
+XIVEquip.UI.RenderEquipPreviewTooltip = showEquipPreviewTooltip
 
 -- Use saved button position if present, otherwise sensible defaults near the portrait
 -- [XIVEquip-AUTO] anchorButton: Helper for UI module.
@@ -302,146 +501,7 @@ local function createButton()
   -- PREVIEW TOOLTIP (no equipping, no chat spam)
   -- [XIVEquip-AUTO] Callback: Callback used by UI.lua to respond to a timer/event/script hook.
   btn:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:ClearLines()
-    GameTooltip:AddLine(L.ButtonTooltip, 0.2, 0.8, 1.0)
-
-    if InCombatLockdown() then
-      GameTooltip:AddLine("|cffaaaaaa(Disabled in combat)|r")
-      GameTooltip:Show()
-      return
-    end
-
-    local settings = XIVEquip.Settings
-    local previewEnabled = true
-    if settings and type(settings.GetMessage) == "function" then
-      previewEnabled = settings:GetMessage("Preview") ~= false
-    end
-    if not previewEnabled then
-      GameTooltip:Show()
-      return
-    end
-
-    local changes, pending, weaponPlan, tooltipHeader
-    local comparerLease
-
-    -- Callback used in UI.lua to run inline logic.
-    withLoginSilenced(function()
-      if configuredPlannerMode() == "native" then
-        local result, nativeFailure
-        if XIVEquip.Gear and XIVEquip.Gear.PlanBest then
-          changes, pending, _, result, nativeFailure = XIVEquip.Gear:PlanBest(nil, { planner = "native" })
-        else
-          changes, pending = {}, false
-        end
-        if nativeFailure then
-          tooltipHeader = "Planner: native failed"
-          changes, pending = {}, false
-        else
-          local source = result and result.diagnostics and result.diagnostics.scoreSource or "unknown"
-          tooltipHeader = "Planner: native  |  Source: " .. tostring(source)
-        end
-      else
-        comparerLease = acquireComparerPass()
-        local cmp = comparerLease and comparerLease.comparer
-
-        if cmp and type(cmp.GetActiveTooltipHeader) == "function" then
-          tooltipHeader = cmp.GetActiveTooltipHeader()
-        end
-
-        if cmp and XIVEquip.Gear and XIVEquip.Gear.PlanBest then
-          changes, pending = XIVEquip.Gear:PlanBest(cmp, { planner = "legacy" })
-        else
-          changes, pending = {}, false
-        end
-      end
-    end)
-    releaseComparerPass(comparerLease)
-
-    if tooltipHeader and tooltipHeader ~= "" then
-      GameTooltip:AddLine("|cffffd200" .. tooltipHeader .. "|r")
-    end
-
-    if pending then
-      GameTooltip:AddLine("|cffFFD100Loading item data…|r")
-    end
-
-    if (not changes or #changes == 0) and not weaponPlan then
-      GameTooltip:AddLine("|cffaaaaaaNo upgrades.|r")
-    else
-      for _, c in ipairs(changes or {}) do
-        GameTooltip:AddLine(string.format("|cffdddddd%s|r", c.slotName or " "))
-
-        -- compute deltas if missing/zero
-        ensureDeltas(c)
-
-        local dIlvl   = c.deltaIlvl or 0
-        local raw     = computeStatDiff(c.oldLink, c.newLink) or {}
-        local values  = c.scaleValues
-        local _, wsum = weightDeltas(raw, values)
-
-        -- main line: new link, score, ilvl
-        local link    = c.newLink or ""
-        GameTooltip:AddLine(string.format(
-          "  %s%s  |cff7fff7f%+.1f score|r  |cff7fbfff%+d ilvl|r",
-          link, GetBoEText(link, c.newLoc), c.deltaScore or 0, dIlvl))
-
-        -- pretty-print mapped secondaries, sorted by |delta|
-        local rows = {}
-        for blizzKey, delta in pairs(raw) do
-          local map = STAT_TO_PAWN[blizzKey]
-          if map and delta ~= 0 then rows[#rows + 1] = { label = map.label, d = delta } end
-        end
-        -- Callback used in UI.lua to run inline logic.
-        table.sort(rows, function(a, b) return math.abs(a.d) > math.abs(b.d) end)
-
-        for i, row in ipairs(rows) do
-          if i > 8 then
-            GameTooltip:AddLine("     |cffaaaaaa(…more)|r"); break
-          end
-          local color = row.d > 0 and "|cff7fff7f" or "|cffff3a3a"
-          GameTooltip:AddLine(string.format("     %s%+d %s|r", color, row.d, row.label))
-        end
-
-        if wsum and wsum ~= 0 then
-          local color = wsum > 0 and "|cff7fff7f" or "|cffff3a3a"
-          GameTooltip:AddLine(string.format("     %s%+.1f weighted|r", color, wsum))
-        end
-      end
-
-      if weaponPlan then
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("|cffddddddWeapons|r")
-        GameTooltip:AddLine("  " .. weaponPlan.newText) -- no arrow; proposed only
-      end
-    end
-
-    -- Socket potential hints (append at very bottom)
-    local potentials = (XIVEquip.Gear and XIVEquip.Gear.GetSocketPotential and XIVEquip.Gear:GetSocketPotential()) or {}
-    if type(potentials) == "table" and #potentials > 0 then
-      GameTooltip:AddLine(" ")
-      GameTooltip:AddLine("|cffddddddPotential socket upgrades|r")
-      for _, r in ipairs(potentials) do
-        local assumed = string.format("+%d %s", tonumber(r.assumedAmount) or 10,
-          tostring(r.assumedStat or "best secondary"))
-        local delta = tonumber(r.potentialDeltaScore) or 0
-        GameTooltip:AddLine(string.format("  %s |cffaaaaaa(%s, potential %+0.1f score)|r", tostring(r.link or ""),
-          assumed, delta))
-      end
-    end
-
-
-    -- BoE reminders (append after socket hints, at very bottom)
-    local boes = (XIVEquip.Gear and XIVEquip.Gear.GetBoEReminders and XIVEquip.Gear:GetBoEReminders()) or {}
-    if type(boes) == "table" and #boes > 0 then
-      GameTooltip:AddLine(" ")
-      GameTooltip:AddLine("|cffddddddBind-on-Equip reminders|r")
-      for _, r in ipairs(boes) do
-        GameTooltip:AddLine(string.format("  %s |cffffaa66([BoE] equip the piece manually)|r", tostring(r.link or "")))
-      end
-    end
-
-    GameTooltip:Show()
+    showEquipPreviewTooltip(self, "ANCHOR_RIGHT")
   end)
 
   -- Callback used in UI.lua to run inline logic.
@@ -449,6 +509,7 @@ local function createButton()
 
   -- Callback used in UI.lua to run inline logic.
   btn:SetScript("OnClick", function()
+    if XIVEquip.UI and XIVEquip.UI.ClearPreviewCache then XIVEquip.UI.ClearPreviewCache() end
     if XIVEquip and XIVEquip.EquipBestGear then
       XIVEquip:EquipBestGear()
     end
@@ -482,8 +543,16 @@ end
 
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
+f:RegisterEvent("BAG_UPDATE_DELAYED")
+f:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 -- Callback used in UI.lua to run inline logic.
-f:SetScript("OnEvent", function()
+f:SetScript("OnEvent", function(_, event)
+  if event ~= "PLAYER_LOGIN" then
+    if XIVEquip.UI and XIVEquip.UI.ClearPreviewCache then XIVEquip.UI.ClearPreviewCache() end
+    return
+  end
+
   if XIVEquip.Settings and XIVEquip.Settings.Initialize then XIVEquip.Settings:Initialize() end
   if XIVEquip.UI and XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Create then
     XIVEquip.UI.MinimapButton.Create()
@@ -503,5 +572,8 @@ f:SetScript("OnEvent", function()
       CharacterFrame.__XIVEquipHook = true
     end
     if CharacterFrame:IsShown() then onPaperDollShow() end
+  end
+  if XIVEquip.UI and XIVEquip.UI.SchedulePreviewCacheRefresh then
+    XIVEquip.UI.SchedulePreviewCacheRefresh(1.0)
   end
 end)

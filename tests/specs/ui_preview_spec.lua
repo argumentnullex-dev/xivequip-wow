@@ -53,9 +53,9 @@ local function frame()
   return f
 end
 
-local function newHarness(mode, overrides)
+local function newHarness(overrides)
   overrides = overrides or {}
-  local calls = { passStarts = 0, passEnds = 0, plan = {}, weapons = 0, pawnScores = 0 }
+  local calls = { plan = {}, pawnScores = 0 }
   local eventFrame, button
   local paperDoll = frame()
   paperDoll.GetName = function() return "PaperDollFrame" end
@@ -66,8 +66,14 @@ local function newHarness(mode, overrides)
   _G.UIParent = frame()
   _G.CharacterFramePortrait = nil
   _G.C_Item = {}
-  _G.C_Timer = { After = function(_, fn) fn() end }
+  _G.GetItemInfo = function() return nil end
+  _G.C_Timer = { After = overrides.timerAfter or function(_, fn) fn() end }
   _G.InCombatLockdown = function() return false end
+  _G.MouseIsOver = function() return true end
+  _G.GetTime = function() return overrides.now or 100 end
+  _G.geterrorhandler = function()
+    return function(err) error(err, 0) end
+  end
   _G.GameTooltip = {
     SetOwner = function() end,
     ClearLines = function() end,
@@ -86,18 +92,19 @@ local function newHarness(mode, overrides)
   local addon = {
     L = { ButtonTooltip = "Equip Recommended Gear" },
     Settings = {
-      GetPlannerMode = function() return mode end,
       GetMessage = function(_, key)
-        if key == "Preview" then return true end
+        if key == "Preview" then return overrides.previewEnabled ~= false end
         return true
       end,
       SetMessage = function() end,
     },
     Gear = {
-      PlanBest = function(_, cmp, opts)
-        calls.plan[#calls.plan + 1] = { cmp = cmp, opts = opts }
-        if overrides.planReturn then return overrides.planReturn(cmp, opts, calls) end
-        return {}, false, {}, { diagnostics = { scoreSource = "Item Level" } }
+      PlanBest = function(_)
+        calls.plan[#calls.plan + 1] = true
+        if overrides.planReturn then return overrides.planReturn(calls) end
+        return {}, false, {}, {
+          weights = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } },
+        }
       end,
     },
     Pawn = {
@@ -106,69 +113,48 @@ local function newHarness(mode, overrides)
         return 999
       end,
     },
-    Comparers = {
-      StartPass = function()
-        calls.passStarts = calls.passStarts + 1
-        return { GetActiveTooltipHeader = function() return "Comparer: test" end }, {}
-      end,
-      EndPass = function() calls.passEnds = calls.passEnds + 1 end,
-    },
-    Weapons = {
-      PlanBest = function()
-        calls.weapons = calls.weapons + 1
-      end,
+    XIVWeights = {
+      Config = {
+        ResolvedScaleDisplayLabel = function(scale)
+          local resolution = scale.resolution
+          return resolution.sourceLabel .. " | " .. resolution.scaleLabel
+        end,
+      },
     },
   }
 
   loadUI(addon)
   eventFrame.scripts.OnEvent(eventFrame, "PLAYER_LOGIN")
-  return addon, calls, button
+  return addon, calls, button, eventFrame
 end
 
-test("native hover preview uses native planning without legacy comparer or weapon planner", function()
-  local _, calls, button = newHarness("native")
+test("hover preview uses the warmed native planner cache", function()
+  local _, calls, button = newHarness()
 
   button.scripts.OnEnter(button)
 
   A.equal(#calls.plan, 1)
-  A.equal(calls.plan[1].opts.planner, "native")
-  A.equal(calls.plan[1].cmp, nil)
-  A.equal(calls.passStarts, 0)
-  A.equal(calls.passEnds, 0)
-  A.equal(calls.weapons, 0)
 end)
 
-test("native hover preview shows human-readable planner and score source", function()
-  local _, calls, button = newHarness("native", {
+test("hover preview shows the compact source and scale header", function()
+  local _, calls, button = newHarness({
     planReturn = function()
-      return {}, false, {}, { diagnostics = { scoreSource = "Built-in default: Retribution" } }
+      return {}, false, {}, {
+        weights = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } },
+      }
     end,
   })
 
   button.scripts.OnEnter(button)
 
   local header = table.concat(calls.tooltipLines, "\n")
-  A.truthy(header:find("Planner: native", 1, true), "preview should identify native planner without version jargon")
-  A.truthy(header:find("Source: Built-in default: Retribution", 1, true), "preview should show the selected spec scale")
-  A.falsy(header:find("native 2.0", 1, true), "preview should not show native 2.0 wording")
-  A.falsy(header:find("XIVWeights/Default", 1, true), "preview should not leak provider names")
+  A.truthy(header:find("Default | Retribution", 1, true))
+  A.falsy(header:find("Planner:", 1, true))
+  A.falsy(header:find("Source:", 1, true))
 end)
 
-test("legacy hover preview uses one legacy comparer pass", function()
-  local _, calls, button = newHarness("legacy")
-
-  button.scripts.OnEnter(button)
-
-  A.equal(#calls.plan, 1)
-  A.equal(calls.plan[1].opts.planner, "legacy")
-  A.truthy(calls.plan[1].cmp)
-  A.equal(calls.passStarts, 1)
-  A.equal(calls.passEnds, 1)
-  A.equal(calls.weapons, 0)
-end)
-
-test("native hover preview preserves explicit zero score deltas instead of recomputing with Pawn", function()
-  local _, calls, button = newHarness("native", {
+test("hover preview preserves explicit zero score deltas instead of recomputing with Pawn", function()
+  local _, calls, button = newHarness({
     planReturn = function()
       return {
         {
@@ -178,13 +164,81 @@ test("native hover preview preserves explicit zero score deltas instead of recom
           deltaScore = 0,
           deltaIlvl = 0,
         },
-      }, false, {}, { diagnostics = { scoreSource = "Item Level" } }
+      }, false, {}, {
+        weights = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } },
+      }
     end,
   })
 
   button.scripts.OnEnter(button)
 
   A.equal(calls.pawnScores, 0)
+end)
+
+test("hover preview reuses a short-lived native plan cache", function()
+  local _, calls, button = newHarness()
+
+  button.scripts.OnEnter(button)
+  button.scripts.OnEnter(button)
+
+  A.equal(#calls.plan, 1)
+end)
+
+test("cold hover preview does not run planning on hover", function()
+  local timers = {}
+  local _, calls, button = newHarness({
+    timerAfter = function(_, fn) timers[#timers + 1] = fn end,
+  })
+
+  button.scripts.OnEnter(button)
+
+  A.equal(#calls.plan, 0)
+  A.truthy(table.concat(calls.tooltipLines, "\n"):find("Recommendations are refreshing", 1, true))
+end)
+
+test("bag updates invalidate preview without immediately planning", function()
+  local timers = {}
+  local _, calls, _, eventFrame = newHarness({
+    timerAfter = function(_, fn) timers[#timers + 1] = fn end,
+  })
+  A.equal(#calls.plan, 0, "login should schedule but not synchronously warm the first preview")
+  timers[2]()
+  A.equal(#calls.plan, 1, "login timer should warm the first preview")
+
+  eventFrame.scripts.OnEvent(eventFrame, "BAG_UPDATE_DELAYED")
+
+  A.equal(#calls.plan, 1)
+  A.equal(#timers, 3)
+  timers[3]()
+  A.equal(#calls.plan, 2, "bag update should eventually refresh the preview cache")
+end)
+
+test("preview invalidation during a pending refresh still schedules a replacement refresh", function()
+  local timers = {}
+  local _, calls, _, eventFrame = newHarness({
+    timerAfter = function(_, fn) timers[#timers + 1] = fn end,
+  })
+  A.equal(#calls.plan, 0)
+  A.equal(#timers, 2)
+
+  eventFrame.scripts.OnEvent(eventFrame, "BAG_UPDATE_DELAYED")
+  A.equal(#calls.plan, 0)
+  A.equal(#timers, 2, "rapid invalidation should collapse into the existing pending timer")
+
+  timers[2]()
+  A.equal(#calls.plan, 0, "stale pending timer should not compute against invalidated state")
+  A.equal(#timers, 3, "stale pending timer should schedule a replacement")
+
+  timers[3]()
+  A.equal(#calls.plan, 1)
+end)
+
+test("hover preview does not schedule planning when preview messages are disabled", function()
+  local _, calls, button = newHarness({ previewEnabled = false })
+
+  button.scripts.OnEnter(button)
+
+  A.equal(#calls.plan, 0)
 end)
 
 return tests

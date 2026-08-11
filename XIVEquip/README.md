@@ -203,7 +203,7 @@ From Git Bash:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./tools/test.ps1
 ```
 
-The suite loads addon modules with mocked WoW APIs and covers comparer fallback, settings migration, weapon legality, ring/trinket pair planning, unique-equipped rules, fixture replay, and equip execution semantics. It cannot replace live testing for protected WoW behavior, but it should pass before every PR and build.
+The suite loads addon modules with mocked WoW APIs and covers scale resolution, settings migration, weapon legality, ring/trinket pair planning, unique-equipped rules, fixture replay, and equip execution semantics. It cannot replace live testing for protected WoW behavior, but it should pass before every PR and build.
 
 ---
 
@@ -220,20 +220,15 @@ The suite loads addon modules with mocked WoW APIs and covers comparer fallback,
 - `/xiveauto test` — run a one‑off auto‑equip (useful for testing)
 - `/xive` — open the XIVEquip settings window
 - `/xive settings` — open the XIVEquip settings window
-- `/xive status` — print settings schema, comparer resolution/fallback, auto-equip state, and auto-save state
-- `/xive diag` — score currently equipped items with the resolved comparer
-- `/xive score <itemLink> [scaleName]` — score one linked item; optional scale name uses Pawn when available
-- `/xive planner status` — show whether normal equip uses the legacy planner or native planner
-- `/xive planner legacy` — use the legacy planner for normal button, `/xivequip`, and automation equips
-- `/xive planner native` — use the native planner for normal button, `/xivequip`, and automation equips
-- `/xive plan [legacy|native]` — print the current equip plan; optional mode overrides the setting for this command only
-- `/xive equip [legacy|native]` — equip recommendations; optional mode overrides the setting for this command only
-- `/xive compare` — compare legacy and native planner output, capture a fixture, and save a diagnostic log to `XIVEquip_Settings.Diagnostics.PlannerCompare`
+- `/xive status` — print settings schema, planner, auto-equip state, and auto-save state
+- `/xive plan` — print the current native equip plan without equipping it
+- `/xive equip` — equip the current native recommendation
+- `/xive perf` — run a native planning pass and print timing/counter diagnostics
 - `/xive test` — run in-game regression checks that do not equip gear
 - `/xive fixture capture` — save current character, equipped item, bag item, and active Pawn scale data to `XIVEquip_Settings.TestFixtures.LastCapture`
 - `/xive fixture clear` — remove captured fixture data
 
-The fixture capture and compare commands are intended for building realistic offline test cases. Run them on useful scenarios before logging out or reloading so the SavedVariables file is written.
+Fixture capture is intended for building realistic offline test cases. Run it on useful scenarios before logging out or reloading so the SavedVariables file is written.
 
 ---
 
@@ -241,11 +236,8 @@ The fixture capture and compare commands are intended for building realistic off
 
 Open `/xive` or `/xive settings`.
 
-- **General** – Login/equip messages, debug logging, auto-equip, auto-save, minimap button visibility, and a draggable `/xivequip` macro helper.
-- **XIVWeights Scales** – Built-in spec defaults, custom scale create/duplicate/delete, Pawn import, editable scale names, sliders/numeric fields for each weight, and reset-to-default controls for customized spec scales.
-- **XIVEquip Core** – Planner mode and per-spec source selection for built-in defaults, manual XIVWeights scales, or active Pawn scales.
-- **Planner mode** – Which planner normal equip paths use.
-  *Default:* **legacy**. Use `/xive planner native` to opt into the native planner for normal equips, or use `/xive plan native` and `/xive equip native` for one-off native checks without changing the saved setting.
+- **Config** – Profiles, automatic scale selection, per-spec custom and addon-integration assignments, wishlist/avoidlist preferences, set-bonus preference, notifications, automation, minimap visibility, and the `/xivequip` macro helper.
+- **Scales** – Create, import, duplicate, export, rename, edit, and delete custom scales tied to a specialization. Built-in defaults remain immutable.
 
 Fresh specs use immutable built-in defaults. Choosing to customize a spec creates a normal SavedVariables scale named after the spec, such as `Protection`, `Retribution`, or `Holy`. Resetting a customized spec scale replaces your copy with a fresh copy of the shipped default for that spec.
 
@@ -257,8 +249,8 @@ Before cutting an RC or stable archive, perform a quick live-client pass:
 
 1. `/reload`, then confirm the expected version in the AddOns list.
 2. Run `/xive test`.
-3. With Pawn disabled or unavailable, confirm `/xive status`, `/xive diag`, preview, and equip use Item Level fallback.
-4. With Pawn enabled and an active scale, confirm those same paths use Pawn.
+3. With the built-in source selected, confirm preview and equip display the expected specialization scale.
+4. With Pawn enabled and selected as an addon integration, confirm preview and equip display the selected Pawn scale.
 5. Test Fury Warrior with Titan's Grip two-handed weapons.
 6. Test a shield spec, such as Protection Warrior or Protection Paladin.
 7. Test a one-ring or one-trinket upgrade where the stronger currently equipped item should be retained.
@@ -288,14 +280,13 @@ Passing "force" as the first argument to `Log.Debugf("force", ...)` bypasses the
 - **Global/Settings.lua** — Canonical saved-variable schema, migrations, and settings getters/setters.
 - **Global/Constants.lua / Localization.lua / Logger.lua** — Shared slot constants, user-facing strings, and slot-filtered debug logging.
 - **Core/GearCore.lua** — Public gear helpers: item/slot maps, link helpers, uniqueness helpers, equipped item basics, scoring calls, single-slot candidate selection, and plan row construction.
-- **Core/ComparerBootstrapper.lua** — Comparer registry and resolution contract. Handles Auto/Pawn/item-level fallback and `StartPass`/`EndPass`.
 - **Core/CommandRouter.lua** — Slash command routing for `/xive`, `/xivequip`, diagnostics, fixture capture, and settings commands.
 - **XIVWeights/** — Native weights model, built-in spec defaults, SavedVariables-backed scale config, providers, importers, resolver, and scorer.
-- **Planning/Runtime.lua / Coordinator.lua / PlanBuilder.lua** — Native 2.0 planner runtime, whole-loadout coordinator, and executor-compatible plan construction. Native runtime resolves XIVWeights directly and does not use the legacy comparer selector.
-- **Comparers/ilvl/** — Item-level comparer implementation and export.
-- **Comparers/Pawn/** — Pawn adapter, export, settings glue, and Pawn-specific command helpers.
-- **Gear/Armor.lua / Jewelry.lua / Weapons.lua** — Legacy slot planners. Each exports `:PlanBest(cmp, opts, used)` and returns `(changes, pending, plan)`.
-- **Gear/Interface.lua** — Gear orchestrator and equip executor. Merges planner results, can opt into the native planner, applies plans with bounded verification, and auto-saves only after verified success with no hard execution problems.
+- **Integrations/Pawn.lua** — Pawn scale-discovery adapter used by the native XIVWeights provider.
+- **Evaluation/** — Candidate collection, normalization, feature extraction, and policy-aware scoring.
+- **Assignments/** and **Optimization/** — Slot-group assignment frontiers, uniqueness state, and whole-loadout optimization.
+- **Planning/Runtime.lua / Coordinator.lua / PlanBuilder.lua** — Native planner runtime, whole-loadout coordinator, and executor-compatible plan construction.
+- **Gear/Interface.lua** — Gear orchestrator and verified equip executor. Applies native plans with bounded verification and auto-saves only after verified success with no hard execution problems.
 - **Automation/SpecSwitch.lua** — Spec-change listener and `/xiveauto` command; throttled and combat-safe; calls `Gear:EquipBest()` when enabled.
 - **UI/SettingsWindow/** — Custom XIVEquip settings window.
 - **UI/MinimapButton.lua** — Draggable minimap launcher for the custom settings window.
@@ -307,13 +298,13 @@ Passing "force" as the first argument to `Log.Debugf("force", ...)` bypasses the
 ## FAQ
 
 **Do I need Pawn?**
-No, but it’s recommended. Without Pawn, XIVEquip uses a transparent stat/ilvl fallback that you can debug in logs.
+No. XIVEquip ships with built-in specialization scales. Pawn is an optional scale integration.
 
 **Why did it pick a lower item level?**
 Because your **weights** said it’s better (e.g., a haste/vers piece may beat crit/mastery at lower ilvl for your spec). Turn on debug to see the exact score breakdown.
 
 **It saved the set under the wrong spec name.**
-We defer the save and re-read the active spec after swap. If you still see odd timing on your client, capture the behavior with `/xive status`, `/xive diag`, and a fixture capture so it can be reproduced.
+We defer the save and re-read the active spec after swap. If you still see odd timing on your client, capture the behavior with `/xive status` and a fixture capture so it can be reproduced.
 
 ---
 

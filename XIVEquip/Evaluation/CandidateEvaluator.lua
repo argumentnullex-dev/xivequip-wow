@@ -34,27 +34,35 @@ function CandidateEvaluator.FeatureVector(candidate)
 end
 
 -- Score(candidate, context) -> number
-function CandidateEvaluator.Score(candidate, context)
-  local weights = context and context.weights
-  return XIVEquip.XIVWeights.Scorer.Score(weights, CandidateEvaluator.FeatureVector(candidate))
+local function candidateKey(candidate)
+  if not candidate then return "nil" end
+  return candidate.guid or candidate.physicalID or tostring(candidate)
 end
 
-local function policiesFor(context, phase, groupId)
-  local all = (context and context.policies and context.policies[phase]) or {}
-  local scoped = {}
-  for _, policy in ipairs(all) do
-    if not policy.groups then
-      scoped[#scoped + 1] = policy
-    else
-      for _, g in ipairs(policy.groups) do
-        if g == groupId then
-          scoped[#scoped + 1] = policy
-          break
-        end
-      end
+local function contextCaches(context)
+  return context and context.caches
+end
+
+function CandidateEvaluator.Score(candidate, context)
+  local caches = contextCaches(context)
+  local key = candidateKey(candidate)
+  if caches then
+    caches.intrinsicScores = caches.intrinsicScores or {}
+    if caches.intrinsicScores[key] ~= nil then
+      local perf = context and context.perf
+      if perf then perf:Add("evaluation.intrinsic_cache_hits", 1) end
+      return caches.intrinsicScores[key]
     end
   end
-  return scoped
+
+  local weights = context and context.weights
+  local score = XIVEquip.XIVWeights.Scorer.Score(weights, CandidateEvaluator.FeatureVector(candidate))
+  if caches then
+    caches.intrinsicScores[key] = score
+    local perf = context and context.perf
+    if perf then perf:Add("evaluation.intrinsic_computed", 1) end
+  end
+  return score
 end
 
 local function appendReason(reasons, reason)
@@ -75,6 +83,59 @@ local function mergeFlags(target, source)
   for key, value in pairs(source) do
     if value then target[key] = true end
   end
+end
+
+local function shallowCopy(source)
+  local out = {}
+  for key, value in pairs(source or {}) do out[key] = value end
+  return out
+end
+
+local function copyArray(source)
+  local out = {}
+  for i, value in ipairs(source or {}) do out[i] = value end
+  return out
+end
+
+local function cloneEvaluation(result)
+  if not result then return nil end
+  return {
+    candidate = result.candidate,
+    eligible = result.eligible,
+    baseScore = result.baseScore,
+    scoreAdjustment = result.scoreAdjustment,
+    score = result.score,
+    reasons = copyArray(result.reasons),
+    setCounts = shallowCopy(result.setCounts),
+    targetFlags = shallowCopy(result.targetFlags),
+    requiredFlags = shallowCopy(result.requiredFlags),
+  }
+end
+
+local function currentKey(candidate)
+  return candidate and candidateKey(candidate) or "empty"
+end
+
+local function currentMapKey(map)
+  if type(map) ~= "table" then return "none" end
+  local parts = {}
+  for key, candidate in pairs(map) do
+    parts[#parts + 1] = tostring(key) .. "=" .. currentKey(candidate)
+  end
+  table.sort(parts)
+  return table.concat(parts, ",")
+end
+
+local function placementKey(candidate, opts)
+  return table.concat({
+    candidateKey(candidate),
+    tostring(opts.groupId or ""),
+    tostring(opts.role or ""),
+    tostring(opts.slot or ""),
+    currentKey(opts.currentCandidate),
+    currentMapKey(opts.currentByRole),
+    currentMapKey(opts.currentBySlot),
+  }, "|")
 end
 
 local function applyPolicyResult(result, policyResult, options)
@@ -112,6 +173,19 @@ end
 -- from candidate evaluation would violate the public dependency contract.
 function CandidateEvaluator.Evaluate(candidate, context, opts)
   opts = opts or {}
+  local caches = contextCaches(context)
+  local cachedKey
+  if candidate and caches then
+    caches.placementEvaluations = caches.placementEvaluations or {}
+    cachedKey = placementKey(candidate, opts)
+    local cached = caches.placementEvaluations[cachedKey]
+    if cached then
+      local perf = context and context.perf
+      if perf then perf:Add("evaluation.placement_cache_hits", 1) end
+      return cloneEvaluation(cached)
+    end
+  end
+
   local scoreCandidate = opts.score or CandidateEvaluator.Score
   local baseScore = candidate and (tonumber(scoreCandidate(candidate, context)) or 0) or 0
   local result = {
@@ -133,9 +207,14 @@ function CandidateEvaluator.Evaluate(candidate, context, opts)
     currentCandidate = opts.currentCandidate,
     currentByRole = opts.currentByRole,
     currentBySlot = opts.currentBySlot,
+    baseScore = baseScore,
   }
 
-  for _, policy in ipairs(policiesFor(context, "candidate", opts.groupId)) do
+  local resolver = XIVEquip.Policies and XIVEquip.Policies.Resolver
+  local policies = resolver and resolver.ActiveForPhase
+      and resolver.ActiveForPhase(context, "candidate", opts.groupId)
+      or ((context and context.policies and context.policies.candidate) or {})
+  for _, policy in ipairs(policies) do
     applyPolicyResult(result, policy.apply(candidate, context, policyContext), {
       canDeny = true,
       defaultReason = policy.id,
@@ -143,5 +222,10 @@ function CandidateEvaluator.Evaluate(candidate, context, opts)
   end
 
   result.score = result.baseScore + result.scoreAdjustment
+  if candidate and caches and cachedKey then
+    caches.placementEvaluations[cachedKey] = cloneEvaluation(result)
+    local perf = context and context.perf
+    if perf then perf:Add("evaluation.placement_computed", 1) end
+  end
   return result
 end

@@ -74,27 +74,9 @@ local function getSettings()
   return _G.XIVEquip_Settings
 end
 
-local function setComparer(key)
-  if XIVEquip.Settings and XIVEquip.Settings.SetComparerName then
-    XIVEquip.Settings:SetComparerName(key)
-  else
-    getSettings().Comparer = getSettings().Comparer or {}
-    getSettings().Comparer.Selected = key
-  end
-end
-
-local function getComparer()
-  if XIVEquip.Settings and XIVEquip.Settings.GetComparerName then
-    return XIVEquip.Settings:GetComparerName()
-  end
-  local st = getSettings()
-  return st.Comparer and st.Comparer.Selected
-end
-
 local function withSavedSettings(fn)
   local st = getSettings()
   local snapshot = shallowCopy(st)
-  local comparer = shallowCopy(st.Comparer)
   local messages = shallowCopy(st.Messages)
   local automation = shallowCopy(st.Automation)
   local debug = type(st.Debug) == "table" and shallowCopy(st.Debug) or st.Debug
@@ -102,7 +84,6 @@ local function withSavedSettings(fn)
   local ok, err = pcall(fn)
 
   restoreTable(st, snapshot)
-  st.Comparer = comparer
   st.Messages = messages
   st.Automation = automation
   st.Debug = debug
@@ -113,84 +94,6 @@ local function withSavedSettings(fn)
 
   if not ok then error(err, 0) end
 end
-
-local function requireComparers()
-  local M = XIVEquip.Comparers
-  expectTruthy(M and M.Get and M.StartPass and M.EndPass, "Comparer core is not available")
-  local pawn = M:Get("pawn")
-  local ilvl = M:Get("ilvl")
-  expectTruthy(pawn, "Pawn comparer is not registered")
-  expectTruthy(ilvl, "Item Level comparer is not registered")
-  return M, pawn, ilvl
-end
-
-addCase("default comparer falls back to item level when Pawn is unusable", function()
-  withSavedSettings(function()
-    local M, pawn = requireComparers()
-    setComparer("default")
-    withPatchedTable(pawn, {
-      IsAvailable = function() return false end,
-      PrePass = function() return false end,
-    }, function()
-      local cmp, resolution = M:StartPass()
-      M:EndPass()
-      expectTruthy(cmp, "fallback comparer should resolve")
-      expectEqual(resolution.configured_key, "default", "configured key")
-      expectEqual(resolution.resolved_key, "ilvl", "resolved key")
-      expectTruthy(resolution.fallback_used, "fallback flag")
-    end)
-  end)
-end)
-
-addCase("default comparer uses Pawn when Pawn is usable", function()
-  withSavedSettings(function()
-    local M, pawn = requireComparers()
-    setComparer("default")
-    withPatchedTable(pawn, {
-      IsAvailable = function() return true end,
-      PrePass = function() return true end,
-    }, function()
-      local cmp, resolution = M:StartPass()
-      M:EndPass()
-      expectTruthy(cmp, "Pawn comparer should resolve")
-      expectEqual(resolution.resolved_key, "pawn", "resolved key")
-      expectFalsy(resolution.fallback_used, "fallback flag")
-    end)
-  end)
-end)
-
-addCase("explicit Pawn remains strict when unavailable", function()
-  withSavedSettings(function()
-    local M, pawn = requireComparers()
-    setComparer("pawn")
-    withPatchedTable(pawn, {
-      IsAvailable = function() return false end,
-      PrePass = function() return false end,
-    }, function()
-      local cmp, resolution = M:StartPass()
-      M:EndPass()
-      expectFalsy(cmp, "explicit unavailable Pawn should not fall back")
-      expectEqual(resolution.configured_key, "pawn", "configured key")
-      expectEqual(getComparer(), "pawn", "saved comparer")
-    end)
-  end)
-end)
-
-addCase("/xive use ilvl stores canonical key", function()
-  withSavedSettings(function()
-    requireComparers()
-    SlashCmdList.XIVE("use ilvl")
-    expectEqual(getComparer(), "ilvl", "saved comparer")
-  end)
-end)
-
-addCase("/xive use Item Level accepts display label", function()
-  withSavedSettings(function()
-    requireComparers()
-    SlashCmdList.XIVE("use Item Level")
-    expectEqual(getComparer(), "ilvl", "saved comparer")
-  end)
-end)
 
 addCase("preview setting round-trips through shared settings API", function()
   withSavedSettings(function()

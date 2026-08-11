@@ -98,6 +98,16 @@ function Config.ResolvedScaleSourceLabel(scale)
   return "XIVWeights"
 end
 
+function Config.ResolvedScaleDisplayLabel(scale)
+  local resolution = scale and scale.resolution or {}
+  local sourceLabel = tostring(resolution.sourceLabel or "Default")
+  local scaleLabel = tostring(resolution.scaleLabel or scaleName(scale, "current specialization"))
+  if sourceLabel == "Custom" and resolution.defaultCopy == true then
+    scaleLabel = "Default (" .. scaleLabel .. ")"
+  end
+  return sourceLabel .. " | " .. scaleLabel
+end
+
 function Config.SelectionDisplay(specID, selection, pawnEntries)
   selection = selection or Config.GetSpecSelection(specID)
   local provider = normalizeProvider(selection and selection.provider)
@@ -472,6 +482,7 @@ function Config.ResolveResultForSpec(specID, runtime)
     profileID = sel.profile and sel.profile.id or nil,
     configuredProvider = configuredSelection and configuredSelection.provider,
     configuredMode = configuredSelection and configuredSelection.mode,
+    defaultCopy = scale and scale.source and scale.source.kind == "xivequip-default-copy",
   }
   return {
     scale = effective,

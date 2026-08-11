@@ -30,14 +30,12 @@ if type(table.freeze) ~= "function" then
 end
 
 local specs = {
-  "comparer_spec",
   "planning_runtime_spec",
   "planning_plan_builder_spec",
-  "command_router_compare_spec",
   "settings_spec",
   "settings_window_spec",
-  "weapons_spec",
-  "paired_slots_spec",
+  "ui_preview_spec",
+  "minimap_button_spec",
   "equip_execution_spec",
   "fixture_spec",
   "black_box_scenario_spec",
@@ -52,6 +50,7 @@ local specs = {
   "xivweights_config_spec",
   "xivweights_import_spec",
   "integrations_registry_spec",
+  "integrations_pawn_spec",
   "xivweights_manual_provider_spec",
   "xivweights_pawn_provider_spec",
   "policy_registry_spec",
@@ -61,6 +60,7 @@ local specs = {
   "candidate_normalizer_spec",
   "candidate_collector_spec",
   "candidate_evaluator_spec",
+  "profile_preferences_policy_spec",
   "evaluation_context_pipeline_spec",
   "assignment_loadout_state_spec",
   "assignment_paired_spec",

@@ -3,11 +3,11 @@
 -- dominance-pruned frontiers (Assignments/Frontier.lua) into the single
 -- best complete legal combination, via exact depth-first branch-and-bound.
 --
--- Cross-group legality reuses Assignments/LoadoutState.lua's
--- CheckAssignment directly, rather than inventing incremental per-group
--- "uniqueness usage" state: LoadoutState is stateless per call (it only
--- reads the originally-seeded equipped counts; Commit is never invoked
--- during search).
+-- Cross-group legality mirrors Assignments/LoadoutState.lua's
+-- CheckAssignment math, but the DFS keeps branch-local uniqueness state
+-- incrementally instead of rebuilding the same count/limit tables from
+-- scratch at every node. LoadoutState remains the public API for callers
+-- and tests that need standalone assignment checks.
 --
 -- CRITICAL: `removalSlots` passed to every CheckAssignment call during
 -- search must always be the FULL union of every slot any group being
@@ -105,8 +105,68 @@ local function summarizeChosen(chosen)
   return summary
 end
 
-local function applyLoadoutPolicies(chosen, additions, score, context)
-  local policies = (context and context.policies and context.policies.loadout) or {}
+local function activePolicies(context, phase)
+  local resolver = XIVEquip.Policies and XIVEquip.Policies.Resolver
+  if resolver and resolver.ActiveForPhase then
+    return resolver.ActiveForPhase(context, phase)
+  end
+  return (context and context.policies and context.policies[phase]) or {}
+end
+
+local function accumulate(counts, limits, key, limit)
+  counts[key] = (counts[key] or 0) + 1
+  limit = tonumber(limit) or 1
+  limits[key] = limits[key] and math.min(limits[key], limit) or limit
+end
+
+local function buildUniqueSearchState(loadoutState, removalSlots)
+  local removalSet = {}
+  for _, slotID in ipairs(removalSlots or {}) do removalSet[slotID] = true end
+
+  local state = { counts = {}, limits = {} }
+  for slotID, rec in pairs((loadoutState and loadoutState.equippedUniqueBySlot) or {}) do
+    if rec.key and not removalSet[slotID] then
+      accumulate(state.counts, state.limits, rec.key, rec.limit)
+    end
+  end
+  return state
+end
+
+local function pushUniqueness(uniqueState, assignment)
+  local changes = {}
+  for _, candidate in pairs((assignment and assignment.picks) or {}) do
+    local uniqueness = candidate and candidate.uniqueness
+    local key = uniqueness and uniqueness.key
+    if key then
+      changes[#changes + 1] = {
+        key = key,
+        count = uniqueState.counts[key],
+        limit = uniqueState.limits[key],
+      }
+      accumulate(uniqueState.counts, uniqueState.limits, key, uniqueness.limit)
+      if uniqueState.counts[key] > (uniqueState.limits[key] or 1) then
+        for i = #changes, 1, -1 do
+          local change = changes[i]
+          uniqueState.counts[change.key] = change.count
+          uniqueState.limits[change.key] = change.limit
+        end
+        return nil
+      end
+    end
+  end
+  return changes
+end
+
+local function popUniqueness(uniqueState, changes)
+  for i = #(changes or {}), 1, -1 do
+    local change = changes[i]
+    uniqueState.counts[change.key] = change.count
+    uniqueState.limits[change.key] = change.limit
+  end
+end
+
+local function applyLoadoutPolicies(chosen, additions, score, context, policies)
+  policies = policies or activePolicies(context, "loadout")
   if #policies == 0 then return true, score end
 
   local loadout = {
@@ -128,8 +188,8 @@ local function applyLoadoutPolicies(chosen, additions, score, context)
   return true, finalScore
 end
 
-local function applyPreferencePolicies(loadout, score, context)
-  local policies = (context and context.policies and context.policies.preference) or {}
+local function applyPreferencePolicies(loadout, score, context, policies)
+  policies = policies or activePolicies(context, "preference")
   local finalScore = score
   for _, policy in ipairs(policies) do
     local result = policy.apply(loadout, context)
@@ -161,6 +221,7 @@ end
 -- exactly what's equipped" is always a member of a real Frontier() call's
 -- result, so this is a degenerate-input case, not an expected outcome).
 function LoadoutOptimizer.FindBest(groups, loadoutState, context)
+  local perf = context and context.perf
   -- Copy + sort by frontier size ascending (doc 24.2: "favor groups with
   -- small frontiers") -- restrictive groups fail fast and prune more of
   -- the search tree earlier.
@@ -172,18 +233,59 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
   -- that: the search tries its most promising (cheapest on validity,
   -- then highest-scoring) option per group first, tightening both bounds
   -- below as early as possible.
+  local function tieBreakBetter(a, b)
+    local aValues, bValues = a.tieBreak or {}, b.tieBreak or {}
+    local count = math.max(#aValues, #bValues)
+    for i = 1, count do
+      local aValue, bValue = tonumber(aValues[i]) or 0, tonumber(bValues[i]) or 0
+      if aValue ~= bValue then return aValue > bValue end
+    end
+    return false
+  end
+
   for _, group in ipairs(ordered) do
     table.sort(group.frontier, function(a, b)
       local aInvalid, bInvalid = invalidCost(a), invalidCost(b)
       if aInvalid ~= bInvalid then return aInvalid < bInvalid end
-      return a.score > b.score
+      if a.score ~= b.score then return a.score > b.score end
+      return tieBreakBetter(a, b)
     end)
   end
 
   local n = #ordered
-  local hasLoadoutPolicies = #(context and context.policies and context.policies.loadout or {}) > 0
-  local hasPreferencePolicies = #(context and context.policies and context.policies.preference or {}) > 0
+  local loadoutPolicies = activePolicies(context, "loadout")
+  local preferencePolicies = activePolicies(context, "preference")
+  local hasLoadoutPolicies = #loadoutPolicies > 0
+  local hasPreferencePolicies = #preferencePolicies > 0
   local preferFilledSlots = context and context.preferFilledSlots == true
+  local policiesBounded = true
+  for _, policy in ipairs(loadoutPolicies) do
+    if type(policy.upperBound) ~= "function" then policiesBounded = false end
+  end
+  for _, policy in ipairs(preferencePolicies) do
+    if type(policy.upperBound) ~= "function" then policiesBounded = false end
+  end
+
+  local function policyUpperBound(index, chosen, additions, score)
+    if not policiesBounded then return nil end
+    if not hasLoadoutPolicies and not hasPreferencePolicies then return 0 end
+    local remainingGroups = {}
+    for i = index, n do remainingGroups[#remainingGroups + 1] = ordered[i] end
+    local partial = {
+      assignments = chosen,
+      additions = additions,
+      score = score,
+      summaries = summarizeChosen(chosen),
+    }
+    local bound = 0
+    for _, policy in ipairs(loadoutPolicies) do
+      bound = bound + (tonumber(policy.upperBound(partial, remainingGroups, context)) or 0)
+    end
+    for _, policy in ipairs(preferencePolicies) do
+      bound = bound + (tonumber(policy.upperBound(partial, remainingGroups, context)) or 0)
+    end
+    return bound
+  end
 
   -- maxRemainingScore[i] = best possible total from group i through the
   -- last group, inclusive, ignoring cross-group legality AND policy
@@ -236,15 +338,17 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
     end
   end
 
-  -- See this file's header: the removal set for every CheckAssignment call
-  -- must be the full union of every optimized group's slots, computed
-  -- once, not just the slots of groups already visited in a given branch.
+  -- See this file's header: the removal set for baseline uniqueness must
+  -- be the full union of every optimized group's slots, computed once,
+  -- not just the slots of groups already visited in a given branch.
   local allSlots = {}
   for _, group in ipairs(ordered) do appendAll(allSlots, group.slots) end
+  local uniqueSearchState = buildUniqueSearchState(loadoutState, allSlots)
 
   local bestCombination, bestScore, bestInvalidCount, bestFilledCount = nil, -math.huge, math.huge, -math.huge
 
   local function search(index, accumulatedAdditions, accumulatedScore, accumulatedInvalid, accumulatedFilled, chosen)
+    if perf then perf:Add("optimizer.nodes_visited", 1) end
     -- Branch-and-bound (doc 24.3), lexicographic: a branch that can't
     -- possibly reach as FEW invalid assignments as the current best is
     -- dead regardless of score. One that CAN reach fewer must always be
@@ -252,19 +356,33 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
     -- matter the score -- the score bound only applies once tied on the
     -- best-achievable invalid count.
     local bestPossibleInvalid = accumulatedInvalid + (minRemainingInvalid[index] or 0)
-    if bestPossibleInvalid > bestInvalidCount then return end
+    if bestPossibleInvalid > bestInvalidCount then
+      if perf then perf:Add("optimizer.invalid_count_prunes", 1) end
+      return
+    end
     local bestPossibleFilled = preferFilledSlots and (accumulatedFilled + (maxRemainingFilled[index] or 0)) or 0
-    if preferFilledSlots and bestPossibleInvalid == bestInvalidCount and bestPossibleFilled < bestFilledCount then return end
-    if not hasLoadoutPolicies
-        and not hasPreferencePolicies
+    if preferFilledSlots and bestPossibleInvalid == bestInvalidCount and bestPossibleFilled < bestFilledCount then
+      if perf then perf:Add("optimizer.filled_slot_prunes", 1) end
+      return
+    end
+    local policyBound = policyUpperBound(index, chosen, accumulatedAdditions, accumulatedScore)
+    if policiesBounded
         and bestPossibleInvalid == bestInvalidCount
         and (not preferFilledSlots or bestPossibleFilled == bestFilledCount)
-        and accumulatedScore + (maxRemainingScore[index] or 0) <= bestScore then
+        and accumulatedScore + (maxRemainingScore[index] or 0) + (policyBound or 0) <= bestScore then
+      if perf then
+        if hasLoadoutPolicies or hasPreferencePolicies then
+          perf:Add("optimizer.policy_bound_prunes", 1)
+        else
+          perf:Add("optimizer.score_bound_prunes", 1)
+        end
+      end
       return
     end
 
     if index > n then
-      local allowed, finalScore = applyLoadoutPolicies(chosen, accumulatedAdditions, accumulatedScore, context)
+      if perf then perf:Add("optimizer.complete_leaves", 1) end
+      local allowed, finalScore = applyLoadoutPolicies(chosen, accumulatedAdditions, accumulatedScore, context, loadoutPolicies)
       if allowed then
         local loadout = {
           assignments = chosen,
@@ -272,7 +390,7 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
           score = finalScore,
           summaries = summarizeChosen(chosen),
         }
-        finalScore = applyPreferencePolicies(loadout, finalScore, context)
+        finalScore = applyPreferencePolicies(loadout, finalScore, context, preferencePolicies)
       end
       if allowed and (accumulatedInvalid < bestInvalidCount
           or (preferFilledSlots and accumulatedInvalid == bestInvalidCount and accumulatedFilled > bestFilledCount)
@@ -290,15 +408,19 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
 
     local group = ordered[index]
     for _, assignment in ipairs(group.frontier) do
-      local additions = {}
-      appendAll(additions, accumulatedAdditions)
-      appendAll(additions, nonNilPicks(assignment))
+      local uniqueChanges = pushUniqueness(uniqueSearchState, assignment)
+      if uniqueChanges then
+        local additions = {}
+        appendAll(additions, accumulatedAdditions)
+        appendAll(additions, nonNilPicks(assignment))
 
-      if loadoutState:CheckAssignment(additions, allSlots) then
         chosen[group.id] = assignment
         search(index + 1, additions, accumulatedScore + assignment.score,
           accumulatedInvalid + invalidCost(assignment), accumulatedFilled + filledCount(assignment), chosen)
         chosen[group.id] = nil
+        popUniqueness(uniqueSearchState, uniqueChanges)
+      elseif perf then
+        perf:Add("optimizer.uniqueness_prunes", 1)
       end
     end
   end

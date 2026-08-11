@@ -1,7 +1,6 @@
 -- Gear.lua
 local addonName, XIVEquip = ...
 local L                   = XIVEquip.L
-local Comparers           = XIVEquip.Comparers
 local Hooks               = XIVEquip.Hooks
 local Settings            = XIVEquip.Settings
 
@@ -150,12 +149,6 @@ function C:GetLastRecommendationResult()
   return C._lastRecommendationResult
 end
 
-local function wantsNativePlanner(opts)
-  if opts and (opts.planner == "native" or opts.useNativePlanner == true) then return true end
-  if opts and (opts.planner == "legacy" or opts.useNativePlanner == false) then return false end
-  return Settings and type(Settings.GetPlannerMode) == "function" and Settings:GetPlannerMode() == "native"
-end
-
 local function nativeFailureDetail(err)
   local text = tostring(err or "native planner failed")
   if debugstack then return text .. "\n" .. tostring(debugstack(2) or "") end
@@ -166,7 +159,7 @@ end
 local function logNativePlannerFailure(detail)
   local fullDetail = tostring(detail or "unknown error")
   local summary = fullDetail:match("^[^\r\n]+") or fullDetail
-  local message = "Native 2.0 planner failed; aborting without legacy fallback: " .. summary
+  local message = "Native planner failed; aborting: " .. summary
   if XIVEquip.Log and type(XIVEquip.Log.Error) == "function" then
     XIVEquip.Log.Error(message)
   elseif XIVEquip.Log and type(XIVEquip.Log.Warn) == "function" then
@@ -177,85 +170,18 @@ local function logNativePlannerFailure(detail)
   end
 end
 
-local function acquireComparerPass()
-  if not (Comparers and type(Comparers.StartPass) == "function") then return nil end
-  if type(Comparers.AcquirePass) == "function" then return Comparers:AcquirePass() end
-
-  local cmp, resolution = Comparers:StartPass()
-  local closed = false
-  return {
-    comparer = cmp,
-    resolution = resolution,
-    Close = function()
-      if closed then return end
-      closed = true
-      if Comparers and type(Comparers.EndPass) == "function" then Comparers:EndPass() end
-    end,
-    EndPass = function(selfLease)
-      return selfLease:Close()
-    end,
-  }
-end
-
-local function releaseComparerOwner(owner)
-  if not owner then return end
-  if type(owner.Close) == "function" then
-    owner:Close()
-  elseif type(owner.EndPass) == "function" then
-    owner:EndPass()
-  end
-end
-
 -- PlanBest returns (changes, pending, plan)
 -- [XIVEquip-AUTO] C:PlanBest: Helper for Gear module.
-function C:PlanBest(cmp, opts)
+function C:PlanBest(opts)
   opts = opts or {}
-  if wantsNativePlanner(opts) then
-    local ok, changes, pendingOrErr, plan, result = xpcall(function()
-      return C:PlanBestNative(opts)
-    end, nativeFailureDetail)
-    if ok and changes then return changes, pendingOrErr, plan, result end
+  local ok, changes, pendingOrErr, plan, result = xpcall(function()
+    return C:PlanBestNative(opts)
+  end, nativeFailureDetail)
+  if ok and changes then return changes, pendingOrErr, plan, result end
 
-    local detail = pendingOrErr or changes or "native planner failed"
-    logNativePlannerFailure(detail)
-    return nil, false, nil, nil, detail
-  end
-
-  -- Reset per-pass socket potential messages
-  if Core and type(Core.ClearSocketPotential) == "function" then
-    Core.ClearSocketPotential()
-  end
-
-  if Core and type(Core.ClearBoEReminders) == "function" then
-    Core.ClearBoEReminders()
-  end
-
-  local used = {}
-  local plan, changes = {}, {}
-  local hadPending = false
-
-  -- Orchestrate planners in this order
-  local planners = {
-    XIVEquip.Armor,
-    XIVEquip.Jewelry,
-    XIVEquip.Weapons,
-  }
-
-  for _, planner in ipairs(planners) do
-    -- No fallbacks: assume modules are loaded and expose PlanBest
-    local pChanges, pPending, pPlan = planner:PlanBest(cmp, opts, used)
-
-    for _, r in ipairs(pChanges or {}) do table.insert(changes, r) end
-    for _, p in ipairs(pPlan or {}) do table.insert(plan, p) end
-    hadPending = hadPending or (pPending == true)
-  end
-
-  -- Capture socket potential records for UI / equip messages
-  C._socketPotential = (Core and type(Core.GetSocketPotential) == "function") and (Core.GetSocketPotential() or {}) or {}
-  C._boeReminders = (Core and type(Core.GetBoEReminders) == "function") and (Core.GetBoEReminders() or {}) or {}
-
-
-  return changes, hadPending, plan
+  local detail = pendingOrErr or changes or "native planner failed"
+  logNativePlannerFailure(detail)
+  return nil, false, nil, nil, detail
 end
 
 -- Public: get socket potential records from the last planning pass
@@ -342,7 +268,7 @@ function C:GetLastEquipResult()
   return C._lastEquipResult
 end
 
-function C:_completeEquipRun(result, comparerOwner, showEquip, opts)
+function C:_completeEquipRun(result, showEquip, opts)
   opts = opts or {}
   if result.completed then return result end
   result.completed = true
@@ -358,8 +284,6 @@ function C:_completeEquipRun(result, comparerOwner, showEquip, opts)
       printResult(result, "Upgrade plan did not complete.")
     end
   end
-
-  releaseComparerOwner(comparerOwner)
 
   local autoSave = opts.autoSave
   if autoSave == nil then
@@ -387,7 +311,7 @@ function C:_runEquipPlan(plan, opts)
   C._lastEquipResult = result
 
   local function complete()
-    return C:_completeEquipRun(result, opts.comparerOwner, showEquip, opts)
+    return C:_completeEquipRun(result, showEquip, opts)
   end
 
   if result.pending_data or #plan == 0 then
@@ -526,29 +450,21 @@ function C:EquipBest(opts)
     return nil
   end
 
-  local useNativePlanner = wantsNativePlanner(opts)
-  local comparerOwner = nil
-  local cmp = nil
-  if not useNativePlanner then
-    comparerOwner = acquireComparerPass()
-    cmp = comparerOwner and comparerOwner.comparer
-  end
   local showEquip = not (Settings and Settings.GetMessage) or Settings:GetMessage("Equip")
   local planOk, changesOrErr, pending, plan, nativeResult, nativeFailure = xpcall(function()
-    return C:PlanBest(cmp, opts)
+    return C:PlanBest(opts)
   end, nativeFailureDetail)
   if not planOk then
-    releaseComparerOwner(comparerOwner)
     error(changesOrErr, 0)
   end
   plan = plan or {}
 
-  if useNativePlanner and nativeFailure then
+  if nativeFailure then
     local result = newEquipRunResult({}, false)
     result.failed = 1
     table.insert(result.steps, { index = 1, status = "failed", reason = "native_planner_failed", detail = tostring(nativeFailure) })
     C._lastEquipResult = result
-    return C:_completeEquipRun(result, nil, showEquip, {
+    return C:_completeEquipRun(result, showEquip, {
       failureMessage = "Native 2.0 planner failed; no gear was equipped. Check the XIVEquip debug log for details.",
       onComplete = opts.onComplete,
     })
@@ -564,9 +480,7 @@ function C:EquipBest(opts)
     local retrying = attempt < maxDataRetries
     if not retrying then
       result.timed_out = result.timed_out + 1
-      C:_completeEquipRun(result, comparerOwner, showEquip, opts)
-    elseif not useNativePlanner then
-      releaseComparerOwner(comparerOwner)
+      C:_completeEquipRun(result, showEquip, opts)
     end
     if retrying then
       C_Timer.After(opts.retryDelay or 0.25, function()
@@ -580,7 +494,6 @@ function C:EquipBest(opts)
   end
 
   return C:_runEquipPlan(plan, {
-    comparerOwner = comparerOwner,
     showEquip = showEquip,
     autoSave = opts.autoSave,
     saveDelay = opts.saveDelay,
@@ -622,26 +535,10 @@ end
 -- filled". A fresh PlanBest pass against the now-equipped state should find
 -- nothing left to change; if it does, the equip wasn't actually optimal.
 local function checkFullyOptimal()
-  local useNativePlanner = wantsNativePlanner()
-  if useNativePlanner then
-    local ok, errOrChanges, pending, plan, nativeResult, nativeFailure = xpcall(function()
-      return C:PlanBest(nil, { planner = "native" })
-    end, nativeFailureDetail)
-    if not ok or nativeFailure then
-      return false, plan or {}, false, "failed", nativeFailure or errOrChanges
-    end
-    if pending then return false, plan or {}, true, "pending" end
-    if #(plan or {}) > 0 then return false, plan or {}, false, "remaining" end
-    return true, {}, false, "optimal"
-  end
-
-  local comparerOwner = acquireComparerPass()
-  local cmp = comparerOwner and comparerOwner.comparer
-  local ok, errOrChanges, pending, plan = xpcall(function()
-    return C:PlanBest(cmp, { planner = "legacy" })
+  local ok, errOrChanges, pending, plan, nativeResult, nativeFailure = xpcall(function()
+    return C:PlanBest()
   end, nativeFailureDetail)
-  releaseComparerOwner(comparerOwner)
-  if not ok then return false, {}, false, "failed", errOrChanges end
+  if not ok or nativeFailure then return false, plan or {}, false, "failed", nativeFailure or errOrChanges end
   if pending then return false, plan or {}, true, "pending" end
   if #(plan or {}) > 0 then return false, plan or {}, false, "remaining" end
   return true, {}, false, "optimal"

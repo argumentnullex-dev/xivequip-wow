@@ -4,7 +4,7 @@
 -- "profile" is just which deterministic score table the scenario feeds
 -- cmp.ScoreItem through -- there's no real Pawn-scale enumeration or
 -- spec-to-profile binding involved here (that's covered at the right layer
--- by tests/specs/comparer_spec.lua already, and isn't duplicated here).
+-- by focused XIVWeights provider tests and isn't duplicated here).
 --
 -- "automatic mode reproduces current behavior" is demonstrated by the first
 -- scenario reusing the plain default scoring path with no explicit

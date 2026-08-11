@@ -16,6 +16,11 @@ local Assignments = XIVEquip.Assignments
 local Frontier = {}
 Assignments.Frontier = Frontier
 
+local function filledCount(assignment)
+  if type(assignment.filledCount) == "number" then return assignment.filledCount end
+  return nil
+end
+
 -- UniqueUsage(assignment) -> {[uniquenessKey] = {count = N, limit = L}}
 -- Summarizes, per uniqueness category this assignment's non-empty picks
 -- touch, how many units it consumes AND the tightest limit any of its own
@@ -49,6 +54,21 @@ function Frontier.UniqueUsage(assignment)
   return usage
 end
 
+local function dominanceSummary(assignment)
+  if assignment._dominance then return assignment._dominance end
+  local summary = {
+    uniqueUsage = Frontier.UniqueUsage(assignment),
+    setCounts = assignment.setCounts or {},
+    targetFlags = assignment.targetFlags or {},
+    requiredFlags = assignment.requiredFlags or {},
+    policyValid = assignment.policyValid ~= false,
+    filledCount = filledCount(assignment),
+    score = assignment.score or 0,
+  }
+  assignment._dominance = summary
+  return summary
+end
+
 local function numericMapNoWorse(aMap, bMap)
   aMap, bMap = aMap or {}, bMap or {}
   local allKeys = {}
@@ -77,11 +97,6 @@ local function flagMapNoWorse(aMap, bMap)
     if aValue and not bValue then strict = true end
   end
   return true, strict
-end
-
-local function filledCount(assignment)
-  if type(assignment.filledCount) == "number" then return assignment.filledCount end
-  return nil
 end
 
 -- Dominates(a, b) -> bool
@@ -143,10 +158,11 @@ end
 -- across groups (via LoadoutState:CheckAssignment) -- this function only
 -- ever needs to avoid discarding something that might still be needed.
 function Frontier.Dominates(a, b)
-  local aValid, bValid = a.policyValid ~= false, b.policyValid ~= false
+  local aSummary, bSummary = dominanceSummary(a), dominanceSummary(b)
+  local aValid, bValid = aSummary.policyValid, bSummary.policyValid
   if not aValid and bValid then return false end
 
-  local aUsage, bUsage = Frontier.UniqueUsage(a), Frontier.UniqueUsage(b)
+  local aUsage, bUsage = aSummary.uniqueUsage, bSummary.uniqueUsage
 
   local allKeys = {}
   for key in pairs(aUsage) do allKeys[key] = true end
@@ -164,40 +180,67 @@ function Frontier.Dominates(a, b)
     if aEntry.limit > bEntry.limit then usageStrictlyBetter = true end
   end
 
-  local setNoWorse, setStrict = numericMapNoWorse(a.setCounts, b.setCounts)
+  local setNoWorse, setStrict = numericMapNoWorse(aSummary.setCounts, bSummary.setCounts)
   if not setNoWorse then return false end
 
-  local targetNoWorse, targetStrict = flagMapNoWorse(a.targetFlags, b.targetFlags)
+  local targetNoWorse, targetStrict = flagMapNoWorse(aSummary.targetFlags, bSummary.targetFlags)
   if not targetNoWorse then return false end
 
-  local requiredNoWorse, requiredStrict = flagMapNoWorse(a.requiredFlags, b.requiredFlags)
+  local requiredNoWorse, requiredStrict = flagMapNoWorse(aSummary.requiredFlags, bSummary.requiredFlags)
   if not requiredNoWorse then return false end
 
   if aValid and not bValid then return true end
 
-  local aFilled, bFilled = filledCount(a), filledCount(b)
+  local aFilled, bFilled = aSummary.filledCount, bSummary.filledCount
   if aFilled and bFilled and aFilled < bFilled then return false end
 
-  if a.score < b.score then return false end
+  if aSummary.score < bSummary.score then return false end
   return usageStrictlyBetter or setStrict or targetStrict or requiredStrict
-      or (aFilled and bFilled and aFilled > bFilled) or a.score > b.score
+      or (aFilled and bFilled and aFilled > bFilled) or aSummary.score > bSummary.score
+end
+
+function Frontier.Insert(frontier, assignment, perf)
+  dominanceSummary(assignment)
+  local i = 1
+  while i <= #frontier do
+    if perf then perf:Add("frontier.dominance_comparisons", 1) end
+    if Frontier.Dominates(frontier[i], assignment) then
+      if perf then perf:Add("frontier.candidates_discarded", 1) end
+      return false
+    end
+    if perf then perf:Add("frontier.dominance_comparisons", 1) end
+    if Frontier.Dominates(assignment, frontier[i]) then
+      table.remove(frontier, i)
+      if perf then perf:Add("frontier.candidates_discarded", 1) end
+    else
+      i = i + 1
+    end
+  end
+  frontier[#frontier + 1] = assignment
+  return true
 end
 
 -- Prune(assignments) -> survivors
 -- Keeps only assignments not dominated by any other assignment in the
 -- list. O(n^2) -- frontiers at this scale (single-digit to low tens of
 -- legal pairings per group) make anything more elaborate unnecessary.
-function Frontier.Prune(assignments)
+function Frontier.Prune(assignments, perf)
+  for _, assignment in ipairs(assignments or {}) do dominanceSummary(assignment) end
   local survivors = {}
   for i, candidate in ipairs(assignments) do
     local dominated = false
     for j, other in ipairs(assignments) do
+      if perf then perf:Add("frontier.dominance_comparisons", 1) end
       if i ~= j and Frontier.Dominates(other, candidate) then
         dominated = true
         break
       end
     end
-    if not dominated then survivors[#survivors + 1] = candidate end
+    if not dominated then
+      survivors[#survivors + 1] = candidate
+    elseif perf then
+      perf:Add("frontier.candidates_discarded", 1)
+    end
   end
   return survivors
 end

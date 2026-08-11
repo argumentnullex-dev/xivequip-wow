@@ -270,6 +270,47 @@ test("a retained occupied slot still consumes uniqueness capacity", function()
   A.equal(score, 10)
 end)
 
+test("optimizer maintains uniqueness incrementally during DFS", function()
+  local addon = newAddon()
+  local loadoutState = addon.Assignments.LoadoutState.New()
+  loadoutState:SeedFromEquipped({ [99] = candidate("legendary", 1) })
+  loadoutState.CheckAssignment = function()
+    error("optimizer DFS should not rebuild uniqueness through CheckAssignment")
+  end
+  local counters = {}
+
+  local groups = {
+    {
+      id = "A",
+      slots = { 1 },
+      frontier = {
+        assignment(100, { slot = candidate("legendary", 1) }),
+        assignment(80, {}),
+      },
+    },
+    {
+      id = "B",
+      slots = { 2 },
+      frontier = {
+        assignment(90, { slot = candidate("plain", 1) }),
+      },
+    },
+  }
+
+  local combination, score = addon.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, {
+    perf = {
+      Add = function(_, key, value)
+        counters[key] = (counters[key] or 0) + (value or 1)
+      end,
+    },
+  })
+
+  A.truthy(combination)
+  A.equal(combination.A.score, 80)
+  A.equal(score, 170)
+  A.truthy((counters["optimizer.uniqueness_prunes"] or 0) > 0)
+end)
+
 -- Property-style exactness (doc 36.3): a small brute-force reference
 -- (full cartesian product) must always agree with LoadoutOptimizer.FindBest.
 --
@@ -1493,6 +1534,79 @@ test("preference policies run after loadout policies and adjust final ranking", 
 
   A.equal(combination.A, preferred)
   A.equal(score, 95 + 10)
+end)
+
+test("inactive preference policies do not run or disable score pruning", function()
+  local addon = newAddon()
+  local loadoutState = addon.Assignments.LoadoutState.New()
+  local counters = {}
+  local context = {
+    policies = {
+      loadout = {},
+      preference = {
+        {
+          id = "Test.inactive",
+          isActive = function() return false end,
+          apply = function() error("inactive policy should not run") end,
+        },
+      },
+    },
+    perf = {
+      Add = function(_, key, value)
+        counters[key] = (counters[key] or 0) + (value or 1)
+      end,
+    },
+  }
+
+  local groups = {
+    { id = "A", slots = { 1 }, frontier = { assignment(100, {}), assignment(1, {}) } },
+    { id = "B", slots = { 2 }, frontier = { assignment(100, {}), assignment(1, {}) } },
+    { id = "C", slots = { 3 }, frontier = { assignment(100, {}), assignment(1, {}) } },
+  }
+
+  local combination, score = addon.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, context)
+
+  A.truthy(combination)
+  A.equal(score, 300)
+  A.truthy((counters["optimizer.score_bound_prunes"] or 0) > 0,
+    "an inactive preference policy must not force exhaustive score search")
+end)
+
+test("active bounded preference policies allow policy-bound score pruning", function()
+  local addon = newAddon()
+  local loadoutState = addon.Assignments.LoadoutState.New()
+  local counters = {}
+  local context = {
+    policies = {
+      loadout = {},
+      preference = {
+        {
+          id = "Test.bounded",
+          isActive = function() return true end,
+          upperBound = function() return 0 end,
+          apply = function() return nil end,
+        },
+      },
+    },
+    perf = {
+      Add = function(_, key, value)
+        counters[key] = (counters[key] or 0) + (value or 1)
+      end,
+    },
+  }
+
+  local groups = {
+    { id = "A", slots = { 1 }, frontier = { assignment(100, {}), assignment(1, {}) } },
+    { id = "B", slots = { 2 }, frontier = { assignment(100, {}), assignment(1, {}) } },
+    { id = "C", slots = { 3 }, frontier = { assignment(100, {}), assignment(1, {}) } },
+  }
+
+  local combination, score = addon.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, context)
+
+  A.truthy(combination)
+  A.equal(score, 300)
+  A.truthy((counters["optimizer.policy_bound_prunes"] or 0) > 0,
+    "a bounded preference policy should keep score pruning available")
 end)
 
 return tests

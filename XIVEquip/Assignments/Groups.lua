@@ -52,18 +52,10 @@ local function samePhysical(a, b)
   return false
 end
 
--- Does allLegal already contain the exact (currentA, currentB) tuple?
--- Reference equality, matching the established convention that a group's
--- currently-equipped candidates are the very same objects passed in
--- `candidates` (see e.g. Groups.Weapons.Frontier's doc comment) -- the
--- same precedent samePhysical's own object-identity fast path relies on.
-local function alreadyRepresents(allLegal, roleA, roleB, currentA, currentB)
-  for _, assignment in ipairs(allLegal) do
-    if assignment.picks[roleA] == currentA and assignment.picks[roleB] == currentB then
-      return true
-    end
-  end
-  return false
+local function assignmentRepresents(assignment, roleA, roleB, currentA, currentB)
+  return assignment and assignment.picks
+      and assignment.picks[roleA] == currentA
+      and assignment.picks[roleB] == currentB
 end
 
 -- frontierPaired(spec) -> prunedAssignments
@@ -150,7 +142,22 @@ local function frontierPaired(spec)
     [spec.slots[roleA]] = spec.currentA,
     [spec.slots[roleB]] = spec.currentB,
   }
-  local _, allLegal = Paired.Solve({
+
+  local frontier = {}
+  local sawCurrent = false
+
+  local function prepareForFrontier(assignment)
+    local batch = { assignment }
+    if type(spec.prepareAssignments) == "function" then
+      spec.prepareAssignments(batch, spec.context)
+    end
+    if type(spec.decorateAssignments) == "function" then
+      spec.decorateAssignments(batch)
+    end
+    return assignment
+  end
+
+  Paired.Enumerate({
     roles = spec.roles, slots = spec.slots, emptyAllowed = spec.emptyAllowed,
       candidates = spec.candidates, context = spec.context, loadoutState = spec.loadoutState,
       groupId = spec.groupId, compare = spec.compare,
@@ -158,9 +165,15 @@ local function frontierPaired(spec)
       removalSlots = spec.allSlots,
       currentByRole = currentByRole,
       currentBySlot = currentBySlot,
-  })
+      perf = spec.perf,
+  }, function(assignment)
+    if assignmentRepresents(assignment, roleA, roleB, spec.currentA, spec.currentB) then
+      sawCurrent = true
+    end
+    Frontier.Insert(frontier, prepareForFrontier(assignment), spec.perf)
+  end)
 
-  if not alreadyRepresents(allLegal, roleA, roleB, spec.currentA, spec.currentB) then
+  if not sawCurrent then
     local currentAssignment = Paired.Evaluate({
       roles = spec.roles, slots = spec.slots, groupId = spec.groupId,
       context = spec.context, loadoutState = spec.loadoutState, score = spec.score,
@@ -171,14 +184,12 @@ local function frontierPaired(spec)
       currentBySlot = currentBySlot,
       isCurrentState = true,
     })
-    if currentAssignment then allLegal[#allLegal + 1] = currentAssignment end
+    if currentAssignment then
+      Frontier.Insert(frontier, prepareForFrontier(currentAssignment), spec.perf)
+    end
   end
 
-  if type(spec.prepareAssignments) == "function" then
-    spec.prepareAssignments(allLegal, spec.context)
-  end
-
-  return Frontier.Prune(allLegal)
+  return frontier
 end
 
 -------------------------------------------------------------------------
@@ -340,7 +351,7 @@ end
 -- loadout even when other groups have valid upgrades.
 --
 -- `allSlots` (optional): see frontierPaired's doc comment.
-function Groups.Weapons.Frontier(candidates, context, loadoutState, currentMH, currentOH, allSlots, score)
+function Groups.Weapons.Frontier(candidates, context, loadoutState, currentMH, currentOH, allSlots, score, perf)
   return frontierPaired({
     groupId = Groups.Weapons.id,
     slots = Groups.Weapons.slots,
@@ -354,7 +365,15 @@ function Groups.Weapons.Frontier(candidates, context, loadoutState, currentMH, c
     currentB = currentOH,
     allSlots = allSlots,
     score = score,
+    perf = perf,
     prepareAssignments = prepareWeaponAssignments,
+    decorateAssignments = function(assignments)
+      for _, assignment in ipairs(assignments) do
+        assignment.tieBreak = {
+          tonumber(assignment.scores and assignment.scores.mh) or 0,
+        }
+      end
+    end,
   })
 end
 
@@ -436,6 +455,62 @@ local function pairedCompare(roleA, roleB, currentA, currentB)
   end
 end
 
+
+local function pairedChangeCount(assignment, roleA, roleB, currentA, currentB)
+  local n = 0
+  if not ((assignment.picks[roleA] == nil and currentA == nil) or samePhysical(assignment.picks[roleA], currentA)) then
+    n = n + 1
+  end
+  if not ((assignment.picks[roleB] == nil and currentB == nil) or samePhysical(assignment.picks[roleB], currentB)) then
+    n = n + 1
+  end
+  return n
+end
+
+local function jewelryFrontier(groupId, slots, candidates, context, loadoutState, currentA, currentB, allSlots, score, perf)
+  local floor = emptySlotIlvlFloor(candidates, currentA, currentB)
+  local function build(pool)
+    return frontierPaired({
+      groupId = groupId,
+      slots = slots,
+      roles = { "first", "second" },
+      candidates = pool,
+      context = context,
+      loadoutState = loadoutState,
+      compare = pairedCompare("first", "second", currentA, currentB),
+      emptyAllowed = { first = currentA == nil, second = currentB == nil },
+      currentA = currentA,
+      currentB = currentB,
+      allSlots = allSlots,
+      score = score,
+      perf = perf,
+      decorateAssignments = function(assignments)
+        for _, assignment in ipairs(assignments) do
+          assignment.tieBreak = {
+            -pairedChangeCount(assignment, "first", "second", currentA, currentB),
+            tonumber(assignment.scores and assignment.scores.first) or 0,
+          }
+        end
+      end,
+    })
+  end
+
+  local preferred = build(filterByFloor(candidates, floor))
+  if not floor then return preferred end
+
+  local unrestricted = build(candidates)
+  local function maxFilled(assignments)
+    local best = 0
+    for _, assignment in ipairs(assignments) do
+      best = math.max(best, filledCountOf(assignment, "first", "second"))
+    end
+    return best
+  end
+
+  if maxFilled(unrestricted) > maxFilled(preferred) then return unrestricted end
+  return preferred
+end
+
 -- solvePaired: the shared body behind Groups.Rings.Solve/Groups.Trinkets.Solve
 -- -- ports Jewelry.lua's solvePair orchestration (lines 313-354) around
 -- the one shared Paired.Solve call: current-score computation, the
@@ -486,40 +561,16 @@ Groups.Rings = { id = "rings", slots = { first = 11, second = 12 } }
 function Groups.Rings.Solve(candidates, context, loadoutState, currentA, currentB)
   return solvePaired(Groups.Rings.id, Groups.Rings.slots, candidates, context, loadoutState, currentA, currentB)
 end
-function Groups.Rings.Frontier(candidates, context, loadoutState, currentA, currentB, allSlots, score)
-  return frontierPaired({
-    groupId = Groups.Rings.id,
-    slots = Groups.Rings.slots,
-    roles = { "first", "second" },
-    candidates = candidates,
-    context = context,
-    loadoutState = loadoutState,
-    compare = pairedCompare("first", "second", currentA, currentB),
-    emptyAllowed = { first = currentA == nil, second = currentB == nil },
-    currentA = currentA,
-    currentB = currentB,
-    allSlots = allSlots,
-    score = score,
-  })
+function Groups.Rings.Frontier(candidates, context, loadoutState, currentA, currentB, allSlots, score, perf)
+  return jewelryFrontier(Groups.Rings.id, Groups.Rings.slots, candidates, context, loadoutState,
+    currentA, currentB, allSlots, score, perf)
 end
 
 Groups.Trinkets = { id = "trinkets", slots = { first = 13, second = 14 } }
 function Groups.Trinkets.Solve(candidates, context, loadoutState, currentA, currentB)
   return solvePaired(Groups.Trinkets.id, Groups.Trinkets.slots, candidates, context, loadoutState, currentA, currentB)
 end
-function Groups.Trinkets.Frontier(candidates, context, loadoutState, currentA, currentB, allSlots, score)
-  return frontierPaired({
-    groupId = Groups.Trinkets.id,
-    slots = Groups.Trinkets.slots,
-    roles = { "first", "second" },
-    candidates = candidates,
-    context = context,
-    loadoutState = loadoutState,
-    compare = pairedCompare("first", "second", currentA, currentB),
-    emptyAllowed = { first = currentA == nil, second = currentB == nil },
-    currentA = currentA,
-    currentB = currentB,
-    allSlots = allSlots,
-    score = score,
-  })
+function Groups.Trinkets.Frontier(candidates, context, loadoutState, currentA, currentB, allSlots, score, perf)
+  return jewelryFrontier(Groups.Trinkets.id, Groups.Trinkets.slots, candidates, context, loadoutState,
+    currentA, currentB, allSlots, score, perf)
 end

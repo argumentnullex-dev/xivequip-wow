@@ -68,6 +68,10 @@ local function defaultProfile(classFile)
         overrides = {},
       },
     },
+    preferences = {
+      preferSetBonuses = false,
+      bySpec = {},
+    },
   }
 end
 
@@ -298,11 +302,94 @@ local function manualState(profile)
   return profile.manual
 end
 
+-- Preferences belong to a class Profile because they affect how that
+-- Profile evaluates each specialization. Custom scale definitions remain
+-- global XIVWeights data; this only records which items a Profile prefers
+-- or avoids for one specialization.
+local function preferenceState(profile)
+  if type(profile) ~= "table" then return nil end
+  profile.preferences = type(profile.preferences) == "table" and profile.preferences or {}
+  profile.preferences.preferSetBonuses = profile.preferences.preferSetBonuses == true
+  profile.preferences.bySpec = type(profile.preferences.bySpec) == "table"
+      and profile.preferences.bySpec or {}
+  return profile.preferences
+end
+
 local function classForSpec(specID)
   local defaults = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Builtin
       and XIVEquip.XIVWeights.Builtin.Defaults
   if defaults and defaults.ClassForSpec then return defaults.ClassForSpec(specID) end
   return nil
+end
+
+local function validateProfileSpec(profile, specID)
+  if type(profile) ~= "table" then return nil, "profile-required" end
+  specID = tonumber(specID)
+  if not specID then return nil, "spec-required" end
+  local expectedClass = classForSpec(specID)
+  if not expectedClass then return nil, "unknown-spec" end
+  if normalizeClass(profile.classFile) ~= expectedClass then return nil, "spec-class-mismatch" end
+  return specID
+end
+
+local function specPreferenceState(profile, specID)
+  local preferences = preferenceState(profile)
+  if not preferences then return nil end
+  local state = preferences.bySpec[specID]
+  if type(state) ~= "table" then
+    state = {}
+    preferences.bySpec[specID] = state
+  end
+  state.wishlist = type(state.wishlist) == "table" and state.wishlist or {}
+  state.avoidlist = type(state.avoidlist) == "table" and state.avoidlist or {}
+  return state
+end
+
+function Profiles.SetPreferSetBonuses(profile, enabled)
+  local preferences = preferenceState(profile)
+  if not preferences then return nil, "profile-required" end
+  preferences.preferSetBonuses = enabled == true
+  return profile
+end
+
+-- Returns the normalized per-spec preference snapshot used by evaluation.
+-- The list maps use item IDs, intentionally applying a preference to any
+-- physical copy or upgrade variant of that item.
+function Profiles.GetSpecPreferences(profile, specID)
+  local validated = validateProfileSpec(profile, specID)
+  if not validated then
+    return { preferSetBonuses = false, wishlist = {}, avoidlist = {} }
+  end
+  local preferences = preferenceState(profile)
+  local state = specPreferenceState(profile, validated)
+  return {
+    preferSetBonuses = preferences.preferSetBonuses == true,
+    wishlist = copy(state.wishlist),
+    avoidlist = copy(state.avoidlist),
+  }
+end
+
+local function setListedItem(profile, specID, itemID, listed, listName, oppositeName)
+  specID = validateProfileSpec(profile, specID)
+  if not specID then return nil, "invalid-profile-spec" end
+  itemID = tonumber(itemID)
+  if not itemID or itemID <= 0 then return nil, "item-required" end
+  local state = specPreferenceState(profile, specID)
+  if listed == true then
+    state[listName][itemID] = true
+    state[oppositeName][itemID] = nil
+  else
+    state[listName][itemID] = nil
+  end
+  return profile
+end
+
+function Profiles.SetWishlistItem(profile, specID, itemID, listed)
+  return setListedItem(profile, specID, itemID, listed, "wishlist", "avoidlist")
+end
+
+function Profiles.SetAvoidlistItem(profile, specID, itemID, listed)
+  return setListedItem(profile, specID, itemID, listed, "avoidlist", "wishlist")
 end
 
 function Profiles.SetAutomatic(profile, enabled)

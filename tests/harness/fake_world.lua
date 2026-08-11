@@ -1,6 +1,6 @@
 -- tests/harness/fake_world.lua
 -- Centralizes the fake-WoW API surface duplicated across
--- tests/specs/weapons_spec.lua and tests/specs/paired_slots_spec.lua (doc
+-- the weapon and paired-slot scenario suites (doc
 -- section 12). Builds a declarative scenario's item registry, equipped
 -- slots, and bags, and installs the _G stubs the real planners need.
 --
@@ -66,6 +66,7 @@ function FakeWorld.Install(scenario)
       equippable = def.equippable,
       loaded = def.loaded,
       stats = def.stats or {},
+      setID = def.setID,
     }
     byKey[key] = record
     byID[id] = record
@@ -287,7 +288,9 @@ function FakeWorld.Install(scenario)
         nil,
         nil,
         nil,
-        item.equipLoc
+        item.equipLoc,
+        nil, nil, nil, nil, nil, nil,
+        item.setID
   end
 
   _G.GetDetailedItemLevelInfo = function(info)

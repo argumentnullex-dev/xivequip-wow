@@ -49,13 +49,13 @@ function Runtime.Live()
         if type(Pawn.GetActiveScales) == "function" then return Pawn.GetActiveScales() end
         return {}
       end,
-      ResolveValues = function(selection)
+      ResolveValues = function(selection, context)
         if selection and type(Pawn.GetScaleValues) == "function" then
-          local values, entry = Pawn.GetScaleValues(selection)
+          local values, entry = Pawn.GetScaleValues(selection, context)
           if type(values) == "table" then return values, entry end
         end
         if not selection and type(Pawn.GetBestScaleValuesForPlayer) == "function" then
-          return Pawn.GetBestScaleValuesForPlayer()
+          return Pawn.GetBestScaleValuesForPlayer(context)
         end
         if type(Pawn.GetActiveScales) == "function" then
           for _, entry in ipairs(Pawn.GetActiveScales() or {}) do
