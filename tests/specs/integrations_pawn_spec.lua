@@ -50,6 +50,15 @@ local function paladinScales()
       },
       Values = { Strength = 10, HasteRating = 5 },
     },
+    ["Holy"] = {
+      LocalizedName = "Holy",
+      ClassID = 2,
+      SpecID = 1,
+      PerCharacterOptions = {
+        ["Talkamar-Wyrmrest Accord"] = { Visible = true },
+      },
+      Values = { Intellect = 11, CritRating = 4 },
+    },
     ["\"MrRobot\":PALADIN2"] = {
       LocalizedName = "Paladin: Protection",
       ClassID = 2,
@@ -122,6 +131,50 @@ test("explicit Pawn scale lookup is not limited to visible active scales", funct
 
   A.equal(entry.name, "Paladin: Protection")
   A.equal(values.Armor, 7)
+end)
+
+test("Pawn automatic resolution honors requested spec context instead of current player spec", function()
+  clearGlobals()
+  installPaladinGlobals()
+  _G.GetSpecialization = function() return 3 end
+  _G.PawnCommon = { Scales = paladinScales() }
+  _G.PawnGetScaleValues = function(key)
+    if key == "\"MrRobot\":PALADIN2" then return { Strength = 20, Armor = 7 } end
+  end
+  local addon = loadPawn()
+  addon.XIVWeights = {
+    Builtin = {
+      Defaults = {
+        Get = function(specID)
+          local byID = {
+            [65] = { name = "Holy", meta = { classFile = "PALADIN", specName = "Holy" } },
+            [66] = { name = "Protection", meta = { classFile = "PALADIN", specName = "Protection" } },
+            [70] = { name = "Retribution", meta = { classFile = "PALADIN", specName = "Retribution" } },
+          }
+          return byID[tonumber(specID)]
+        end,
+        SpecsForClass = function(classFile)
+          if classFile ~= "PALADIN" then return {} end
+          return {
+            { id = 65, name = "Holy" },
+            { id = 66, name = "Protection" },
+            { id = 70, name = "Retribution" },
+          }
+        end,
+      },
+    },
+  }
+
+  local holyValues, holy = addon.Pawn.GetBestScaleValuesForPlayer({ specID = 65 })
+  local protValues, prot = addon.Pawn.GetBestScaleValuesForPlayer({ specID = 66 })
+  local retValues, ret = addon.Pawn.GetBestScaleValuesForPlayer({ specID = 70 })
+
+  A.equal(holy.name, "Holy")
+  A.equal(holyValues.Intellect, 11)
+  A.equal(prot.name, "Paladin: Protection")
+  A.equal(protValues.Armor, 7)
+  A.equal(ret.name, "Retribution")
+  A.equal(retValues.Strength, 10)
 end)
 
 return tests

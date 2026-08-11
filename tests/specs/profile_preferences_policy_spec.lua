@@ -162,4 +162,26 @@ test("set preference chooses two set pieces when their five-percent threshold bo
   A.equal(score, 201.6)
 end)
 
+test("set preference does not award extra value to a fifth set piece", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local setPreference = policyByID(resolved.preference, "XIVEquip.prefer_set_bonuses")
+  local assignments = {}
+  for i = 1, 5 do
+    assignments["slot" .. tostring(i)] = {
+      picks = { slot = { itemID = 900 + i, setID = 77 } },
+      scores = { slot = 100 },
+    }
+  end
+
+  local result = setPreference.apply({
+    assignments = assignments,
+    summaries = { setCounts = { ["set:77"] = 5 } },
+  }, {
+    profilePreferences = { preferSetBonuses = true },
+  })
+
+  A.equal(result.preferenceAdjustment, 40)
+end)
+
 return tests

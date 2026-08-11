@@ -191,8 +191,9 @@ local function nativeScaleHeader(result)
       or "Default | current specialization"
 end
 
-local PREVIEW_CACHE_SECONDS = 2
+local PREVIEW_CACHE_SECONDS = 30
 local previewCache = { expires = 0, token = 0 }
+local previewRefreshPending = false
 
 local function nowSeconds()
   if type(GetTime) == "function" then return GetTime() end
@@ -202,6 +203,14 @@ end
 
 local function ownerStillHovered(owner)
   if MouseIsOver and owner then return MouseIsOver(owner) == true end
+  return true
+end
+
+local function previewEnabled()
+  local settings = XIVEquip.Settings
+  if settings and type(settings.GetMessage) == "function" then
+    return settings:GetMessage("Preview") ~= false
+  end
   return true
 end
 
@@ -242,12 +251,7 @@ local function renderPreview(owner, anchor, payload)
     return false
   end
 
-  local settings = XIVEquip.Settings
-  local previewEnabled = true
-  if settings and type(settings.GetMessage) == "function" then
-    previewEnabled = settings:GetMessage("Preview") ~= false
-  end
-  if not previewEnabled then
+  if not previewEnabled() then
     GameTooltip:Show()
     return false
   end
@@ -342,6 +346,19 @@ local function renderPreview(owner, anchor, payload)
   return false
 end
 
+local function renderColdPreview(owner, anchor)
+  GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+  GameTooltip:ClearLines()
+  GameTooltip:AddLine(L.ButtonTooltip, 0.2, 0.8, 1.0)
+  if InCombatLockdown() then
+    GameTooltip:AddLine("|cffaaaaaa(Disabled in combat)|r")
+  elseif previewEnabled() then
+    GameTooltip:AddLine("|cffaaaaaaRecommendations are refreshing.|r")
+    GameTooltip:AddLine("|cffaaaaaaClick Equip Best to calculate now.|r")
+  end
+  GameTooltip:Show()
+end
+
 local function showEquipPreviewTooltip(owner, anchor)
   local now = nowSeconds()
   if previewCache.payload and (previewCache.expires or 0) > now then
@@ -349,25 +366,29 @@ local function showEquipPreviewTooltip(owner, anchor)
     return
   end
 
-  previewCache.token = (previewCache.token or 0) + 1
-  local token = previewCache.token
-  if not renderPreview(owner, anchor, nil) then return end
-
-  local function finish()
-    if token ~= previewCache.token or not ownerStillHovered(owner) then return end
-    local payload = computePreview()
-    previewCache.payload = payload
-    previewCache.expires = nowSeconds() + PREVIEW_CACHE_SECONDS
-    renderPreview(owner, anchor, payload)
-  end
-
-  if C_Timer and C_Timer.After then C_Timer.After(0.05, finish) else finish() end
+  renderColdPreview(owner, anchor)
 end
 
 function XIVEquip.UI.ClearPreviewCache()
   previewCache.payload = nil
   previewCache.expires = 0
   previewCache.token = (previewCache.token or 0) + 1
+end
+
+function XIVEquip.UI.SchedulePreviewCacheRefresh(delay)
+  if previewRefreshPending or not (C_Timer and C_Timer.After) then return end
+  if InCombatLockdown() or not previewEnabled() then return end
+  previewRefreshPending = true
+  local token = previewCache.token or 0
+  C_Timer.After(delay or 1.0, function()
+    previewRefreshPending = false
+    if token ~= (previewCache.token or 0) then return end
+    if InCombatLockdown() or not previewEnabled() then return end
+    local payload = computePreview()
+    if token ~= (previewCache.token or 0) then return end
+    previewCache.payload = payload
+    previewCache.expires = nowSeconds() + PREVIEW_CACHE_SECONDS
+  end)
 end
 
 XIVEquip.UI.RenderEquipPreviewTooltip = showEquipPreviewTooltip
@@ -506,8 +527,19 @@ end
 
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
+f:RegisterEvent("BAG_UPDATE_DELAYED")
+f:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 -- Callback used in UI.lua to run inline logic.
-f:SetScript("OnEvent", function()
+f:SetScript("OnEvent", function(_, event)
+  if event ~= "PLAYER_LOGIN" then
+    if XIVEquip.UI and XIVEquip.UI.ClearPreviewCache then XIVEquip.UI.ClearPreviewCache() end
+    if event ~= "BAG_UPDATE_DELAYED" and XIVEquip.UI and XIVEquip.UI.SchedulePreviewCacheRefresh then
+      XIVEquip.UI.SchedulePreviewCacheRefresh(1.0)
+    end
+    return
+  end
+
   if XIVEquip.Settings and XIVEquip.Settings.Initialize then XIVEquip.Settings:Initialize() end
   if XIVEquip.UI and XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Create then
     XIVEquip.UI.MinimapButton.Create()
@@ -527,5 +559,8 @@ f:SetScript("OnEvent", function()
       CharacterFrame.__XIVEquipHook = true
     end
     if CharacterFrame:IsShown() then onPaperDollShow() end
+  end
+  if XIVEquip.UI and XIVEquip.UI.SchedulePreviewCacheRefresh then
+    XIVEquip.UI.SchedulePreviewCacheRefresh(1.0)
   end
 end)

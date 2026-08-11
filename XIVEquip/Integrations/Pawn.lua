@@ -4,6 +4,22 @@ local addonName, XIVEquip = ...
 XIVEquip.Pawn = XIVEquip.Pawn or {}
 local Pawn = XIVEquip.Pawn
 
+local CLASS_ID_BY_FILE = {
+  WARRIOR = 1,
+  PALADIN = 2,
+  HUNTER = 3,
+  ROGUE = 4,
+  PRIEST = 5,
+  DEATHKNIGHT = 6,
+  SHAMAN = 7,
+  MAGE = 8,
+  WARLOCK = 9,
+  MONK = 10,
+  DRUID = 11,
+  DEMONHUNTER = 12,
+  EVOKER = 13,
+}
+
 local function allSavedScales()
   local common = rawget(_G, "PawnCommon")
   return type(common) == "table" and type(common.Scales) == "table" and common.Scales or {}
@@ -28,7 +44,30 @@ local function normalized(value)
   return tostring(value or ""):lower():gsub("[%s%p]+", "")
 end
 
-local function playerScaleContext()
+local function contextFromSpecID(specID)
+  local defaults = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Builtin and XIVEquip.XIVWeights.Builtin.Defaults
+  local scale = defaults and defaults.Get and defaults.Get(tonumber(specID))
+  local meta = scale and scale.meta or {}
+  local classFile = meta.classFile
+  local classID = CLASS_ID_BY_FILE[classFile]
+  local specIndex
+  for index, spec in ipairs((defaults and defaults.SpecsForClass and defaults.SpecsForClass(classFile)) or {}) do
+    if tonumber(spec.id) == tonumber(specID) then
+      specIndex = index
+      break
+    end
+  end
+  return classID, specIndex, normalized(meta.specName or scale and scale.name)
+end
+
+local function playerScaleContext(context)
+  if context and context.specID then
+    local classID, specIndex, specName = contextFromSpecID(context.specID)
+    if classID or specIndex or specName ~= "" then return classID, specIndex, specName end
+  end
+  if context and (context.classID or context.specIndex or context.specName) then
+    return tonumber(context.classID), tonumber(context.specIndex), normalized(context.specName)
+  end
   local _, _, classID = UnitClass and UnitClass("player")
   local specIndex = GetSpecialization and GetSpecialization()
   local specName = specIndex and GetSpecializationInfo and select(2, GetSpecializationInfo(specIndex)) or ""
@@ -116,8 +155,8 @@ local function firstClassMatch(scales, classID)
   return nil
 end
 
-local function bestScaleForPlayer()
-  local classID, specIndex, normalizedSpec = playerScaleContext()
+local function bestScaleForPlayer(context)
+  local classID, specIndex, normalizedSpec = playerScaleContext(context)
   local active = Pawn.GetActiveScales()
   local all = Pawn.GetAllScales()
   return exactMatch(active, classID, specIndex, normalizedSpec)
@@ -126,8 +165,8 @@ local function bestScaleForPlayer()
       or firstClassMatch(all, classID)
 end
 
-function Pawn.GetBestActiveScaleForPlayer()
-  return bestScaleForPlayer()
+function Pawn.GetBestActiveScaleForPlayer(context)
+  return bestScaleForPlayer(context)
 end
 
 local function valuesFor(scale)
@@ -136,13 +175,13 @@ local function valuesFor(scale)
   return providerValues(scale.key or scale.name)
 end
 
-function Pawn.GetBestScaleValuesForPlayer()
-  local scale = bestScaleForPlayer()
+function Pawn.GetBestScaleValuesForPlayer(context)
+  local scale = bestScaleForPlayer(context)
   return valuesFor(scale), scale
 end
 
-function Pawn.GetScaleValues(keyOrName)
-  if not keyOrName then return Pawn.GetBestScaleValuesForPlayer() end
+function Pawn.GetScaleValues(keyOrName, context)
+  if not keyOrName then return Pawn.GetBestScaleValuesForPlayer(context) end
   for _, scale in ipairs(Pawn.GetAllScales()) do
     if scale.key == keyOrName or scale.name == keyOrName then
       return valuesFor(scale), scale

@@ -67,7 +67,7 @@ local function newHarness(overrides)
   _G.CharacterFramePortrait = nil
   _G.C_Item = {}
   _G.GetItemInfo = function() return nil end
-  _G.C_Timer = { After = function(_, fn) fn() end }
+  _G.C_Timer = { After = overrides.timerAfter or function(_, fn) fn() end }
   _G.InCombatLockdown = function() return false end
   _G.MouseIsOver = function() return true end
   _G.GetTime = function() return overrides.now or 100 end
@@ -93,7 +93,7 @@ local function newHarness(overrides)
     L = { ButtonTooltip = "Equip Recommended Gear" },
     Settings = {
       GetMessage = function(_, key)
-        if key == "Preview" then return true end
+        if key == "Preview" then return overrides.previewEnabled ~= false end
         return true
       end,
       SetMessage = function() end,
@@ -125,10 +125,10 @@ local function newHarness(overrides)
 
   loadUI(addon)
   eventFrame.scripts.OnEvent(eventFrame, "PLAYER_LOGIN")
-  return addon, calls, button
+  return addon, calls, button, eventFrame
 end
 
-test("hover preview uses the native planner once", function()
+test("hover preview uses the warmed native planner cache", function()
   local _, calls, button = newHarness()
 
   button.scripts.OnEnter(button)
@@ -184,12 +184,31 @@ test("hover preview reuses a short-lived native plan cache", function()
   A.equal(#calls.plan, 1)
 end)
 
+test("cold hover preview does not run planning on hover", function()
+  local timers = {}
+  local _, calls, button = newHarness({
+    timerAfter = function(_, fn) timers[#timers + 1] = fn end,
+  })
+
+  button.scripts.OnEnter(button)
+
+  A.equal(#calls.plan, 0)
+  A.truthy(table.concat(calls.tooltipLines, "\n"):find("Recommendations are refreshing", 1, true))
+end)
+
+test("bag updates invalidate preview without immediately planning", function()
+  local _, calls, _, eventFrame = newHarness({
+    timerAfter = function(_, fn) fn() end,
+  })
+  A.equal(#calls.plan, 1, "login should warm the first preview")
+
+  eventFrame.scripts.OnEvent(eventFrame, "BAG_UPDATE_DELAYED")
+
+  A.equal(#calls.plan, 1)
+end)
+
 test("hover preview does not schedule planning when preview messages are disabled", function()
-  local addon, calls, button = newHarness()
-  addon.Settings.GetMessage = function(_, key)
-    if key == "Preview" then return false end
-    return true
-  end
+  local _, calls, button = newHarness({ previewEnabled = false })
 
   button.scripts.OnEnter(button)
 
