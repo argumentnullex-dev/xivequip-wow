@@ -55,8 +55,11 @@ local function loadWindow(addon, calls)
     function f:IsShown() return self.shown end
     function f:CreateFontString() return fontString() end
     function f:CreateTexture() return texture() end
-    function f:ClearAllPoints() end
-    function f:SetPoint() end
+    function f:ClearAllPoints() self.points = {} end
+    function f:SetPoint(...)
+      self.points = self.points or {}
+      self.points[#self.points + 1] = { ... }
+    end
     function f:SetAllPoints() end
     function f:SetScrollChild(child) self.scrollChild = child end
     function f:GetPoint() return "CENTER", nil, "CENTER", 0, 0 end
@@ -149,6 +152,20 @@ local function harness()
   }
   return addon, calls
 end
+
+test("Settings uses a vertical navigation rail", function()
+  local addon, calls = harness()
+  local Window = loadWindow(addon, calls)
+  local frame = Window.Create()
+
+  A.truthy(frame.sidebar, "settings should create a persistent navigation rail")
+  A.equal(frame.tabs[1].points[1][1], "TOP", "first navigation item should anchor in the rail")
+  A.equal(frame.tabs[1].points[1][2], frame.sidebar, "first navigation item should use the rail")
+  A.equal(frame.tabs[2].points[1][1], "TOP", "second navigation item should stack vertically")
+  A.equal(frame.tabs[2].points[1][2], frame.tabs[1], "second navigation item should follow the first")
+  A.equal(frame.tabs[2].points[1][3], "BOTTOM", "navigation should be vertical rather than horizontal")
+  A.equal(frame.content.points[1][4], 146, "page content should begin to the right of the rail")
+end)
 
 test("Create Macro uses the built-in armor upgrade icon", function()
   local addon, calls = harness()
@@ -376,8 +393,12 @@ test("pooled settings fonts bind actual Font objects rather than template-name s
 
   local Window = loadWindow(addon, calls)
   Window.Open()
-  A.equal(calls.fontObjects[1], _G.GameFontNormal, "font helper should pass the actual WoW Font object")
-  A.falsy(type(calls.fontObjects[1]) == "string", "font helper must not pass a template-name string to SetFontObject")
+  local sawNormal = false
+  for _, fontObject in ipairs(calls.fontObjects) do
+    A.falsy(type(fontObject) == "string", "font helper must not pass a template-name string to SetFontObject")
+    if fontObject == _G.GameFontNormal then sawNormal = true end
+  end
+  A.truthy(sawNormal, "font helper should pass the actual WoW Font object")
 end)
 
 test("state changes and tab switches reset nested Config pools before rebinding", function()
@@ -431,7 +452,7 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.equal(#profilePanel._xivEquipPool.items.button, profileButtonCount, "profile buttons should not accumulate after a state change")
   A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode buttons should not accumulate after a state change")
   A.falsy(modePanel._xivEquipPool.items.button[1].enabled, "automatic mode should disable manual mode controls")
-  A.equal(modePanel._xivEquipPool.items.button[2].text, "[Stored] Custom", "Automatic should retain the selected manual mode as disabled context")
+  A.equal(modePanel._xivEquipPool.items.button[2].text, "[Stored] Custom Scales", "Automatic should retain the selected manual mode as disabled context")
   local mapPanel = page._xivEquipPool.items.panel[3]
   A.truthy(mapPanel:IsShown(), "Automatic should retain the stored per-spec mapping as visible context")
   A.falsy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "Automatic should disable stored per-spec mapping controls")
