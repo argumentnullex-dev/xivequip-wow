@@ -270,4 +270,55 @@ test("Config page uses spec names and display labels instead of raw ids", functi
   A.falsy(text:find("| 70", 1, true), "Config should not show raw spec ids")
 end)
 
+test("Config page explains Integration fallback and reason", function()
+  local addon, calls = harness()
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+
+  addon.XIVWeights = {
+    Config = {
+      ResolveResultForSpec = function()
+        return {
+          scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } },
+          fallback = true,
+          fallbackReason = "integration-scale-missing",
+          selection = { provider = "pawn" },
+        }
+      end,
+      ListIntegrations = function() return { { id = "pawn", label = "Pawn" } } end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local text = table.concat(calls.fontText, "\n")
+  A.truthy(text:find("Default | Retribution %(Fallback%)"), "fallback should be visible in the source line")
+  A.truthy(text:find("Fallback: Pawn", 1, true), "fallback warning should identify the provider")
+  A.truthy(text:find("integration%-scale%-missing"), "fallback warning should include the resolver reason")
+end)
+
+test("repeated Config renders reuse the page frame", function()
+  local addon, calls = harness()
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  addon.XIVWeights = {
+    Config = {
+      ResolveResultForSpec = function()
+        return { scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } } }
+      end,
+      ListIntegrations = function() return {} end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local page = Window.Frame.content.page
+  Window.ShowTab(1)
+  A.equal(Window.Frame.content.page, page, "same-state Config refresh should reuse the page frame")
+end)
+
 return tests
