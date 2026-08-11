@@ -307,6 +307,8 @@ test("failed Pawn Integration falls back to Default without resolving a manual s
   A.equal(result.scale.resolution.sourceLabel, "Default")
   A.equal(result.scale.resolution.fallback, true)
   A.equal(result.fallbackReason, "integration-scale-missing")
+  A.equal(result.configuredSelection.provider, "pawn")
+  A.equal(result.scale.resolution.configuredProvider, "pawn")
   A.equal(profile.manual.integration.provider, "pawn")
   A.equal(profile.manual.integration.overrides[66], manual.id)
 end)
@@ -339,6 +341,7 @@ test("failed generic Integration falls back to Default and never resolves a manu
   A.equal(result.scale.resolution.sourceLabel, "Default")
   A.equal(result.scale.resolution.fallback, true)
   A.equal(result.fallbackReason, "integration-scale-missing")
+  A.equal(result.configuredSelection.provider, "hypothetical-failing")
 end)
 
 test("Profile mutation APIs enforce spec ownership for Custom scales", function()

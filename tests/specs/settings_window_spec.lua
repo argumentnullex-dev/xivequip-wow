@@ -21,7 +21,15 @@ local function loadWindow(addon, calls)
 
   local function fontString()
     return {
-      SetText = function(_, text) calls.fontText[#calls.fontText + 1] = tostring(text or "") end,
+      SetText = function(self, text)
+        self.text = tostring(text or "")
+        calls.fontText[#calls.fontText + 1] = self.text
+      end,
+      SetTextColor = function() end,
+      SetFontObject = function(self, fontObject)
+        self.fontObject = fontObject
+        calls.fontObjects[#calls.fontObjects + 1] = fontObject
+      end,
       SetPoint = function() end,
       SetWidth = function() end,
       SetJustifyH = function() end,
@@ -33,6 +41,10 @@ local function loadWindow(addon, calls)
     function f:SetSize() end
     function f:SetHeight() end
     function f:SetWidth() end
+    function f:SetMinMaxValues() end
+    function f:SetValueStep() end
+    function f:SetObeyStepOnDrag() end
+    function f:SetValue(value) self.value = value end
     function f:SetFrameStrata() end
     function f:SetMovable() end
     function f:EnableMouse() end
@@ -51,6 +63,14 @@ local function loadWindow(addon, calls)
     function f:StartMoving() end
     function f:StopMovingOrSizing() end
     function f:RegisterForClicks() end
+    function f:Enable() self.enabled = true end
+    function f:Disable() self.enabled = false end
+    function f:SetAutoFocus() end
+    function f:ClearFocus() end
+    function f:GetText() return self.text end
+    function f:SetTextInsets() end
+    function f:SetMultiLine() end
+    function f:SetFontObject() end
     function f:SetText(text) self.text = text; calls.buttons[text] = self end
     function f:SetID(id) self.id = id end
     function f:GetID() return self.id end
@@ -67,6 +87,16 @@ local function loadWindow(addon, calls)
   _G.PanelTemplates_SetTab = function() end
   _G.PanelTemplates_SelectTab = function() end
   _G.PanelTemplates_DeselectTab = function() end
+  _G.UIDropDownMenu_Initialize = function() end
+  _G.UIDropDownMenu_SetWidth = function() end
+  _G.UIDropDownMenu_SetSelectedValue = function() end
+  _G.UIDropDownMenu_SetText = function(text, menu) menu.dropdownText = text end
+  _G.GameFontNormal = { name = "GameFontNormal" }
+  _G.GameFontNormalLarge = { name = "GameFontNormalLarge" }
+  _G.GameFontNormalSmall = { name = "GameFontNormalSmall" }
+  _G.GameFontHighlight = { name = "GameFontHighlight" }
+  _G.GameFontHighlightSmall = { name = "GameFontHighlightSmall" }
+  _G.GameFontDisableSmall = { name = "GameFontDisableSmall" }
   _G.CreateFrame = function(_, name)
     return frame(name)
   end
@@ -87,7 +117,7 @@ end
 
 local function harness()
   local settingsTable = { UI = { SettingsWindow = {} } }
-  local calls = { buttons = {}, fontText = {}, created = nil, edited = nil, pickup = nil, settings = settingsTable }
+  local calls = { buttons = {}, fontText = {}, fontObjects = {}, created = nil, edited = nil, pickup = nil, settings = settingsTable }
   local addon = {
     UI = {},
     L = { AddonPrefix = "XIVEquip: " },
@@ -237,7 +267,7 @@ test("settings window registers once for Escape close", function()
   A.equal(count, 1, "settings window should be registered once as an Escape-close frame")
 end)
 
-test("Core tab uses spec names and display labels instead of raw ids", function()
+test("Config page uses spec names and display labels instead of raw ids", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 0 end
   _G.GetSpecialization = function() return 1 end
@@ -258,17 +288,348 @@ test("Core tab uses spec names and display labels instead of raw ids", function(
 
   local Window = loadWindow(addon, calls)
   Window.Open()
-  Window.ShowTab(3)
+  Window.ShowTab(1)
 
   local text = table.concat(calls.fontText, "\n")
-  A.truthy(text:find("Current specialization: Retribution", 1, true), "Core tab should show the spec name")
-  A.truthy(text:find("Source: Built-in default", 1, true), "Core tab should show the source label")
-  A.truthy(text:find("Scale: Retribution", 1, true), "Core tab should show the scale name")
-  A.truthy(calls.buttons["Use Native"], "Core tab should use native without 2.0 wording")
-  A.truthy(calls.buttons["Customize Spec Scale"], "Core tab should describe the editable spec-scale action")
-  A.falsy(text:find("spec:70", 1, true), "Core tab should not leak generated scale ids")
-  A.falsy(text:find("Current specialization: 70", 1, true), "Core tab should not show raw spec ids")
-  A.falsy(calls.buttons["Use Native 2.0"], "Core tab should not show native 2.0 wording")
+  A.truthy(text:find("Retribution", 1, true), "Config should show the spec name")
+  A.truthy(text:find("Built%-in default", 1, true) or text:find("Built-in default", 1, true), "Config should show the source label")
+  A.truthy(calls.buttons["Manage"], "Config should expose Profile management")
+  A.truthy(calls.buttons["Create Macro"], "Config should preserve macro creation")
+  A.falsy(text:find("spec:70", 1, true), "Config should not leak generated scale ids")
+  A.falsy(text:find("| 70", 1, true), "Config should not show raw spec ids")
+end)
+
+test("Config page explains Integration fallback and reason", function()
+  local addon, calls = harness()
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+
+  addon.XIVWeights = {
+    Config = {
+      ResolveResultForSpec = function()
+        return {
+          scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } },
+          fallback = true,
+          fallbackReason = "integration-scale-missing",
+          selection = { provider = "pawn" },
+        }
+      end,
+      ListIntegrations = function() return { { id = "pawn", label = "Pawn" } } end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local text = table.concat(calls.fontText, "\n")
+  A.truthy(text:find("Default | Retribution %(Fallback%)"), "fallback should be visible in the source line")
+  A.truthy(text:find("Fallback: Pawn", 1, true), "fallback warning should identify the provider")
+  A.truthy(text:find("integration%-scale%-missing"), "fallback warning should include the resolver reason")
+end)
+
+test("repeated Config renders reuse the page frame", function()
+  local addon, calls = harness()
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  addon.XIVWeights = {
+    Config = {
+      ResolveResultForSpec = function()
+        return { scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } } }
+      end,
+      ListIntegrations = function() return {} end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local page = Window.Frame.content.page
+  Window.ShowTab(1)
+  A.equal(Window.Frame.content.page, page, "same-state Config refresh should reuse the page frame")
+end)
+
+test("pooled settings fonts bind actual Font objects rather than template-name strings", function()
+  local addon, calls = harness()
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  addon.XIVWeights = {
+    Config = {
+      ResolveResultForSpec = function()
+        return { scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } } }
+      end,
+      ListIntegrations = function() return {} end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  A.equal(calls.fontObjects[1], _G.GameFontNormal, "font helper should pass the actual WoW Font object")
+  A.falsy(type(calls.fontObjects[1]) == "string", "font helper must not pass a template-name string to SetFontObject")
+end)
+
+test("state changes and tab switches reset nested Config pools before rebinding", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default",
+    automatic = false,
+    manual = { mode = "custom", customOverrides = {}, integration = { overrides = {} } },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = {
+      Defaults = {
+        SpecsForClass = function() return { { id = 70, name = "Retribution" } } end,
+      },
+    },
+    Config = {
+      ResolveResultForSpec = function()
+        return { scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } } }
+      end,
+      ListIntegrations = function() return {} end,
+      ListManualScales = function() return {} end,
+      GetScaleSpecID = function() return nil end,
+      Repository = function() return { Get = function() return nil end } end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = 1 } end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local page = Window.Frame.content.page
+  local profilePanel = page._xivEquipPool.items.panel[1]
+  local modePanel = page._xivEquipPool.items.panel[2]
+  local profileFontCount = #profilePanel._xivEquipPool.items.font
+  local profileButtonCount = #profilePanel._xivEquipPool.items.button
+  local modeButtonCount = #modePanel._xivEquipPool.items.button
+
+  profile.automatic = true
+  Window.ShowTab(1)
+  A.equal(#profilePanel._xivEquipPool.items.font, profileFontCount, "profile controls should be reused after a state change")
+  A.equal(#profilePanel._xivEquipPool.items.button, profileButtonCount, "profile buttons should not accumulate after a state change")
+  A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode buttons should not accumulate after a state change")
+  A.falsy(modePanel._xivEquipPool.items.button[1].enabled, "automatic mode should disable manual mode controls")
+  A.equal(modePanel._xivEquipPool.items.button[2].text, "[Stored] Custom", "Automatic should retain the selected manual mode as disabled context")
+  local mapPanel = page._xivEquipPool.items.panel[3]
+  A.truthy(mapPanel:IsShown(), "Automatic should retain the stored per-spec mapping as visible context")
+  A.falsy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "Automatic should disable stored per-spec mapping controls")
+
+  profile.automatic = false
+  Window.ShowTab(2)
+  Window.ShowTab(1)
+  A.equal(Window.Frame.content.page, page, "Config to Scales to Config should reuse the same page frame")
+  A.equal(#profilePanel._xivEquipPool.items.font, profileFontCount, "profile controls should remain pooled after tab switches")
+  A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode controls should remain pooled after tab switches")
+  A.truthy(modePanel._xivEquipPool.items.button[1].enabled, "rebound manual mode controls should be enabled again")
+  A.truthy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "stored mapping controls should re-enable with manual mode")
+end)
+
+test("Profile Management reuses its name field and refreshes profile usage", function()
+  local addon, calls = harness()
+  local usageCount = 1
+  local profile = {
+    id = "paladin-default",
+    name = "Paladin Default",
+    automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { overrides = {} } },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = { Defaults = { SpecsForClass = function() return { { id = 70, name = "Retribution" } } end } },
+    Config = {
+      ResolveResultForSpec = function() return { scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } } } end,
+      ListIntegrations = function() return {} end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = usageCount } end,
+      DefaultProfileID = function() return profile.id end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  calls.buttons["Manage"].scripts.OnClick(calls.buttons["Manage"])
+  local detail = Window.ProfileDialog.body._xivEquipPool.items.panel[1]
+  local nameBox = detail._xivEquipFrames["profile-name"]
+  usageCount = 2
+  calls.buttons["Manage"].scripts.OnClick(calls.buttons["Manage"])
+
+  A.equal(detail._xivEquipFrames["profile-name"], nameBox, "Profile Management should reuse the keyed name field")
+  A.equal(detail._xivEquipPool.items.font[3].text, "Used by 2 characters", "Profile Management should refresh usage when reopened")
+end)
+
+test("Config identifies missing per-spec Integration overrides and their Default fallback", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-integration",
+    automatic = false,
+    manual = {
+      mode = "integration",
+      customOverrides = {},
+      integration = { provider = "pawn", overrides = { [65] = "My Holy Scale" } },
+    },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = {
+      Defaults = {
+        SpecsForClass = function()
+          return { { id = 65, name = "Holy" }, { id = 70, name = "Retribution" } }
+        end,
+      },
+    },
+    Config = {
+      ResolveResultForSpec = function()
+        return { scale = { resolution = { sourceLabel = "Pawn", scaleLabel = "Retribution" } } }
+      end,
+      ListIntegrations = function()
+        return { { id = "pawn", label = "Pawn", ListScales = function() return {} end } }
+      end,
+      ListManualScales = function() return {} end,
+      SpecName = function(id) return id == 65 and "Holy" or "Retribution" end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = 1 } end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local text = table.concat(calls.fontText, "\n")
+  A.truthy(text:find("Holy %(Default fallback%)"), "missing Integration mappings should identify their effective Default fallback")
+end)
+
+test("unavailable Integrations do not list scales and show Default fallback for automatic mapping", function()
+  local addon, calls = harness()
+  local listed = false
+  local profile = {
+    id = "paladin-integration",
+    automatic = false,
+    manual = { mode = "integration", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = { Defaults = { SpecsForClass = function() return { { id = 70, name = "Retribution" } } end } },
+    Config = {
+      ResolveResultForSpec = function() return { scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } } } end,
+      ListIntegrations = function()
+        return {
+          {
+            id = "pawn",
+            label = "Pawn",
+            IsAvailable = function() return false end,
+            ListScales = function()
+              listed = true
+              error("unavailable provider must not be queried")
+            end,
+          },
+        }
+      end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = 1 } end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local mapPanel = Window.Frame.content.page._xivEquipPool.items.panel[3]
+  A.falsy(listed, "unavailable Integration must not receive ListScales calls")
+  A.equal(mapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Default - Pawn unavailable", "automatic Integration mapping should show its effective Default fallback")
+end)
+
+test("Scale editor displays import provenance and refreshes the active selector label", function()
+  local addon, calls = harness()
+  local sourceScale = { id = "manual:source", name = "Protection Raid" }
+  local scale = {
+    id = "manual:retribution",
+    name = "Retribution Raid",
+    weights = { strength = 1 },
+    source = { kind = "manual", importedFrom = "pawn" },
+    meta = { specID = 70, importedFrom = "pawn" },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = {
+      Defaults = {
+        SpecsForClass = function() return { { id = 70, name = "Retribution" } } end,
+      },
+    },
+    Config = {
+      ListManualScales = function() return { scale } end,
+      GetScaleSpecID = function(item) return item.meta.specID end,
+      Repository = function()
+        return {
+          Get = function(_, id)
+            if id == scale.id then return scale end
+            if id == sourceScale.id then return sourceScale end
+            return nil
+          end,
+        }
+      end,
+      SaveScale = function() end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(2)
+  local page = Window.Frame.content.page
+  local importedText = table.concat(calls.fontText, "\n")
+  A.truthy(importedText:find("Imported from: Pawn", 1, true), "imported scales should display their real provenance")
+  A.falsy(importedText:find("Based on: Default", 1, true), "imported scales should not claim to be based on Default")
+  local scroll = page._xivEquipFrames["settings-scroll"]
+  local nameEdit = scroll._xivEquipScrollChild._xivEquipFrames["scale-name"]
+  nameEdit:SetText("Retribution Mythic")
+  nameEdit.scripts.OnEnterPressed(nameEdit)
+
+  A.equal(scale.name, "Retribution Mythic", "rename should save the selected Custom scale")
+  A.equal(page._xivEquipPool.items.dropdown[2].dropdownText, "Retribution Mythic", "rename should refresh the selected-scale menu label")
+
+  scale.meta.duplicatedFrom = sourceScale.id
+  scale.source.duplicatedFrom = sourceScale.id
+  Window.ScaleRevision = (Window.ScaleRevision or 0) + 1
+  calls.fontText = {}
+  Window.ShowTab(2)
+  A.truthy(table.concat(calls.fontText, "\n"):find("Duplicated from: Protection Raid", 1, true), "duplicated scales should identify their source scale")
 end)
 
 return tests
