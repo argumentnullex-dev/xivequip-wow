@@ -237,6 +237,34 @@ test("Prune removes a policy-invalid assignment once a resource-equivalent polic
   A.equal(survivors[1], validLowerScore)
 end)
 
+test("incremental Insert preserves the same survivor semantics as Prune", function()
+  local addon = newAddon()
+  local dominant = assignment(120, { first = candidate("item:1", 2) })
+  local dominated = assignment(90, { first = candidate("item:1", 1) })
+  local setRelevant = assignment(80, {})
+  setRelevant.setCounts = { tier = 1 }
+  local freeInvalid = invalidAssignment(200, {})
+  local all = { dominated, setRelevant, freeInvalid, dominant }
+
+  local pruned = addon.Assignments.Frontier.Prune(all)
+  local incremental = {}
+  for _, entry in ipairs(all) do
+    addon.Assignments.Frontier.Insert(incremental, entry)
+  end
+
+  local function contains(list, value)
+    for _, item in ipairs(list) do
+      if item == value then return true end
+    end
+    return false
+  end
+
+  A.equal(#incremental, #pruned)
+  for _, survivor in ipairs(pruned) do
+    A.truthy(contains(incremental, survivor), "incremental frontier should contain every Prune survivor")
+  end
+end)
+
 test("Prune keeps a policy-invalid assignment alongside a policy-valid one that costs more in a shared category", function()
   local addon = newAddon()
   local validButCostly = assignment(120, { first = candidate("raidToken", 1) })

@@ -159,7 +159,7 @@ function CandidateCollector.Collect(opts)
   for _, slotID in ipairs(slots) do
     if perf then perf:Add("inventory.locations_scanned", 1) end
     local loc = equipmentLocation(slotID)
-    if locationHasItem(loc) and perf then perf:Add("inventory.occupied_locations", 1) end
+    if perf and locationHasItem(loc) then perf:Add("inventory.occupied_locations", 1) end
     local candidate = collectLocation(result, loc, {
       kind = "equipped",
       slot = slotID,

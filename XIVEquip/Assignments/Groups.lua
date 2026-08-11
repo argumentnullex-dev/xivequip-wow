@@ -52,18 +52,10 @@ local function samePhysical(a, b)
   return false
 end
 
--- Does allLegal already contain the exact (currentA, currentB) tuple?
--- Reference equality, matching the established convention that a group's
--- currently-equipped candidates are the very same objects passed in
--- `candidates` (see e.g. Groups.Weapons.Frontier's doc comment) -- the
--- same precedent samePhysical's own object-identity fast path relies on.
-local function alreadyRepresents(allLegal, roleA, roleB, currentA, currentB)
-  for _, assignment in ipairs(allLegal) do
-    if assignment.picks[roleA] == currentA and assignment.picks[roleB] == currentB then
-      return true
-    end
-  end
-  return false
+local function assignmentRepresents(assignment, roleA, roleB, currentA, currentB)
+  return assignment and assignment.picks
+      and assignment.picks[roleA] == currentA
+      and assignment.picks[roleB] == currentB
 end
 
 -- frontierPaired(spec) -> prunedAssignments
@@ -150,7 +142,22 @@ local function frontierPaired(spec)
     [spec.slots[roleA]] = spec.currentA,
     [spec.slots[roleB]] = spec.currentB,
   }
-  local _, allLegal = Paired.Solve({
+
+  local frontier = {}
+  local sawCurrent = false
+
+  local function prepareForFrontier(assignment)
+    local batch = { assignment }
+    if type(spec.prepareAssignments) == "function" then
+      spec.prepareAssignments(batch, spec.context)
+    end
+    if type(spec.decorateAssignments) == "function" then
+      spec.decorateAssignments(batch)
+    end
+    return assignment
+  end
+
+  Paired.Enumerate({
     roles = spec.roles, slots = spec.slots, emptyAllowed = spec.emptyAllowed,
       candidates = spec.candidates, context = spec.context, loadoutState = spec.loadoutState,
       groupId = spec.groupId, compare = spec.compare,
@@ -159,9 +166,14 @@ local function frontierPaired(spec)
       currentByRole = currentByRole,
       currentBySlot = currentBySlot,
       perf = spec.perf,
-  })
+  }, function(assignment)
+    if assignmentRepresents(assignment, roleA, roleB, spec.currentA, spec.currentB) then
+      sawCurrent = true
+    end
+    Frontier.Insert(frontier, prepareForFrontier(assignment), spec.perf)
+  end)
 
-  if not alreadyRepresents(allLegal, roleA, roleB, spec.currentA, spec.currentB) then
+  if not sawCurrent then
     local currentAssignment = Paired.Evaluate({
       roles = spec.roles, slots = spec.slots, groupId = spec.groupId,
       context = spec.context, loadoutState = spec.loadoutState, score = spec.score,
@@ -172,18 +184,12 @@ local function frontierPaired(spec)
       currentBySlot = currentBySlot,
       isCurrentState = true,
     })
-    if currentAssignment then allLegal[#allLegal + 1] = currentAssignment end
+    if currentAssignment then
+      Frontier.Insert(frontier, prepareForFrontier(currentAssignment), spec.perf)
+    end
   end
 
-  if type(spec.prepareAssignments) == "function" then
-    spec.prepareAssignments(allLegal, spec.context)
-  end
-
-  if type(spec.decorateAssignments) == "function" then
-    spec.decorateAssignments(allLegal)
-  end
-
-  return Frontier.Prune(allLegal, spec.perf)
+  return frontier
 end
 
 -------------------------------------------------------------------------
