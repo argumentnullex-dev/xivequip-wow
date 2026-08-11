@@ -60,16 +60,27 @@ local function defaultScore(candidate, context)
   return XIVEquip.Evaluation.CandidateEvaluator.Score(candidate, context)
 end
 
-local function evaluateCandidate(candidate, spec, role, slot)
+local EMPTY_EVALUATION = {
+  eligible = true,
+  score = 0,
+  baseScore = 0,
+  scoreAdjustment = 0,
+  setCounts = {},
+  targetFlags = {},
+  requiredFlags = {},
+  reasons = {},
+}
+
+local function scoreFunction(spec, role, slot)
+  if spec.score then
+    return function(c, context) return spec.score(c, context, slot, role) end
+  end
+  return defaultScore
+end
+
+local function evaluateCandidate(candidate, spec, role, slot, scoreCandidate)
   if not candidate then
-    return {
-      eligible = true,
-      score = 0,
-      setCounts = {},
-      targetFlags = {},
-      requiredFlags = {},
-      reasons = {},
-    }
+    return EMPTY_EVALUATION
   end
   return XIVEquip.Evaluation.CandidateEvaluator.Evaluate(candidate, spec.context, {
     groupId = spec.groupId,
@@ -78,7 +89,7 @@ local function evaluateCandidate(candidate, spec, role, slot)
     currentCandidate = spec.currentByRole and spec.currentByRole[role],
     currentByRole = spec.currentByRole,
     currentBySlot = spec.currentBySlot,
-    score = spec.score and function(c, context) return spec.score(c, context, slot, role) end or defaultScore,
+    score = scoreCandidate or scoreFunction(spec, role, slot),
   })
 end
 
@@ -125,6 +136,78 @@ local function policiesAllow(policies, assignment, context)
     if policy.apply(assignment, context) == false then return false end
   end
   return true
+end
+
+local function assignmentFromEvaluations(spec, roleA, roleB, slotA, slotB, pickA, pickB, evalA, evalB, checker, policies)
+  if pickA and pickB and samePhysical(pickA, pickB) then return nil end
+  if not spec.isCurrentState and not pickA and not pickB then return nil end
+
+  local candidatesEligible = evalA.eligible ~= false and evalB.eligible ~= false
+  if not candidatesEligible and not spec.isCurrentState then return nil end
+
+  if checker then
+    local legal
+    if pickA and pickB then
+      legal = checker:CheckPair(pickA, pickB)
+    elseif pickA then
+      legal = checker:CheckOne(pickA)
+    elseif pickB then
+      legal = checker:CheckOne(pickB)
+    else
+      legal = checker:Check(nil)
+    end
+    if not legal then return nil end
+  else
+    local additions
+    if pickA and pickB then
+      additions = { pickA, pickB }
+    elseif pickA then
+      additions = { pickA }
+    elseif pickB then
+      additions = { pickB }
+    end
+    local removalSlots = spec.removalSlots or { slotA, slotB }
+    if not spec.loadoutState:CheckAssignment(additions, removalSlots) then return nil end
+  end
+
+  local assignment = {
+    groupId = spec.groupId,
+    picks = { [roleA] = pickA, [roleB] = pickB },
+    currentByRole = spec.currentByRole,
+    currentBySlot = spec.currentBySlot,
+  }
+  -- emptyAllowed is only ever consulted during this policy check (see
+  -- this function's doc comment) -- not left on the returned assignment,
+  -- which otherwise has the exact same shape regardless of isCurrentState.
+  if spec.isCurrentState then assignment.emptyAllowed = spec.emptyAllowed end
+  local policyValid = policiesAllow(policies or assignmentPoliciesFor(spec.context, spec.groupId), assignment, spec.context)
+  assignment.emptyAllowed = nil
+  assignment.currentByRole = nil
+  assignment.currentBySlot = nil
+  local finalPolicyValid = policyValid and candidatesEligible
+  if not finalPolicyValid and not spec.isCurrentState then return nil end
+  assignment.policyValid = finalPolicyValid
+
+  local scoreA = evalA.score or 0
+  local scoreB = evalB.score or 0
+  assignment.scores = { [roleA] = scoreA, [roleB] = scoreB }
+  assignment.score = scoreA + scoreB
+  assignment.filledCount = filledCount(assignment.picks)
+  assignment.baseScore = (evalA.baseScore or 0) + (evalB.baseScore or 0)
+  assignment.scoreAdjustment = (evalA.scoreAdjustment or 0) + (evalB.scoreAdjustment or 0)
+  assignment.setCounts = {}
+  assignment.targetFlags = {}
+  assignment.requiredFlags = {}
+  assignment.reasons = {}
+  mergeNumericMap(assignment.setCounts, evalA.setCounts)
+  mergeNumericMap(assignment.setCounts, evalB.setCounts)
+  mergeFlags(assignment.targetFlags, evalA.targetFlags)
+  mergeFlags(assignment.targetFlags, evalB.targetFlags)
+  mergeFlags(assignment.requiredFlags, evalA.requiredFlags)
+  mergeFlags(assignment.requiredFlags, evalB.requiredFlags)
+  appendAll(assignment.reasons, evalA.reasons)
+  appendAll(assignment.reasons, evalB.reasons)
+  return assignment
 end
 
 -- Evaluate(spec) -> assignment|nil
@@ -197,59 +280,9 @@ function Paired.Evaluate(spec)
   local slotA, slotB = spec.slots[roleA], spec.slots[roleB]
   local pickA, pickB = spec.picks[roleA], spec.picks[roleB]
 
-  if pickA and pickB and samePhysical(pickA, pickB) then return nil end
-  if not spec.isCurrentState and not pickA and not pickB then return nil end
-
   local evalA = evaluateCandidate(pickA, spec, roleA, slotA)
   local evalB = evaluateCandidate(pickB, spec, roleB, slotB)
-  local candidatesEligible = evalA.eligible ~= false and evalB.eligible ~= false
-  if not candidatesEligible and not spec.isCurrentState then return nil end
-
-  local additions = {}
-  if pickA then additions[#additions + 1] = pickA end
-  if pickB then additions[#additions + 1] = pickB end
-  local removalSlots = spec.removalSlots or { slotA, slotB }
-  if not spec.loadoutState:CheckAssignment(additions, removalSlots) then return nil end
-
-  local assignment = {
-    groupId = spec.groupId,
-    picks = { [roleA] = pickA, [roleB] = pickB },
-    currentByRole = spec.currentByRole,
-    currentBySlot = spec.currentBySlot,
-  }
-  -- emptyAllowed is only ever consulted during this policy check (see
-  -- this function's doc comment) -- not left on the returned assignment,
-  -- which otherwise has the exact same shape regardless of isCurrentState.
-  if spec.isCurrentState then assignment.emptyAllowed = spec.emptyAllowed end
-  local policies = assignmentPoliciesFor(spec.context, spec.groupId)
-  local policyValid = policiesAllow(policies, assignment, spec.context)
-  assignment.emptyAllowed = nil
-  assignment.currentByRole = nil
-  assignment.currentBySlot = nil
-  local finalPolicyValid = policyValid and candidatesEligible
-  if not finalPolicyValid and not spec.isCurrentState then return nil end
-  assignment.policyValid = finalPolicyValid
-
-  local scoreA = evalA.score or 0
-  local scoreB = evalB.score or 0
-  assignment.scores = { [roleA] = scoreA, [roleB] = scoreB }
-  assignment.score = scoreA + scoreB
-  assignment.filledCount = filledCount(assignment.picks)
-  assignment.baseScore = (evalA.baseScore or 0) + (evalB.baseScore or 0)
-  assignment.scoreAdjustment = (evalA.scoreAdjustment or 0) + (evalB.scoreAdjustment or 0)
-  assignment.setCounts = {}
-  assignment.targetFlags = {}
-  assignment.requiredFlags = {}
-  assignment.reasons = {}
-  mergeNumericMap(assignment.setCounts, evalA.setCounts)
-  mergeNumericMap(assignment.setCounts, evalB.setCounts)
-  mergeFlags(assignment.targetFlags, evalA.targetFlags)
-  mergeFlags(assignment.targetFlags, evalB.targetFlags)
-  mergeFlags(assignment.requiredFlags, evalA.requiredFlags)
-  mergeFlags(assignment.requiredFlags, evalB.requiredFlags)
-  appendAll(assignment.reasons, evalA.reasons)
-  appendAll(assignment.reasons, evalB.reasons)
-  return assignment
+  return assignmentFromEvaluations(spec, roleA, roleB, slotA, slotB, pickA, pickB, evalA, evalB)
 end
 
 -- Solve(spec) -> best, allLegal
@@ -281,42 +314,45 @@ end
 
 function Paired.Enumerate(spec, visit)
   local roleA, roleB = spec.roles[1], spec.roles[2]
+  local slotA, slotB = spec.slots[roleA], spec.slots[roleB]
   local emptyAllowed = spec.emptyAllowed or {}
   local candidates = spec.candidates or {}
+  local scoreA = scoreFunction(spec, roleA, slotA)
+  local scoreB = scoreFunction(spec, roleB, slotB)
+  local removalSlots = spec.removalSlots or { slotA, slotB }
+  local checker = spec.loadoutState:PrepareAssignmentChecker(removalSlots)
+  local policies = assignmentPoliciesFor(spec.context, spec.groupId)
 
   local poolA, poolB = {}, {}
   for _, c in ipairs(candidates) do
-    poolA[#poolA + 1] = c
-    poolB[#poolB + 1] = c
+    poolA[#poolA + 1] = {
+      pick = c,
+      eval = evaluateCandidate(c, spec, roleA, slotA, scoreA),
+    }
+    poolB[#poolB + 1] = {
+      pick = c,
+      eval = evaluateCandidate(c, spec, roleB, slotB, scoreB),
+    }
   end
-  if emptyAllowed[roleA] then poolA[#poolA + 1] = EMPTY end
-  if emptyAllowed[roleB] then poolB[#poolB + 1] = EMPTY end
+  if emptyAllowed[roleA] then poolA[#poolA + 1] = { pick = EMPTY, eval = EMPTY_EVALUATION } end
+  if emptyAllowed[roleB] then poolB[#poolB + 1] = { pick = EMPTY, eval = EMPTY_EVALUATION } end
 
   local perf = spec.perf
   if perf then perf:Add(tostring(spec.groupId or "paired") .. ".raw_pair_combinations", #poolA * #poolB) end
+  if perf then perf:Add(tostring(spec.groupId or "paired") .. ".candidate_evaluations_precomputed", #candidates * 2) end
   local legalCount = 0
-  for _, a in ipairs(poolA) do
-    for _, b in ipairs(poolB) do
+  for _, entryA in ipairs(poolA) do
+    for _, entryB in ipairs(poolB) do
       -- NOT `isEmptyMarker(a) and nil or a` -- that idiom always evaluates
       -- to `a`, because `x and nil` is always nil/false, so the `or`
       -- branch fires unconditionally. An explicit if/else is required
       -- whenever the "true" branch value can itself be nil/false.
       local pickA
-      if isEmptyMarker(a) then pickA = nil else pickA = a end
+      if isEmptyMarker(entryA.pick) then pickA = nil else pickA = entryA.pick end
       local pickB
-      if isEmptyMarker(b) then pickB = nil else pickB = b end
-      local assignment = Paired.Evaluate({
-        roles = spec.roles,
-        slots = spec.slots,
-        groupId = spec.groupId,
-        context = spec.context,
-        loadoutState = spec.loadoutState,
-        score = spec.score,
-        removalSlots = spec.removalSlots,
-        currentByRole = spec.currentByRole,
-        currentBySlot = spec.currentBySlot,
-        picks = { [roleA] = pickA, [roleB] = pickB },
-      })
+      if isEmptyMarker(entryB.pick) then pickB = nil else pickB = entryB.pick end
+      local assignment = assignmentFromEvaluations(spec, roleA, roleB, slotA, slotB,
+        pickA, pickB, entryA.eval, entryB.eval, checker, policies)
       if assignment then
         legalCount = legalCount + 1
         visit(assignment)

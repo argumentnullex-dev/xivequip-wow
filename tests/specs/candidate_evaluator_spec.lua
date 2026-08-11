@@ -313,6 +313,42 @@ test("Evaluate supplies current candidate state to candidate policies", function
   A.equal(result.reasons[1], "below-current-floor")
 end)
 
+test("Evaluate reuses active candidate policy resolution within one context", function()
+  local addon = newAddon()
+  local first = { itemID = 88, stats = { strength = 10 }, weapon = {} }
+  local second = { itemID = 89, stats = { strength = 11 }, weapon = {} }
+  local scale = addon.XIVWeights.NewScale({ weights = { strength = 1.0 } })
+  local activeCalls, applyCalls = 0, 0
+  local policy = {
+    id = "Test.cached_active",
+    groups = { "rings" },
+    apply = function()
+      applyCalls = applyCalls + 1
+    end,
+  }
+  local context = {
+    weights = scale,
+    caches = {},
+    policies = {
+      candidate = { policy },
+      preference = {},
+    },
+  }
+  policy.isActive = function(activeContext)
+    activeCalls = activeCalls + 1
+    A.equal(activeContext, context)
+    return true
+  end
+
+  addon.Evaluation.CandidateEvaluator.Evaluate(first, context, { groupId = "rings" })
+  addon.Evaluation.CandidateEvaluator.Evaluate(second, context, { groupId = "rings" })
+
+  A.equal(activeCalls, 1, "isActive should be evaluated once for a stable phase/group in one context")
+  A.equal(applyCalls, 2, "the cached policy array should still apply on every candidate evaluation")
+  A.equal(context.caches.policyResolutionStats.misses, 1)
+  A.equal(context.caches.policyResolutionStats.hits, 1)
+end)
+
 test("Evaluate does not run preference policies before assignment and loadout phases", function()
   local addon = newAddon()
   local candidate = { itemID = 9, stats = { strength = 10 }, weapon = {} }

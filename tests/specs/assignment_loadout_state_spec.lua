@@ -134,4 +134,26 @@ test("a candidate with no uniqueness key never conflicts with anything", functio
   A.truthy(ok, "items with no uniqueness key should never be limited")
 end)
 
+test("a prepared assignment checker can be reused without leaking trial additions", function()
+  local addon = newAddon()
+  local state = addon.Assignments.LoadoutState.New()
+  local checker = state:PrepareAssignmentChecker({ 11, 12 })
+
+  A.falsy(checker:Check({ candidate("item:1", 1), candidate("item:1", 1) }),
+    "the first trial should still reject duplicate limit-1 additions")
+  A.truthy(checker:Check({ candidate("item:1", 1) }),
+    "the second trial must not inherit the rejected duplicate from the first")
+end)
+
+test("a prepared assignment checker preserves removed-slot limit semantics", function()
+  local addon = newAddon()
+  local state = addon.Assignments.LoadoutState.New()
+  state:SeedFromEquipped({ [13] = candidate("X", 1) })
+
+  local checker = state:PrepareAssignmentChecker({ 13, 11 })
+
+  A.truthy(checker:Check({ candidate("X", 2), candidate("X", 2) }),
+    "removing the limit-1 equipped item should leave the additions' limit-2 rule in force")
+end)
+
 return tests

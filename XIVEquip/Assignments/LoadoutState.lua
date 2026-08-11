@@ -45,6 +45,126 @@ function Methods:SeedFromEquipped(candidatesBySlot)
   end
 end
 
+local function accumulate(counts, limits, key, limit)
+  counts[key] = (counts[key] or 0) + 1
+  limit = tonumber(limit) or 1
+  limits[key] = limits[key] and math.min(limits[key], limit) or limit
+end
+
+local CheckerMethods = {}
+local CheckerMT = { __index = CheckerMethods }
+
+local function clearScratch(self)
+  local touched = self.touchedKeys
+  for i = 1, #touched do
+    local key = touched[i]
+    self.additionCounts[key] = nil
+    self.additionLimits[key] = nil
+    touched[i] = nil
+  end
+end
+
+local function addCandidate(self, candidate)
+  local uniqueness = candidate and candidate.uniqueness
+  local key = uniqueness and uniqueness.key
+  if not key then return end
+
+  if self.additionCounts[key] == nil then
+    self.touchedKeys[#self.touchedKeys + 1] = key
+    self.additionCounts[key] = 1
+    self.additionLimits[key] = tonumber(uniqueness.limit) or 1
+  else
+    self.additionCounts[key] = self.additionCounts[key] + 1
+    local limit = tonumber(uniqueness.limit) or 1
+    self.additionLimits[key] = math.min(self.additionLimits[key], limit)
+  end
+end
+
+function CheckerMethods:Check(additions)
+  if not self.baselineLegal then return false end
+
+  clearScratch(self)
+  for _, candidate in ipairs(additions or {}) do addCandidate(self, candidate) end
+
+  for _, key in ipairs(self.touchedKeys) do
+    local count = (self.baseCounts[key] or 0) + self.additionCounts[key]
+    local baseLimit = self.baseLimits[key]
+    local limit = self.additionLimits[key]
+    if baseLimit then limit = math.min(baseLimit, limit) end
+    if count > (limit or 1) then return false end
+  end
+  return true
+end
+
+function CheckerMethods:CheckOne(candidate)
+  if not self.baselineLegal then return false end
+
+  local uniqueness = candidate and candidate.uniqueness
+  local key = uniqueness and uniqueness.key
+  if not key then return true end
+
+  local count = (self.baseCounts[key] or 0) + 1
+  local limit = tonumber(uniqueness.limit) or 1
+  local baseLimit = self.baseLimits[key]
+  if baseLimit then limit = math.min(baseLimit, limit) end
+  return count <= limit
+end
+
+function CheckerMethods:CheckPair(first, second)
+  if not self.baselineLegal then return false end
+
+  clearScratch(self)
+  addCandidate(self, first)
+  addCandidate(self, second)
+
+  for _, key in ipairs(self.touchedKeys) do
+    local count = (self.baseCounts[key] or 0) + self.additionCounts[key]
+    local baseLimit = self.baseLimits[key]
+    local limit = self.additionLimits[key]
+    if baseLimit then limit = math.min(baseLimit, limit) end
+    if count > (limit or 1) then return false end
+  end
+  return true
+end
+
+-- PrepareAssignmentChecker(removalSlots) -> checker
+-- Computes the equipped baseline after the fixed removal slot set exactly
+-- once. The returned checker may then be reused for many candidate
+-- addition trials without rebuilding removal sets, baseline unique counts,
+-- or baseline limits. It intentionally keeps only per-call scratch state
+-- and clears that scratch before every check, so no trial can leak into
+-- the next one.
+function Methods:PrepareAssignmentChecker(removalSlots)
+  local removalSet = {}
+  for _, slotID in ipairs(removalSlots or {}) do
+    removalSet[slotID] = true
+  end
+
+  local counts, limits = {}, {}
+  for slotID, rec in pairs(self.equippedUniqueBySlot) do
+    if rec.key and not removalSet[slotID] then
+      accumulate(counts, limits, rec.key, rec.limit)
+    end
+  end
+
+  local baselineLegal = true
+  for key, count in pairs(counts) do
+    if count > (limits[key] or 1) then
+      baselineLegal = false
+      break
+    end
+  end
+
+  return setmetatable({
+    baseCounts = counts,
+    baseLimits = limits,
+    baselineLegal = baselineLegal,
+    additionCounts = {},
+    additionLimits = {},
+    touchedKeys = {},
+  }, CheckerMT)
+end
+
 -- CheckAssignment(additions, removalSlots) -> ok
 -- additions: array of non-nil candidates being proposed (an empty/unfilled
 -- role contributes nothing and should simply be omitted by the caller).
@@ -74,36 +194,7 @@ end
 -- exactly when its count contribution does, with no separate cache to
 -- fall out of sync.
 function Methods:CheckAssignment(additions, removalSlots)
-  local removalSet = {}
-  for _, slotID in ipairs(removalSlots or {}) do
-    removalSet[slotID] = true
-  end
-
-  local function accumulate(counts, limits, key, limit)
-    counts[key] = (counts[key] or 0) + 1
-    limit = tonumber(limit) or 1
-    limits[key] = limits[key] and math.min(limits[key], limit) or limit
-  end
-
-  local counts, limits = {}, {}
-  for slotID, rec in pairs(self.equippedUniqueBySlot) do
-    if rec.key and not removalSet[slotID] then
-      accumulate(counts, limits, rec.key, rec.limit)
-    end
-  end
-
-  for _, candidate in ipairs(additions or {}) do
-    local uniqueness = candidate and candidate.uniqueness
-    local key = uniqueness and uniqueness.key
-    if key then
-      accumulate(counts, limits, key, uniqueness.limit)
-    end
-  end
-
-  for key, count in pairs(counts) do
-    if count > (limits[key] or 1) then return false end
-  end
-  return true
+  return self:PrepareAssignmentChecker(removalSlots):Check(additions)
 end
 
 -- Commit(slotID, candidate): applies an accepted assignment for one slot --
