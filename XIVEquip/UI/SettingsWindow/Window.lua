@@ -9,6 +9,9 @@ local WINDOW_NAME = "XIVEquipSettingsWindow"
 local GENERAL_MACRO_MAX = 120
 local MACRO_BODY = "/xivequip"
 local MACRO_ICON = "Garrison_ArmorUpgrade"
+local TAB_RAIL_WIDTH = 118
+local CONTENT_LEFT = 146
+local CONTENT_WIDTH = 590
 
 local tabs = { "Config", "Scales" }
 
@@ -108,6 +111,15 @@ local function textColor(fontString, r, g, b)
   if fontString and fontString.SetTextColor then fontString:SetTextColor(r, g, b) end
 end
 
+local function divider(parent, x, y, height)
+  local line = texture(parent)
+  line:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
+  line:SetSize(1, height)
+  line:SetPoint("TOPLEFT", x, y)
+  if line.SetVertexColor then line:SetVertexColor(0.35, 0.4, 0.45, 0.65) end
+  return line
+end
+
 local function button(parent, text, width, height)
   local b = pooled(parent, "button", function()
     return CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
@@ -177,6 +189,13 @@ local function registerEscapeClose(frameName)
   table.insert(UISpecialFrames, frameName)
 end
 
+local function revealDialog(frame)
+  if frame.SetFrameStrata then frame:SetFrameStrata("DIALOG") end
+  if frame.SetToplevel then frame:SetToplevel(true) end
+  frame:Show()
+  if frame.Raise then frame:Raise() end
+end
+
 local function cursorHasPickedMacro(index, name)
   if GetCursorInfo then
     local kind, id = GetCursorInfo()
@@ -234,7 +253,7 @@ end
 
 local function makeContent(parent)
   local content = CreateFrame("Frame", nil, parent)
-  content:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, -78)
+  content:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_LEFT, -48)
   content:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -18, 18)
   return content
 end
@@ -546,7 +565,7 @@ local function dropdown(parent, width)
   local menu = pooled(parent, "dropdown", function()
     return CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
   end)
-  if UIDropDownMenu_SetWidth then UIDropDownMenu_SetWidth(width, menu) end
+  if UIDropDownMenu_SetWidth then UIDropDownMenu_SetWidth(menu, width) end
   return menu
 end
 
@@ -570,7 +589,7 @@ local function setDropdown(menu, items, selected, onSelect)
     end
   end)
   UIDropDownMenu_SetSelectedValue(menu, selected)
-  UIDropDownMenu_SetText(selectedLabel or "Select", menu)
+  UIDropDownMenu_SetText(menu, selectedLabel or "Select")
 end
 
 local function setDropdownEnabled(menu, enabled)
@@ -674,28 +693,37 @@ end
 
 local function addGeneralSettings(parent, x, y, width)
   local S = XIVEquip.Settings
-  local box = panel(parent, x, y, width, 158)
-  sectionTitle(box, "General Settings", 14, -14)
-  local rows = {
+  local box = panel(parent, x, y, width, 176)
+  sectionTitle(box, "Addon Settings", 14, -14)
+  sectionTitle(box, "Messages", 14, -42)
+  sectionTitle(box, "Automation", 302, -42)
+  local messages = {
     { "Show login message", function() return S:GetMessage("Login") end, function(v) S:SetMessage("Login", v) end },
     { "Show equip messages", function() return S:GetMessage("Equip") end, function(v) S:SetMessage("Equip", v) end },
-    { "Auto-equip on spec change", function() return S:GetAutomation("SpecEquip") end, function(v) S:SetAutomation("SpecEquip", v) end },
-    { "Auto-save equipment set after equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
-    { "Show minimap button", function() return not S:GetMinimapHidden() end, function(v)
-      S:SetMinimapHidden(v ~= true)
-      if XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Refresh then XIVEquip.UI.MinimapButton.Refresh() end
-    end },
     { "Debug logging", function() return S:GetDebugEnabled() end, function(v) S:SetDebugEnabled(v) end },
   }
-  local left, right = 14, math.floor(width / 2) + 6
-  for i, row in ipairs(rows) do
-    local column = i <= 3 and left or right
-    local rowIndex = i <= 3 and i or i - 3
+  local automation = {
+    { "Auto-equip on spec change", function() return S:GetAutomation("SpecEquip") end, function(v) S:SetAutomation("SpecEquip", v) end },
+    { "Auto-save equipment set after equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
+  }
+  for i, row in ipairs(messages) do
     local cb = checkbox(box, row[1], row[2](), row[3])
-    cb:SetPoint("TOPLEFT", column, -38 - ((rowIndex - 1) * 29))
+    cb:SetPoint("TOPLEFT", 14, -66 - ((i - 1) * 26))
   end
+  for i, row in ipairs(automation) do
+    local cb = checkbox(box, row[1], row[2](), row[3])
+    cb:SetPoint("TOPLEFT", 302, -66 - ((i - 1) * 26))
+  end
+  sectionTitle(box, "Minimap Button", 14, -142)
+  local minimap = { "Show minimap button", function() return not S:GetMinimapHidden() end, function(v)
+      S:SetMinimapHidden(v ~= true)
+      if XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Refresh then XIVEquip.UI.MinimapButton.Refresh() end
+    end }
+  local minimapBox = checkbox(box, minimap[1], minimap[2](), minimap[3])
+  minimapBox:SetPoint("TOPLEFT", 14, -164)
+  sectionTitle(box, "Macro", 302, -142)
   local macro = button(box, "Create Macro", 150, 22)
-  macro:SetPoint("BOTTOMRIGHT", -12, 12)
+  macro:SetPoint("TOPLEFT", 302, -160)
   macro:SetScript("OnClick", createEquipMacro)
   return box
 end
@@ -836,7 +864,7 @@ local function showProfileDialog()
   local close = button(body, "Close", 80, 22)
   close:SetPoint("BOTTOMRIGHT", -18, 16)
   close:SetScript("OnClick", function() frame:Hide() end)
-  frame:Show()
+  revealDialog(frame)
 end
 
 local function showConfig(content)
@@ -857,22 +885,14 @@ local function showConfig(content)
   local page = clearContent(content)
   page._viewKey = viewKey
   local defaults = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Builtin and XIVEquip.XIVWeights.Builtin.Defaults
-  local logo = texture(page)
-  logo:SetSize(64, 64)
-  logo:SetPoint("TOPLEFT", 4, -2)
-  logo:SetTexture("Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128")
-  local version = GetAddOnMetadata and GetAddOnMetadata(addonName, "Version") or "2.0"
-  local brand = font(page, "GameFontNormal", "XIVEquip")
-  brand:SetPoint("TOPLEFT", 8, -70)
-  local versionText = font(page, "GameFontDisableSmall", "v" .. tostring(version or "unknown"))
-  versionText:SetPoint("TOPLEFT", 8, -88)
-
   local className = UnitClass and UnitClass("player") or classFile or "Unknown class"
   local characterName = context and context.characterKey or (UnitName and UnitName("player")) or "Current character"
   local specName = (C and C.SpecName and C.SpecName(specID)) or currentSpecName() or "Unknown specialization"
-  local header = font(page, "GameFontNormalLarge", tostring(characterName) .. " | " .. tostring(className) .. " | " .. tostring(specName))
-  header:SetPoint("TOPLEFT", 98, -16)
-  header:SetWidth(590)
+  local header = font(page, "GameFontNormalLarge", tostring(className) .. " - " .. tostring(specName))
+  header:SetPoint("TOPLEFT", 0, 0)
+  header:SetWidth(CONTENT_WIDTH)
+  local character = font(page, "GameFontHighlightSmall", "Current character: " .. tostring(characterName))
+  character:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
   local fallbackSelection
   if not resolved and C and C.SelectionDisplay then
     fallbackSelection = C.GetSpecSelection and C.GetSpecSelection(specID)
@@ -886,8 +906,8 @@ local function showConfig(content)
     local sourceLabel, scaleLabel = C.SelectionDisplay(specID, fallbackSelection, pawnAdapter().ListScales())
     sourceLine = tostring(sourceLabel) .. " | " .. tostring(scaleLabel)
   end
-  local effective = font(page, "GameFontHighlight", sourceLine)
-  effective:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -8)
+  local effective = font(page, "GameFontHighlight", "Active weights: " .. sourceLine)
+  effective:SetPoint("TOPLEFT", character, "BOTTOMLEFT", 0, -6)
   textColor(effective, 0.4, 1, 0.4)
   if resolved and resolved.fallback then textColor(effective, 1, 0.55, 0.2) end
   if resolved and resolved.fallback then
@@ -901,18 +921,18 @@ local function showConfig(content)
     local warning = font(page, "GameFontDisableSmall", "Fallback: " .. providerLabel
       .. " has no suitable " .. tostring(specName) .. " scale. Using Default" .. reason .. ".")
     warning:SetPoint("TOPLEFT", effective, "BOTTOMLEFT", 0, -4)
-    warning:SetWidth(620)
+    warning:SetWidth(CONTENT_WIDTH)
     textColor(warning, 1, 0.65, 0.25)
   end
 
-  local profilePanel = panel(page, 0, -112, 700, 82)
-  sectionTitle(profilePanel, "Profile", 14, -14)
+  local profilePanel = panel(page, 0, -76, CONTENT_WIDTH, 64)
+  sectionTitle(profilePanel, "Profile for this character", 14, -14)
   local profileItems = {}
   for _, item in ipairs(Profiles and classFile and Profiles.List(classFile) or {}) do
     profileItems[#profileItems + 1] = { value = item.id, label = item.name }
   end
   local profileMenu = dropdown(profilePanel, 170)
-  profileMenu:SetPoint("TOPLEFT", 74, -25)
+  profileMenu:SetPoint("TOPLEFT", 14, -34)
   setDropdown(profileMenu, profileItems, profile and profile.id, function(value)
     if context and context.characterKey then Profiles.AssignCharacter(context.characterKey, classFile, value) end
     Window.ShowTab(1)
@@ -920,46 +940,36 @@ local function showConfig(content)
   local manage = button(profilePanel, "Manage", 78, 22)
   manage:SetPoint("LEFT", profileMenu, "RIGHT", 4, 0)
   manage:SetScript("OnClick", showProfileDialog)
-  local usage = Profiles and profile and Profiles.Usage(classFile, profile.id)
-  local used = font(profilePanel, "GameFontDisableSmall", "Used by " .. tostring(usage and usage.count or 0) .. " characters")
-  used:SetPoint("LEFT", manage, "RIGHT", 12, 0)
-  local auto = checkbox(profilePanel, "Automatic", profile and profile.automatic ~= false, function(value)
-    if profile then Profiles.SetAutomatic(profile, value); Window.ShowTab(1) end
-  end)
-  auto:SetPoint("TOPLEFT", 444, -23)
 
-  local modePanel = panel(page, 0, -202, 700, 188)
-  sectionTitle(modePanel, "Scale Selection", 14, -14)
+  local modePanel = panel(page, 0, -152, CONTENT_WIDTH, 184)
+  sectionTitle(modePanel, "Scoring Configuration", 14, -14)
   local mode = profile and profile.manual and string.lower(tostring(profile.manual.mode or "default")) or "default"
   local manualEditable = profile and profile.automatic == false
   local modes = {
-    { id = "default", label = "Default", note = "Use the built-in scale for each specialization." },
-    { id = "custom", label = "Custom", note = "Use editable custom scales with per-spec overrides." },
-    { id = "integration", label = "Integration", note = "Use an installed provider such as Pawn." },
+    { id = "default", label = "Default", note = "Use the built-in recommended scale for every specialization." },
+    { id = "custom", label = "Custom", note = "Use Default unless a specialization has its own scale." },
+    { id = "integration", label = "Addon Integration", note = "Use scales from another installed addon." },
   }
+  divider(modePanel, 198, -38, 96)
+  divider(modePanel, 390, -38, 96)
   for index, item in ipairs(modes) do
     local selected = profile and mode == item.id
-    local active = manualEditable and selected
-    local prefix = active and "[Active] " or (selected and "[Stored] " or "")
-    local choice = button(modePanel, prefix .. item.label, 126, 24)
-    choice:SetPoint("TOPLEFT", 14 + ((index - 1) * 150), -42)
+    local choice = button(modePanel, item.label, 174, 24)
+    choice:SetPoint("TOPLEFT", 12 + ((index - 1) * 192), -42)
+    if choice.UnlockHighlight then choice:UnlockHighlight() end
+    if selected and choice.LockHighlight then choice:LockHighlight() end
     if not manualEditable then choice:Disable() end
     choice:SetScript("OnClick", function()
       if profile then Profiles.SetManualMode(profile, item.id); Window.ShowTab(1) end
     end)
     local note = font(modePanel, "GameFontDisableSmall", item.note)
     note:SetPoint("TOPLEFT", choice, "BOTTOMLEFT", 0, -6)
-    note:SetWidth(130)
-  end
-  if profile and profile.automatic ~= false then
-    local recommendation = font(modePanel, "GameFontHighlightSmall", "Recommended. XIVEquip chooses the best supported source automatically.")
-    recommendation:SetPoint("TOPLEFT", 14, -94)
-    textColor(recommendation, 0.4, 1, 0.4)
+    note:SetWidth(170)
   end
   local integrationProvider = profile and profile.manual and profile.manual.integration and profile.manual.integration.provider or "pawn"
-  if profile and mode == "integration" then
+  if profile then
     local providerLabel = font(modePanel, "GameFontHighlightSmall", "Provider")
-    providerLabel:SetPoint("TOPLEFT", 14, -112)
+    providerLabel:SetPoint("TOPLEFT", 402, -108)
     local providerItems = {}
     for _, entry in ipairs(C and C.ListIntegrations and C.ListIntegrations() or {}) do
       local available = true
@@ -974,17 +984,40 @@ local function showConfig(content)
       }
     end
     local providerMenu = dropdown(modePanel, 150)
-    providerMenu:SetPoint("TOPLEFT", 70, -102)
+    providerMenu:SetPoint("TOPLEFT", 402, -122)
     setDropdown(providerMenu, providerItems, integrationProvider, function(value)
       Profiles.SetIntegrationProvider(profile, value); Window.ShowTab(1)
     end)
-    setDropdownEnabled(providerMenu, manualEditable)
+    setDropdownEnabled(providerMenu, manualEditable and mode == "integration")
   end
 
+  local create = button(modePanel, "Create", 72, 22)
+  create:SetPoint("TOPLEFT", 204, -108)
+  create:SetScript("OnClick", function()
+    if not C or not specID then return end
+    local scale = C.CreateManualScale(uniqueScaleID("manual"), uniqueScaleName(C, specID, tostring(C.SpecName(specID) or "Scale")), nil, specID)
+    if scale then
+      Window.SelectedSpecID = specID
+      Window.SelectedScaleID = scale.id
+      Window.ShowTab(2)
+    end
+  end)
+  local importScale = button(modePanel, "Import", 72, 22)
+  importScale:SetPoint("LEFT", create, "RIGHT", 4, 0)
+  importScale:SetScript("OnClick", function() if C and specID then showImportDialog(specID, C) end end)
+
+  local auto = checkbox(modePanel, "Automatic", profile and profile.automatic ~= false, function(value)
+    if profile then Profiles.SetAutomatic(profile, value); Window.ShowTab(1) end
+  end)
+  auto:SetPoint("TOPLEFT", 14, -144)
+  local recommendation = font(modePanel, "GameFontHighlightSmall", "Choose the recommended scale for your spec automatically.")
+  recommendation:SetPoint("TOPLEFT", 36, -164)
+  textColor(recommendation, 0.4, 1, 0.4)
+
   local specs = defaults and defaults.SpecsForClass(classFile) or {}
-  local mapPanel = panel(page, 0, -400, 700, 132)
-  local mappingTitle = mode == "custom" and "Per-specialization Custom scales"
-      or "Per-specialization Integration scales"
+  local mapPanel = panel(page, 0, -348, CONTENT_WIDTH, 132)
+  local mappingTitle = mode == "custom" and "Custom scale overrides by specialization"
+      or "Integration scales by specialization"
   sectionTitle(mapPanel, mappingTitle, 14, -14)
   if profile and not manualEditable then
     local stored = font(mapPanel, "GameFontDisableSmall", "Stored configuration (disabled while Automatic is enabled)")
@@ -1007,6 +1040,34 @@ local function showConfig(content)
         Window.ShowTab(1)
       end)
       setDropdownEnabled(menu, manualEditable)
+      local selectedScaleID = overrides[spec.id]
+      local edit = button(mapPanel, "Edit", 52, 20)
+      edit:SetPoint("TOPLEFT", 330, mapY + 3)
+      if not selectedScaleID then edit:Disable() end
+      edit:SetScript("OnClick", function()
+        if selectedScaleID then
+          Window.SelectedSpecID = spec.id
+          Window.SelectedScaleID = selectedScaleID
+          Window.ShowTab(2)
+        end
+      end)
+      local clear = button(mapPanel, "Clear", 52, 20)
+      clear:SetPoint("LEFT", edit, "RIGHT", 4, 0)
+      if not selectedScaleID or not manualEditable then clear:Disable() end
+      clear:SetScript("OnClick", function()
+        Profiles.ClearCustomOverride(profile, spec.id)
+        Window.ShowTab(1)
+      end)
+      local createForSpec = button(mapPanel, "Create", 58, 20)
+      createForSpec:SetPoint("LEFT", clear, "RIGHT", 4, 0)
+      createForSpec:SetScript("OnClick", function()
+        local scale = C.CreateManualScale(uniqueScaleID("manual"), uniqueScaleName(C, spec.id, tostring(spec.name) .. " Scale"), nil, spec.id)
+        if scale then
+          Window.SelectedSpecID = spec.id
+          Window.SelectedScaleID = scale.id
+          Window.ShowTab(2)
+        end
+      end)
     elseif profile and mode == "integration" then
       local overrides = profile.manual.integration.overrides or {}
       local configuredOverride = overrides[spec.id]
@@ -1038,7 +1099,8 @@ local function showConfig(content)
   end
   if not profile or mode == "default" then mapPanel:Hide() end
 
-  addGeneralSettings(page, 0, -544, 700)
+  local generalY = (profile and mode ~= "default") and -494 or -348
+  addGeneralSettings(page, 0, generalY, CONTENT_WIDTH)
 end
 
 local function jsonEscape(value)
@@ -1101,7 +1163,7 @@ local function showTextDialog(titleText, bodyText)
   frame.title:SetText(titleText)
   frame.edit:SetText(bodyText or "")
   frame.edit:HighlightText()
-  frame:Show()
+  revealDialog(frame)
 end
 
 local function showImportDialog(specID, C)
@@ -1234,7 +1296,7 @@ local function showImportDialog(specID, C)
   frame.nameEdit:SetText("")
   frame.detected:SetText("Format: paste data and press Detect.")
   textColor(frame.detected, 0.9, 0.9, 0.9)
-  frame:Show()
+  revealDialog(frame)
 end
 
 local function scaleUsage(C, Profiles, classFile, scaleID)
@@ -1286,21 +1348,25 @@ local function showScales(content)
 
   local title = font(page, "GameFontNormalLarge", "Scales")
   title:SetPoint("TOPLEFT", 0, 0)
-  local note = font(page, "GameFontHighlightSmall", "Custom scales are editable copies tied to one specialization. Defaults remain immutable.")
+  local note = font(page, "GameFontHighlightSmall", "Create and edit gear-weight scales for each specialization.")
   note:SetPoint("TOPLEFT", 0, -28)
-  note:SetWidth(680)
+  note:SetWidth(CONTENT_WIDTH)
+  local specLabel = font(page, "GameFontHighlightSmall", "Specialization")
+  specLabel:SetPoint("TOPLEFT", 0, -50)
   local specMenu = dropdown(page, 150)
-  specMenu:SetPoint("TOPLEFT", 0, -54)
+  specMenu:SetPoint("TOPLEFT", 0, -68)
   setDropdown(specMenu, specs, specID, function(value)
     Window.SelectedSpecID = tonumber(value); Window.SelectedScaleID = nil; Window.ShowTab(2)
   end)
   local scaleItems = {}
   for _, scale in ipairs(scales) do scaleItems[#scaleItems + 1] = { value = scale.id, label = scale.name or scale.id } end
+  local scaleLabel = font(page, "GameFontHighlightSmall", "Scale")
+  scaleLabel:SetPoint("TOPLEFT", 164, -50)
   local scaleMenu = dropdown(page, 210)
-  scaleMenu:SetPoint("LEFT", specMenu, "RIGHT", 6, 0)
+  scaleMenu:SetPoint("TOPLEFT", 164, -68)
   setDropdown(scaleMenu, scaleItems, selected, function(value) Window.SelectedScaleID = value; Window.ShowTab(2) end)
-  local new = button(page, "New", 58, 22)
-  new:SetPoint("LEFT", scaleMenu, "RIGHT", 8, 0)
+  local new = button(page, "Create", 68, 22)
+  new:SetPoint("TOPLEFT", 0, -102)
   new:SetScript("OnClick", function()
     local scale = C.CreateManualScale(uniqueScaleID("manual"), uniqueScaleName(C, specID, tostring(C.SpecName(specID) or "Custom Scale")), nil, specID)
     if scale then Window.SelectedScaleID = scale.id; Window.ShowTab(2) end
@@ -1344,34 +1410,30 @@ local function showScales(content)
     end)
   end)
 
-  local _, editor = createScroll(page, 0, -92, 700, 548)
+  local _, editor = createScroll(page, 0, -136, CONTENT_WIDTH, 500)
   if not selectedScale then
     local empty = font(editor, "GameFontHighlight", "No Custom scale exists for this specialization yet. Use New to start from the Default weights.")
     empty:SetPoint("TOPLEFT", 12, -12)
-    editor:SetHeight(548)
+    editor:SetHeight(500)
     return
   end
-  local info = panel(editor, 0, 0, 210, 170)
-  sectionTitle(info, "Scale Info", 14, -14)
+  local info = panel(editor, 0, 0, 172, 118)
+  sectionTitle(info, "Scale", 14, -14)
   local specLine = font(info, "GameFontHighlightSmall", "Specialization: " .. tostring(C.SpecName(specID) or specID))
   specLine:SetPoint("TOPLEFT", 14, -46)
-  local provenance = provenanceLabel(C, selectedScale)
-  local based = font(info, "GameFontHighlightSmall", provenance or "Based on: Default")
-  based:SetPoint("TOPLEFT", 14, -70)
-  based:SetWidth(180)
-  local status = font(info, "GameFontHighlightSmall", "Autosaved ✓")
-  status:SetPoint("TOPLEFT", 14, -102)
-  textColor(status, 0.4, 1, 0.4)
+  local tied = font(info, "GameFontDisableSmall", "This scale is tied to this specialization.")
+  tied:SetPoint("TOPLEFT", 14, -70)
+  tied:SetWidth(148)
   local errorLine = font(info, "GameFontDisableSmall", "")
-  errorLine:SetPoint("TOPLEFT", 14, -126)
-  errorLine:SetWidth(180)
+  errorLine:SetPoint("TOPLEFT", 14, -94)
+  errorLine:SetWidth(148)
   local work = {}
   for key, value in pairs(selectedScale.weights or {}) do work[key] = tonumber(value) or 0 end
-  local nameLabel = font(editor, "GameFontNormal", "Name")
-  nameLabel:SetPoint("TOPLEFT", 232, -10)
+  local nameLabel = font(editor, "GameFontNormal", "Scale name")
+  nameLabel:SetPoint("TOPLEFT", 190, -10)
   local nameEdit = pooledFrame(editor, "scale-name", "EditBox", "InputBoxTemplate")
   nameEdit:SetSize(260, 22)
-  nameEdit:SetPoint("TOPLEFT", 280, -6)
+  nameEdit:SetPoint("TOPLEFT", 238, -6)
   nameEdit:SetAutoFocus(false)
   nameEdit:SetText(selectedScale.name or "Custom Scale")
   local function commitName()
@@ -1389,8 +1451,7 @@ local function showScales(content)
     C.SaveScale(selectedScale)
     Window.ScaleRevision = (Window.ScaleRevision or 0) + 1
     errorLine:SetText("")
-    status:SetText("Autosaved ✓")
-    if UIDropDownMenu_SetText then UIDropDownMenu_SetText(value, scaleMenu) end
+    if UIDropDownMenu_SetText then UIDropDownMenu_SetText(scaleMenu, value) end
   end
   nameEdit:SetScript("OnEnterPressed", function(self) commitName(); self:ClearFocus() end)
   nameEdit:SetScript("OnEditFocusLost", commitName)
@@ -1398,21 +1459,23 @@ local function showScales(content)
   local y = -48
   local function addWeightRow(feature, label)
     local rowLabel = font(editor, "GameFontHighlightSmall", label)
-    rowLabel:SetPoint("TOPLEFT", 232, y)
+    rowLabel:SetPoint("TOPLEFT", 190, y)
     local edit = pooledFrame(editor, "weight-edit:" .. feature, "EditBox", "InputBoxTemplate")
     edit:SetSize(54, 20)
-    edit:SetPoint("TOPLEFT", 352, y + 2)
+    edit:SetPoint("TOPLEFT", 308, y + 2)
     edit:SetAutoFocus(false)
     edit:SetText(string.format("%.2f", tonumber(work[feature]) or 0))
     local slider = pooledFrame(editor, "weight-slider:" .. feature, "Slider", "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", 418, y + 1)
-    slider:SetWidth(190)
+    slider:SetPoint("TOPLEFT", 374, y + 1)
+    slider:SetWidth(164)
     slider:SetMinMaxValues(0, 1)
     slider:SetValueStep(0.1)
     if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+    if slider.Low then slider.Low:Hide() end
+    if slider.High then slider.High:Hide() end
     for index = 0, 10 do
       local tick = font(editor, "GameFontDisableSmall", "|")
-      tick:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", (index * 19) - 1, 4)
+      tick:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", math.floor((index * 164) / 10) - 1, 4)
     end
     local suppress = true
     local initial = tonumber(work[feature]) or 0
@@ -1445,7 +1508,6 @@ local function showScales(content)
       end
       C.SaveScale(selectedScale)
       errorLine:SetText("")
-      status:SetText("Autosaved ✓")
       if source ~= "slider" then
         suppress = true; slider:SetValue(value); suppress = false
       end
@@ -1462,13 +1524,13 @@ local function showScales(content)
   end
   for _, group in ipairs(featureGroups) do
     local groupLabel = font(editor, "GameFontNormalSmall", group[1])
-    groupLabel:SetPoint("TOPLEFT", 232, y)
+    groupLabel:SetPoint("TOPLEFT", 190, y)
     textColor(groupLabel, 1, 0.82, 0.1)
     y = y - 22
     for _, feature in ipairs(group[2]) do addWeightRow(feature, featureLabels[feature] or feature) end
     y = y - 6
   end
-  editor:SetHeight(math.max(548, -y + 24))
+  editor:SetHeight(math.max(500, -y + 24))
 end
 
 local renderers = { showConfig, showScales }
@@ -1479,7 +1541,11 @@ function Window.ShowTab(index)
   if not renderers[index] then index = 1 end
   frame.selectedTab = index
   for i, tab in ipairs(frame.tabs or {}) do
-    if i == index then PanelTemplates_SelectTab(tab) else PanelTemplates_DeselectTab(tab) end
+    if i == index then
+      if tab.LockHighlight then tab:LockHighlight() end
+    elseif tab.UnlockHighlight then
+      tab:UnlockHighlight()
+    end
   end
   renderers[index](frame.content)
 end
@@ -1489,7 +1555,7 @@ function Window.Create()
 
   local frame = CreateFrame("Frame", WINDOW_NAME, UIParent, "BasicFrameTemplateWithInset")
   frame:SetSize(760, 820)
-  frame:SetFrameStrata("DIALOG")
+  frame:SetFrameStrata("MEDIUM")
   frame:SetMovable(true)
   frame:EnableMouse(true)
   frame:RegisterForDrag("LeftButton")
@@ -1502,24 +1568,44 @@ function Window.Create()
 
   local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   title:SetPoint("LEFT", frame.TitleBg, "LEFT", 6, 0)
-  title:SetText("XIVEquip")
+  title:SetText("XIVEquip - Settings")
+
+  local sidebar = CreateFrame("Frame", nil, frame)
+  sidebar:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -40)
+  sidebar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 16, 18)
+  sidebar:SetWidth(TAB_RAIL_WIDTH)
+  local shade = sidebar:CreateTexture(nil, "BACKGROUND")
+  shade:SetAllPoints(sidebar)
+  shade:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
+  if shade.SetVertexColor then shade:SetVertexColor(0, 0, 0, 0.35) end
+  local logo = sidebar:CreateTexture(nil, "ARTWORK")
+  logo:SetSize(64, 64)
+  logo:SetPoint("TOP", sidebar, "TOP", 0, -16)
+  logo:SetTexture("Interface\\AddOns\\XIVEquip\\Assets\\icon_blue_128")
+  local brand = sidebar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  brand:SetPoint("TOP", logo, "BOTTOM", 0, -8)
+  brand:SetText("XIVEquip")
+  local version = GetAddOnMetadata and GetAddOnMetadata(addonName, "Version") or "2.0"
+  local versionText = sidebar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  versionText:SetPoint("TOP", brand, "BOTTOM", 0, -3)
+  versionText:SetText("v" .. tostring(version or "unknown"))
+  frame.sidebar = sidebar
 
   frame.content = makeContent(frame)
   frame.tabs = {}
   for i, label in ipairs(tabs) do
-    local tab = CreateFrame("Button", "XIVEquipSettingsTab" .. tostring(i), frame, "PanelTabButtonTemplate")
+    local tab = CreateFrame("Button", "XIVEquipSettingsTab" .. tostring(i), sidebar, "UIPanelButtonTemplate")
     tab:SetID(i)
     tab:SetText(label)
+    tab:SetSize(108, 26)
     tab:SetScript("OnClick", function(self) Window.ShowTab(self:GetID()) end)
     if i == 1 then
-      tab:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -34)
+      tab:SetPoint("TOP", sidebar, "TOP", 0, -120)
     else
-      tab:SetPoint("LEFT", frame.tabs[i - 1], "RIGHT", -14, 0)
+      tab:SetPoint("TOP", frame.tabs[i - 1], "BOTTOM", 0, -4)
     end
     frame.tabs[i] = tab
   end
-  PanelTemplates_SetNumTabs(frame, #tabs)
-  PanelTemplates_SetTab(frame, 1)
 
   restorePosition(frame)
   registerEscapeClose(WINDOW_NAME)
