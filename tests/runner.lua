@@ -61,6 +61,7 @@ local specs = {
   "candidate_normalizer_spec",
   "candidate_collector_spec",
   "candidate_evaluator_spec",
+  "profile_preferences_policy_spec",
   "evaluation_context_pipeline_spec",
   "assignment_loadout_state_spec",
   "assignment_paired_spec",

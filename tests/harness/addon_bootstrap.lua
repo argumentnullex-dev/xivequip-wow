@@ -75,10 +75,13 @@ function Bootstrap.LoadPolicyContext(root, addon)
   loadAddonFile(root, { "Policies", "EvaluationContext", "ClassSpecWeaponCapabilities.lua" }, addon)
   loadAddonFile(root, { "Policies", "EvaluationContext", "DualWieldOverride.lua" }, addon)
   loadAddonFile(root, { "Policies", "EvaluationContext", "WeightsResolution.lua" }, addon)
+  loadAddonFile(root, { "Policies", "EvaluationContext", "ProfilePreferences.lua" }, addon)
   loadAddonFile(root, { "Policies", "Candidate", "RequiredLevel.lua" }, addon)
   loadAddonFile(root, { "Policies", "Candidate", "Equippable.lua" }, addon)
   loadAddonFile(root, { "Policies", "Candidate", "ArmorProficiency.lua" }, addon)
   loadAddonFile(root, { "Policies", "Candidate", "JewelryIlvlFloor.lua" }, addon)
+  loadAddonFile(root, { "Policies", "Candidate", "ProfileLists.lua" }, addon)
+  loadAddonFile(root, { "Policies", "Candidate", "SetMembership.lua" }, addon)
   loadAddonFile(root, { "Evaluation", "ContextBuilder.lua" }, addon)
   loadAddonFile(root, { "Evaluation", "CandidateNormalizer.lua" }, addon)
   loadAddonFile(root, { "Evaluation", "CandidateCollector.lua" }, addon)
@@ -107,6 +110,7 @@ end
 -- combining real group frontiers still need Bootstrap.LoadAssignments too.
 function Bootstrap.LoadOptimization(root, addon)
   loadAddonFile(root, { "Optimization", "LoadoutOptimizer.lua" }, addon)
+  loadAddonFile(root, { "Policies", "Preference", "PreferSetBonuses.lua" }, addon)
 end
 
 function Bootstrap.LoadPlanning(root, addon)

@@ -871,10 +871,13 @@ local function showConfig(content)
   local C, Profiles, runtime, context, specID, classFile, profile = currentState()
   local resolved = C and specID and C.ResolveResultForSpec and C.ResolveResultForSpec(specID, runtime)
   local manual = profile and profile.manual or {}
+  local preferences = Profiles and Profiles.GetSpecPreferences and profile and specID
+      and Profiles.GetSpecPreferences(profile, specID) or { preferSetBonuses = false }
   local viewKey = table.concat({
     "config", tostring(classFile), tostring(specID), tostring(profile and profile.id or ""),
     tostring(profile and profile.automatic), tostring(manual.mode),
     tostring(manual.integration and manual.integration.provider),
+    tostring(preferences.preferSetBonuses == true),
     mapStateKey(manual.customOverrides),
     mapStateKey(manual.integration and manual.integration.overrides),
     tostring(resolved and resolved.scale and resolved.scale.resolution and resolved.scale.resolution.sourceLabel),
@@ -1010,6 +1013,10 @@ local function showConfig(content)
     if profile then Profiles.SetAutomatic(profile, value); Window.ShowTab(1) end
   end)
   auto:SetPoint("TOPLEFT", 14, -144)
+  local setPreference = checkbox(modePanel, "Prefer set bonuses", preferences.preferSetBonuses == true, function(value)
+    if profile then Profiles.SetPreferSetBonuses(profile, value); Window.ShowTab(1) end
+  end)
+  setPreference:SetPoint("TOPLEFT", 302, -144)
   local recommendation = font(modePanel, "GameFontHighlightSmall", "Choose the recommended scale for your spec automatically.")
   recommendation:SetPoint("TOPLEFT", 36, -164)
   textColor(recommendation, 0.4, 1, 0.4)

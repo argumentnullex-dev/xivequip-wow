@@ -66,6 +66,7 @@ function FakeWorld.Install(scenario)
       equippable = def.equippable,
       loaded = def.loaded,
       stats = def.stats or {},
+      setID = def.setID,
     }
     byKey[key] = record
     byID[id] = record
@@ -287,7 +288,9 @@ function FakeWorld.Install(scenario)
         nil,
         nil,
         nil,
-        item.equipLoc
+        item.equipLoc,
+        nil, nil, nil, nil, nil, nil,
+        item.setID
   end
 
   _G.GetDetailedItemLevelInfo = function(info)

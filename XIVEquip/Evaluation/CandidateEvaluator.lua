@@ -133,6 +133,7 @@ function CandidateEvaluator.Evaluate(candidate, context, opts)
     currentCandidate = opts.currentCandidate,
     currentByRole = opts.currentByRole,
     currentBySlot = opts.currentBySlot,
+    baseScore = baseScore,
   }
 
   for _, policy in ipairs(policiesFor(context, "candidate", opts.groupId)) do

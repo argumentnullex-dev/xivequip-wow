@@ -156,7 +156,7 @@ function CandidateNormalizer.FromLink(link, source)
   local okInstant, resolvedItemID, _, _, equipLoc, _, itemClassID, itemSubclassID = pcall(GetItemInfoInstant, itemInfo)
   if not okInstant or not equipLoc then return nil, "pending-item-data" end
   itemID = itemID or resolvedItemID
-  local _, _, _, baseItemLevel, requiredLevel = GetItemInfo(link)
+  local _, _, _, baseItemLevel, requiredLevel, _, _, _, _, _, _, _, _, _, _, setID = GetItemInfo(link)
 
   -- GetItemInfo's 4th return is the item's *base* level. GetDetailedItemLevelInfo
   -- returns the *effective* level shown on the tooltip (accounting for item
@@ -217,6 +217,7 @@ function CandidateNormalizer.FromLink(link, source)
       requiredLevel = requiredLevel,
     },
     itemLevel = itemLevel,
+    setID = tonumber(setID),
     uniqueness = { key = uniqueKey, limit = uniqueLimit },
     stats = stats,
     weapon = weapon,
