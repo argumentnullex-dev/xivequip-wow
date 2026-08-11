@@ -21,7 +21,10 @@ local function loadWindow(addon, calls)
 
   local function fontString()
     return {
-      SetText = function(_, text) calls.fontText[#calls.fontText + 1] = tostring(text or "") end,
+      SetText = function(self, text)
+        self.text = tostring(text or "")
+        calls.fontText[#calls.fontText + 1] = self.text
+      end,
       SetTextColor = function() end,
       SetFontObject = function() end,
       SetPoint = function() end,
@@ -389,6 +392,9 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.equal(#profilePanel._xivEquipPool.items.button, profileButtonCount, "profile buttons should not accumulate after a state change")
   A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode buttons should not accumulate after a state change")
   A.falsy(modePanel._xivEquipPool.items.button[1].enabled, "automatic mode should disable manual mode controls")
+  local mapPanel = page._xivEquipPool.items.panel[3]
+  A.truthy(mapPanel:IsShown(), "Automatic should retain the stored per-spec mapping as visible context")
+  A.falsy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "Automatic should disable stored per-spec mapping controls")
 
   profile.automatic = false
   Window.ShowTab(2)
@@ -397,6 +403,49 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.equal(#profilePanel._xivEquipPool.items.font, profileFontCount, "profile controls should remain pooled after tab switches")
   A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode controls should remain pooled after tab switches")
   A.truthy(modePanel._xivEquipPool.items.button[1].enabled, "rebound manual mode controls should be enabled again")
+  A.truthy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "stored mapping controls should re-enable with manual mode")
+end)
+
+test("Profile Management reuses its name field and refreshes profile usage", function()
+  local addon, calls = harness()
+  local usageCount = 1
+  local profile = {
+    id = "paladin-default",
+    name = "Paladin Default",
+    automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { overrides = {} } },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = { Defaults = { SpecsForClass = function() return { { id = 70, name = "Retribution" } } end } },
+    Config = {
+      ResolveResultForSpec = function() return { scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } } } end,
+      ListIntegrations = function() return {} end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = usageCount } end,
+      DefaultProfileID = function() return profile.id end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  calls.buttons["Manage"].scripts.OnClick(calls.buttons["Manage"])
+  local detail = Window.ProfileDialog.body._xivEquipPool.items.panel[1]
+  local nameBox = detail._xivEquipFrames["profile-name"]
+  usageCount = 2
+  calls.buttons["Manage"].scripts.OnClick(calls.buttons["Manage"])
+
+  A.equal(detail._xivEquipFrames["profile-name"], nameBox, "Profile Management should reuse the keyed name field")
+  A.equal(detail._xivEquipPool.items.font[3].text, "Used by 2 characters", "Profile Management should refresh usage when reopened")
 end)
 
 test("Config identifies missing per-spec Integration overrides and their Default fallback", function()
@@ -447,9 +496,16 @@ test("Config identifies missing per-spec Integration overrides and their Default
   A.truthy(text:find("Holy %(Default fallback%)"), "missing Integration mappings should identify their effective Default fallback")
 end)
 
-test("renaming a Custom scale refreshes the active selector label without rebuilding the editor", function()
+test("Scale editor displays import provenance and refreshes the active selector label", function()
   local addon, calls = harness()
-  local scale = { id = "manual:retribution", name = "Retribution Raid", weights = { strength = 1 }, meta = { specID = 70 } }
+  local sourceScale = { id = "manual:source", name = "Protection Raid" }
+  local scale = {
+    id = "manual:retribution",
+    name = "Retribution Raid",
+    weights = { strength = 1 },
+    source = { kind = "manual", importedFrom = "pawn" },
+    meta = { specID = 70, importedFrom = "pawn" },
+  }
   _G.GetSpecialization = function() return 1 end
   _G.GetSpecializationInfo = function() return 70, "Retribution" end
   _G.UnitClass = function() return "Paladin", "PALADIN" end
@@ -462,7 +518,15 @@ test("renaming a Custom scale refreshes the active selector label without rebuil
     Config = {
       ListManualScales = function() return { scale } end,
       GetScaleSpecID = function(item) return item.meta.specID end,
-      Repository = function() return { Get = function(_, id) return id == scale.id and scale or nil end } end,
+      Repository = function()
+        return {
+          Get = function(_, id)
+            if id == scale.id then return scale end
+            if id == sourceScale.id then return sourceScale end
+            return nil
+          end,
+        }
+      end,
       SaveScale = function() end,
       SpecName = function() return "Retribution" end,
     },
@@ -472,6 +536,7 @@ test("renaming a Custom scale refreshes the active selector label without rebuil
   Window.Open()
   Window.ShowTab(2)
   local page = Window.Frame.content.page
+  A.truthy(table.concat(calls.fontText, "\n"):find("Imported from: Pawn", 1, true), "imported scales should display their real provenance")
   local scroll = page._xivEquipFrames["settings-scroll"]
   local nameEdit = scroll._xivEquipScrollChild._xivEquipFrames["scale-name"]
   nameEdit:SetText("Retribution Mythic")
@@ -479,6 +544,13 @@ test("renaming a Custom scale refreshes the active selector label without rebuil
 
   A.equal(scale.name, "Retribution Mythic", "rename should save the selected Custom scale")
   A.equal(page._xivEquipPool.items.dropdown[2].dropdownText, "Retribution Mythic", "rename should refresh the selected-scale menu label")
+
+  scale.meta.duplicatedFrom = sourceScale.id
+  scale.source.duplicatedFrom = sourceScale.id
+  Window.ScaleRevision = (Window.ScaleRevision or 0) + 1
+  calls.fontText = {}
+  Window.ShowTab(2)
+  A.truthy(table.concat(calls.fontText, "\n"):find("Duplicated from: Protection Raid", 1, true), "duplicated scales should identify their source scale")
 end)
 
 return tests

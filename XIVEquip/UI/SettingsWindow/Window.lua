@@ -572,6 +572,16 @@ local function setDropdown(menu, items, selected, onSelect)
   UIDropDownMenu_SetText(selectedLabel or "Select", menu)
 end
 
+local function setDropdownEnabled(menu, enabled)
+  if enabled then
+    if UIDropDownMenu_EnableDropDown then UIDropDownMenu_EnableDropDown(menu)
+    elseif menu.Enable then menu:Enable() end
+  else
+    if UIDropDownMenu_DisableDropDown then UIDropDownMenu_DisableDropDown(menu)
+    elseif menu.Disable then menu:Disable() end
+  end
+end
+
 local function specItems()
   local rows = specRows()
   local out = {}
@@ -589,6 +599,27 @@ local function manualScalesForSpec(C, specID)
   end
   table.sort(out, function(a, b) return tostring(a.name or a.id) < tostring(b.name or b.id) end)
   return out
+end
+
+local function provenanceLabel(C, scale)
+  local source = scale and scale.source or {}
+  local meta = scale and scale.meta or {}
+  local duplicatedFrom = meta.duplicatedFrom or source.duplicatedFrom
+  if duplicatedFrom then
+    local repository = C and C.Repository and C.Repository()
+    local original = repository and repository.Get and repository:Get(duplicatedFrom)
+    return "Duplicated from: " .. tostring(original and original.name or duplicatedFrom)
+  end
+  local importedFrom = meta.importedFrom or source.importedFrom
+  if importedFrom then
+    local labels = {
+      pawn = "Pawn",
+      ["native-json"] = "XIVEquip JSON",
+      text = "stat-weight text",
+    }
+    return "Imported from: " .. tostring(labels[importedFrom] or importedFrom)
+  end
+  return nil
 end
 
 local function uniqueScaleName(C, specID, base)
@@ -706,11 +737,6 @@ local function showProfileDialog()
     Window.ProfileDialog = frame
   end
   local profiles = Profiles.List(classFile)
-  local profileKeyParts = { tostring(classFile), tostring(Window.SelectedProfileID or (selected and selected.id) or "") }
-  for _, item in ipairs(profiles) do profileKeyParts[#profileKeyParts + 1] = tostring(item.id) .. ":" .. tostring(item.name) end
-  local profileKey = table.concat(profileKeyParts, "|")
-  if frame._viewKey == profileKey then frame:Show(); return end
-  frame._viewKey = profileKey
   local body = frame.body
   if not body then
     body = CreateFrame("Frame", nil, frame)
@@ -732,7 +758,6 @@ local function showProfileDialog()
     local pick = button(list, tostring(profile.name), 215, 24)
     pick:SetPoint("TOPLEFT", 0, -((index - 1) * 29))
     if selected and selected.id == profile.id then pick:Disable() end
-    pick:SetScript("OnClick", function() showProfileDialog() end)
     pick:SetScript("OnClick", function()
       Window.SelectedProfileID = profile.id
       showProfileDialog()
@@ -757,7 +782,7 @@ local function showProfileDialog()
       Window.ShowTab(1)
     end
   end)
-  local nameBox = CreateFrame("EditBox", nil, detail, "InputBoxTemplate")
+  local nameBox = pooledFrame(detail, "profile-name", "EditBox", "InputBoxTemplate")
   nameBox:SetSize(190, 22)
   nameBox:SetPoint("TOPLEFT", 16, -148)
   nameBox:SetAutoFocus(false)
@@ -894,6 +919,7 @@ local function showConfig(content)
   local modePanel = panel(page, 0, -202, 700, 188)
   sectionTitle(modePanel, "Scale Selection", 14, -14)
   local mode = profile and profile.manual and string.lower(tostring(profile.manual.mode or "default")) or "default"
+  local manualEditable = profile and profile.automatic == false
   local modes = {
     { id = "default", label = "Default", note = "Use the built-in scale for each specialization." },
     { id = "custom", label = "Custom", note = "Use editable custom scales with per-spec overrides." },
@@ -903,7 +929,7 @@ local function showConfig(content)
     local active = profile and profile.automatic == false and mode == item.id
     local choice = button(modePanel, (active and "[Active] " or "") .. item.label, 126, 24)
     choice:SetPoint("TOPLEFT", 14 + ((index - 1) * 150), -42)
-    if profile and profile.automatic ~= false then choice:Disable() end
+    if not manualEditable then choice:Disable() end
     choice:SetScript("OnClick", function()
       if profile then Profiles.SetManualMode(profile, item.id); Window.ShowTab(1) end
     end)
@@ -917,7 +943,7 @@ local function showConfig(content)
     textColor(recommendation, 0.4, 1, 0.4)
   end
   local integrationProvider = profile and profile.manual and profile.manual.integration and profile.manual.integration.provider or "pawn"
-  if profile and profile.automatic == false and mode == "integration" then
+  if profile and mode == "integration" then
     local providerLabel = font(modePanel, "GameFontHighlightSmall", "Provider")
     providerLabel:SetPoint("TOPLEFT", 14, -112)
     local providerItems = {}
@@ -938,6 +964,7 @@ local function showConfig(content)
     setDropdown(providerMenu, providerItems, integrationProvider, function(value)
       Profiles.SetIntegrationProvider(profile, value); Window.ShowTab(1)
     end)
+    setDropdownEnabled(providerMenu, manualEditable)
   end
 
   local specs = defaults and defaults.SpecsForClass(classFile) or {}
@@ -945,11 +972,15 @@ local function showConfig(content)
   local mappingTitle = mode == "custom" and "Per-specialization Custom scales"
       or "Per-specialization Integration scales"
   sectionTitle(mapPanel, mappingTitle, 14, -14)
+  if profile and not manualEditable then
+    local stored = font(mapPanel, "GameFontDisableSmall", "Stored configuration (disabled while Automatic is enabled)")
+    stored:SetPoint("TOPRIGHT", -12, -16)
+  end
   local mapY = -42
   for _, spec in ipairs(specs) do
-    local label = font(mapPanel, "GameFontHighlightSmall", tostring(spec.name))
+    local label = font(mapPanel, manualEditable and "GameFontHighlightSmall" or "GameFontDisableSmall", tostring(spec.name))
     label:SetPoint("TOPLEFT", 14, mapY)
-    if profile and profile.automatic == false and mode == "custom" then
+    if profile and mode == "custom" then
       local overrides = profile.manual.customOverrides or {}
       local items = { { value = "", label = "Default" } }
       for _, scale in ipairs(manualScalesForSpec(C, spec.id)) do
@@ -961,7 +992,8 @@ local function showConfig(content)
         if value == "" then Profiles.ClearCustomOverride(profile, spec.id) else Profiles.SetCustomOverride(profile, spec.id, value) end
         Window.ShowTab(1)
       end)
-    elseif profile and profile.automatic == false and mode == "integration" then
+      setDropdownEnabled(menu, manualEditable)
+    elseif profile and mode == "integration" then
       local overrides = profile.manual.integration.overrides or {}
       local configuredOverride = overrides[spec.id]
       local items = integrationItems(C, integrationProvider, runtime, spec.id)
@@ -983,13 +1015,14 @@ local function showConfig(content)
         if value == "" then Profiles.ClearIntegrationOverride(profile, spec.id) else Profiles.SetIntegrationOverride(profile, spec.id, value) end
         Window.ShowTab(1)
       end)
+      setDropdownEnabled(menu, manualEditable)
     else
       local value = font(mapPanel, "GameFontDisableSmall", "Default")
       value:SetPoint("TOPLEFT", 128, mapY)
     end
     mapY = mapY - 27
   end
-  if not profile or profile.automatic ~= false or mode == "default" then mapPanel:Hide() end
+  if not profile or mode == "default" then mapPanel:Hide() end
 
   addGeneralSettings(page, 0, -544, 700)
 end
@@ -1304,17 +1337,24 @@ local function showScales(content)
     editor:SetHeight(548)
     return
   end
-  local info = panel(editor, 0, 0, 210, 170)
+  local info = panel(editor, 0, 0, 210, 196)
   sectionTitle(info, "Scale Info", 14, -14)
   local specLine = font(info, "GameFontHighlightSmall", "Specialization: " .. tostring(C.SpecName(specID) or specID))
   specLine:SetPoint("TOPLEFT", 14, -46)
   local based = font(info, "GameFontHighlightSmall", "Based on: Default")
   based:SetPoint("TOPLEFT", 14, -70)
+  local provenance = provenanceLabel(C, selectedScale)
+  local provenanceLine
+  if provenance then
+    provenanceLine = font(info, "GameFontHighlightSmall", provenance)
+    provenanceLine:SetPoint("TOPLEFT", 14, -94)
+    provenanceLine:SetWidth(180)
+  end
   local status = font(info, "GameFontHighlightSmall", "Autosaved ✓")
-  status:SetPoint("TOPLEFT", 14, -102)
+  status:SetPoint("TOPLEFT", 14, provenanceLine and -126 or -102)
   textColor(status, 0.4, 1, 0.4)
   local errorLine = font(info, "GameFontDisableSmall", "")
-  errorLine:SetPoint("TOPLEFT", 14, -126)
+  errorLine:SetPoint("TOPLEFT", 14, provenanceLine and -150 or -126)
   errorLine:SetWidth(180)
   local work = {}
   for key, value in pairs(selectedScale.weights or {}) do work[key] = tonumber(value) or 0 end
