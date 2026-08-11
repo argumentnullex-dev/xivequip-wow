@@ -270,6 +270,47 @@ test("a retained occupied slot still consumes uniqueness capacity", function()
   A.equal(score, 10)
 end)
 
+test("optimizer maintains uniqueness incrementally during DFS", function()
+  local addon = newAddon()
+  local loadoutState = addon.Assignments.LoadoutState.New()
+  loadoutState:SeedFromEquipped({ [99] = candidate("legendary", 1) })
+  loadoutState.CheckAssignment = function()
+    error("optimizer DFS should not rebuild uniqueness through CheckAssignment")
+  end
+  local counters = {}
+
+  local groups = {
+    {
+      id = "A",
+      slots = { 1 },
+      frontier = {
+        assignment(100, { slot = candidate("legendary", 1) }),
+        assignment(80, {}),
+      },
+    },
+    {
+      id = "B",
+      slots = { 2 },
+      frontier = {
+        assignment(90, { slot = candidate("plain", 1) }),
+      },
+    },
+  }
+
+  local combination, score = addon.Optimization.LoadoutOptimizer.FindBest(groups, loadoutState, {
+    perf = {
+      Add = function(_, key, value)
+        counters[key] = (counters[key] or 0) + (value or 1)
+      end,
+    },
+  })
+
+  A.truthy(combination)
+  A.equal(combination.A.score, 80)
+  A.equal(score, 170)
+  A.truthy((counters["optimizer.uniqueness_prunes"] or 0) > 0)
+end)
+
 -- Property-style exactness (doc 36.3): a small brute-force reference
 -- (full cartesian product) must always agree with LoadoutOptimizer.FindBest.
 --

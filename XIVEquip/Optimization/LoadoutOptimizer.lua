@@ -3,11 +3,11 @@
 -- dominance-pruned frontiers (Assignments/Frontier.lua) into the single
 -- best complete legal combination, via exact depth-first branch-and-bound.
 --
--- Cross-group legality reuses Assignments/LoadoutState.lua's
--- CheckAssignment directly, rather than inventing incremental per-group
--- "uniqueness usage" state: LoadoutState is stateless per call (it only
--- reads the originally-seeded equipped counts; Commit is never invoked
--- during search).
+-- Cross-group legality mirrors Assignments/LoadoutState.lua's
+-- CheckAssignment math, but the DFS keeps branch-local uniqueness state
+-- incrementally instead of rebuilding the same count/limit tables from
+-- scratch at every node. LoadoutState remains the public API for callers
+-- and tests that need standalone assignment checks.
 --
 -- CRITICAL: `removalSlots` passed to every CheckAssignment call during
 -- search must always be the FULL union of every slot any group being
@@ -111,6 +111,58 @@ local function activePolicies(context, phase)
     return resolver.ActiveForPhase(context, phase)
   end
   return (context and context.policies and context.policies[phase]) or {}
+end
+
+local function accumulate(counts, limits, key, limit)
+  counts[key] = (counts[key] or 0) + 1
+  limit = tonumber(limit) or 1
+  limits[key] = limits[key] and math.min(limits[key], limit) or limit
+end
+
+local function buildUniqueSearchState(loadoutState, removalSlots)
+  local removalSet = {}
+  for _, slotID in ipairs(removalSlots or {}) do removalSet[slotID] = true end
+
+  local state = { counts = {}, limits = {} }
+  for slotID, rec in pairs((loadoutState and loadoutState.equippedUniqueBySlot) or {}) do
+    if rec.key and not removalSet[slotID] then
+      accumulate(state.counts, state.limits, rec.key, rec.limit)
+    end
+  end
+  return state
+end
+
+local function pushUniqueness(uniqueState, assignment)
+  local changes = {}
+  for _, candidate in pairs((assignment and assignment.picks) or {}) do
+    local uniqueness = candidate and candidate.uniqueness
+    local key = uniqueness and uniqueness.key
+    if key then
+      changes[#changes + 1] = {
+        key = key,
+        count = uniqueState.counts[key],
+        limit = uniqueState.limits[key],
+      }
+      accumulate(uniqueState.counts, uniqueState.limits, key, uniqueness.limit)
+      if uniqueState.counts[key] > (uniqueState.limits[key] or 1) then
+        for i = #changes, 1, -1 do
+          local change = changes[i]
+          uniqueState.counts[change.key] = change.count
+          uniqueState.limits[change.key] = change.limit
+        end
+        return nil
+      end
+    end
+  end
+  return changes
+end
+
+local function popUniqueness(uniqueState, changes)
+  for i = #(changes or {}), 1, -1 do
+    local change = changes[i]
+    uniqueState.counts[change.key] = change.count
+    uniqueState.limits[change.key] = change.limit
+  end
 end
 
 local function applyLoadoutPolicies(chosen, additions, score, context, policies)
@@ -286,11 +338,12 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
     end
   end
 
-  -- See this file's header: the removal set for every CheckAssignment call
-  -- must be the full union of every optimized group's slots, computed
-  -- once, not just the slots of groups already visited in a given branch.
+  -- See this file's header: the removal set for baseline uniqueness must
+  -- be the full union of every optimized group's slots, computed once,
+  -- not just the slots of groups already visited in a given branch.
   local allSlots = {}
   for _, group in ipairs(ordered) do appendAll(allSlots, group.slots) end
+  local uniqueSearchState = buildUniqueSearchState(loadoutState, allSlots)
 
   local bestCombination, bestScore, bestInvalidCount, bestFilledCount = nil, -math.huge, math.huge, -math.huge
 
@@ -355,15 +408,17 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
 
     local group = ordered[index]
     for _, assignment in ipairs(group.frontier) do
-      local additions = {}
-      appendAll(additions, accumulatedAdditions)
-      appendAll(additions, nonNilPicks(assignment))
+      local uniqueChanges = pushUniqueness(uniqueSearchState, assignment)
+      if uniqueChanges then
+        local additions = {}
+        appendAll(additions, accumulatedAdditions)
+        appendAll(additions, nonNilPicks(assignment))
 
-      if loadoutState:CheckAssignment(additions, allSlots) then
         chosen[group.id] = assignment
         search(index + 1, additions, accumulatedScore + assignment.score,
           accumulatedInvalid + invalidCost(assignment), accumulatedFilled + filledCount(assignment), chosen)
         chosen[group.id] = nil
+        popUniqueness(uniqueSearchState, uniqueChanges)
       elseif perf then
         perf:Add("optimizer.uniqueness_prunes", 1)
       end
