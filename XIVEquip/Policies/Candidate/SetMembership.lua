@@ -26,9 +26,11 @@ XIVEquip:RegisterPolicy({
   id = "XIVEquip.set_membership",
   phase = "candidate",
   isActive = downstreamNeedsSetCounts,
-  apply = function(candidate)
+  apply = function(candidate, context)
     local setID = candidate and tonumber(candidate.setID)
     if not setID or setID <= 0 then return nil end
+    local relevant = context and context.caches and context.caches.relevantSetIDs
+    if relevant and not relevant[setID] then return nil end
     return { setCounts = { ["set:" .. tostring(setID)] = 1 } }
   end,
 })

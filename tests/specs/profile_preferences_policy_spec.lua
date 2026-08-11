@@ -147,11 +147,21 @@ test("set membership only contributes summary state when an active policy consum
 
   local enabled = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, {
     profilePreferences = { preferSetBonuses = true },
+    caches = { relevantSetIDs = { [77] = true } },
     policies = { candidate = { setMembership }, assignment = {}, loadout = {}, preference = { setPreference } },
   }, {
     score = function() return 100 end,
   })
   A.equal(enabled.setCounts["set:77"], 1)
+
+  local irrelevant = addon.Evaluation.CandidateEvaluator.Evaluate(candidate, {
+    profilePreferences = { preferSetBonuses = true },
+    caches = { relevantSetIDs = { [88] = true } },
+    policies = { candidate = { setMembership }, assignment = {}, loadout = {}, preference = { setPreference } },
+  }, {
+    score = function() return 100 end,
+  })
+  A.same(irrelevant.setCounts, {}, "set IDs below the first active threshold should not enlarge frontiers")
 end)
 
 test("set preference chooses two set pieces when their five-percent threshold bonus outweighs local scores", function()

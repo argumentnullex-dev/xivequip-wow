@@ -105,6 +105,61 @@ local function buildContext(opts)
   return XIVEquip.Evaluation.ContextBuilder.BuildContext(resolved, runtime)
 end
 
+local function activePolicies(context, phase)
+  local resolver = XIVEquip.Policies and XIVEquip.Policies.Resolver
+  if resolver and resolver.ActiveForPhase then return resolver.ActiveForPhase(context, phase) end
+  return (context and context.policies and context.policies[phase]) or {}
+end
+
+local function requiredSetThreshold(context)
+  local threshold = nil
+  for _, phase in ipairs({ "loadout", "preference" }) do
+    for _, policy in ipairs(activePolicies(context, phase)) do
+      local setCounts = policy.summaryDimensions and policy.summaryDimensions.setCounts
+      if setCounts then
+        local thresholds = type(setCounts) == "table" and setCounts.thresholds or nil
+        if type(thresholds) == "table" and #thresholds > 0 then
+          for _, value in ipairs(thresholds) do
+            value = tonumber(value)
+            if value and value > 0 then threshold = threshold and math.min(threshold, value) or value end
+          end
+        else
+          threshold = threshold and math.min(threshold, 1) or 1
+        end
+      end
+    end
+  end
+  return threshold
+end
+
+local function prepareRelevantSetIDs(context, collection)
+  if not (context and context.caches) then return end
+  local threshold = requiredSetThreshold(context)
+  if not threshold then
+    context.caches.relevantSetIDs = nil
+    return
+  end
+
+  local counts = {}
+  local seen = {}
+  for _, candidate in ipairs((collection and collection.candidates) or {}) do
+    local setID = tonumber(candidate and candidate.setID)
+    if setID and setID > 0 then
+      local key = candidate.guid or candidate.physicalID or tostring(candidate)
+      if not seen[key] then
+        seen[key] = true
+        counts[setID] = (counts[setID] or 0) + 1
+      end
+    end
+  end
+
+  local relevant = {}
+  for setID, count in pairs(counts) do
+    if count >= threshold then relevant[setID] = true end
+  end
+  context.caches.relevantSetIDs = relevant
+end
+
 local function groupScoreFn(opts, runtime)
   if opts.score then return opts.score end
   if runtime and type(runtime.ScoreCandidate) == "function" then
@@ -350,6 +405,7 @@ function Coordinator.Plan(opts)
     local collection = opts.collection or (perf and perf:Measure("Inventory enumeration", function()
       return XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS, perf = perf })
     end) or XIVEquip.Evaluation.CandidateCollector.Collect({ slots = OPTIMIZED_SLOTS }))
+    prepareRelevantSetIDs(evaluationContext, collection)
     local allSlots = copyArray(OPTIMIZED_SLOTS)
     local loadoutState = XIVEquip.Assignments.LoadoutState.New()
     loadoutState:SeedFromEquipped(collection.equippedBySlot)
