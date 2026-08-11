@@ -5,6 +5,11 @@ XIVEquip.Profiles = XIVEquip.Profiles or {}
 local Profiles = {}
 XIVEquip.Profiles.Config = Profiles
 
+local function invalidatePreview()
+  local UI = XIVEquip.UI
+  if UI and type(UI.ClearPreviewCache) == "function" then UI.ClearPreviewCache() end
+end
+
 local function settings()
   if XIVEquip.Settings and XIVEquip.Settings.Get then return XIVEquip.Settings:Get() end
   _G.XIVEquip_Settings = _G.XIVEquip_Settings or {}
@@ -131,6 +136,7 @@ function Profiles.AssignCharacter(characterKey, classFile, profileID)
     classFile = classFile,
     profileID = profile.id,
   }
+  invalidatePreview()
   return profile
 end
 
@@ -271,6 +277,7 @@ function Profiles.Delete(classFile, profileIDValue)
       }
     end
   end
+  invalidatePreview()
   return true
 end
 
@@ -349,6 +356,7 @@ function Profiles.SetPreferSetBonuses(profile, enabled)
   local preferences = preferenceState(profile)
   if not preferences then return nil, "profile-required" end
   preferences.preferSetBonuses = enabled == true
+  invalidatePreview()
   return profile
 end
 
@@ -381,6 +389,7 @@ local function setListedItem(profile, specID, itemID, listed, listName, opposite
   else
     state[listName][itemID] = nil
   end
+  invalidatePreview()
   return profile
 end
 
@@ -395,6 +404,7 @@ end
 function Profiles.SetAutomatic(profile, enabled)
   if type(profile) ~= "table" then return nil, "profile-required" end
   profile.automatic = enabled == true
+  invalidatePreview()
   return profile
 end
 
@@ -406,6 +416,7 @@ function Profiles.SetManualMode(profile, mode)
     return nil, "invalid-manual-mode"
   end
   manual.mode = mode
+  invalidatePreview()
   return profile
 end
 
@@ -423,6 +434,7 @@ function Profiles.SetCustomOverride(profile, specID, scaleID)
   local owner = config.GetScaleSpecID and config.GetScaleSpecID(scale)
   if owner ~= specID then return nil, "scale-spec-mismatch" end
   manual.customOverrides[specID] = scaleID
+  invalidatePreview()
   return profile
 end
 
@@ -430,6 +442,7 @@ function Profiles.ClearCustomOverride(profile, specID)
   local manual = manualState(profile)
   if not manual then return nil, "profile-required" end
   manual.customOverrides[tonumber(specID)] = nil
+  invalidatePreview()
   return profile
 end
 
@@ -443,6 +456,7 @@ function Profiles.ClearCustomScaleReferences(scaleID)
       end
     end
   end
+  invalidatePreview()
 end
 
 function Profiles.SetIntegrationProvider(profile, providerID)
@@ -454,6 +468,7 @@ function Profiles.SetIntegrationProvider(profile, providerID)
     return nil, "unknown-integration"
   end
   manual.integration.provider = providerID
+  invalidatePreview()
   return profile
 end
 
@@ -468,6 +483,7 @@ function Profiles.SetIntegrationOverride(profile, specID, externalScaleID)
   if normalizeClass(profile.classFile) ~= expectedClass then return nil, "spec-class-mismatch" end
   if externalScaleID == "" then return nil, "scale-required" end
   manual.integration.overrides[specID] = externalScaleID
+  invalidatePreview()
   return profile
 end
 
@@ -475,6 +491,7 @@ function Profiles.ClearIntegrationOverride(profile, specID)
   local manual = manualState(profile)
   if not manual then return nil, "profile-required" end
   manual.integration.overrides[tonumber(specID)] = nil
+  invalidatePreview()
   return profile
 end
 

@@ -26,6 +26,32 @@ local function policyByID(policies, id)
   error("missing policy " .. tostring(id))
 end
 
+local function setAssignment(score, setID, tag)
+  local candidate = { itemID = tag, physicalID = tostring(tag), setID = setID }
+  local result = {
+    tag = tag,
+    score = score,
+    picks = { slot = candidate },
+    scores = { slot = score },
+  }
+  if setID then result.setCounts = { ["set:" .. tostring(setID)] = 1 } end
+  return result
+end
+
+local function setGroup(id, slot, frontier)
+  return { id = id, slots = { slot }, frontier = frontier }
+end
+
+local function setPreferencePolicy(addon)
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  return policyByID(resolved.preference, "XIVEquip.prefer_set_bonuses")
+end
+
+local function newSetSearch(policy, groups)
+  local prepared = policy.optimizer.prepare(groups, {})
+  return policy.optimizer, prepared, policy.optimizer.createState(prepared, {})
+end
+
 test("profile preferences are spec-scoped, mutually exclusive, and profile-owned", function()
   local addon = newAddon()
   local Profiles = addon.Profiles.Config
@@ -46,6 +72,24 @@ test("profile preferences are spec-scoped, mutually exclusive, and profile-owned
   A.falsy(protection.wishlist[12345], "lists must not leak between specializations")
   A.falsy(protection.avoidlist[67890], "lists must not leak between specializations")
   A.equal(Profiles.SetWishlistItem(profile, 73, 1, true), nil, "a Paladin Profile cannot own a Warrior spec list")
+end)
+
+test("planning-relevant profile changes invalidate the preview cache", function()
+  local addon = newAddon()
+  local invalidations = 0
+  addon.UI = {
+    ClearPreviewCache = function() invalidations = invalidations + 1 end,
+  }
+  local Profiles = addon.Profiles.Config
+  local profile = Profiles.GetDefault("PALADIN")
+
+  Profiles.AssignCharacter("Tester-Realm", "PALADIN", profile.id)
+  Profiles.SetPreferSetBonuses(profile, true)
+  Profiles.SetWishlistItem(profile, 70, 444, true)
+  Profiles.SetAutomatic(profile, false)
+  Profiles.SetManualMode(profile, "default")
+
+  A.equal(invalidations, 5)
 end)
 
 test("evaluation context snapshots the active Profile's specialization preferences", function()
@@ -242,6 +286,190 @@ test("set preference does not make a low-score fifth set piece look better", fun
   })
 
   A.equal(result.preferenceAdjustment, 40)
+end)
+
+test("set optimizer bound is zero when fewer than two pieces are reachable", function()
+  local policy = setPreferencePolicy(newAddon())
+  local hooks, prepared, state = newSetSearch(policy, {
+    setGroup("head", 1, { setAssignment(100, 77, "head") }),
+  })
+
+  A.equal(hooks.upperBound(state, 1, prepared, {}), 0)
+end)
+
+test("set optimizer bound represents one selected plus one reachable as 2pc", function()
+  local policy = setPreferencePolicy(newAddon())
+  local selected = setAssignment(100, 77, "head")
+  local hooks, prepared, state = newSetSearch(policy, {
+    setGroup("head", 1, { selected }),
+    setGroup("legs", 2, { setAssignment(90, 77, "legs") }),
+  })
+
+  hooks.push(state, selected, 1, prepared, {})
+  A.equal(hooks.upperBound(state, 2, prepared, {}), 9.5)
+end)
+
+test("set optimizer bound retains an already-selected 2pc with no pieces remaining", function()
+  local policy = setPreferencePolicy(newAddon())
+  local head = setAssignment(100, 77, "head")
+  local legs = setAssignment(90, 77, "legs")
+  local hooks, prepared, state = newSetSearch(policy, {
+    setGroup("head", 1, { head }),
+    setGroup("legs", 2, { legs }),
+  })
+
+  hooks.push(state, head, 1, prepared, {})
+  hooks.push(state, legs, 2, prepared, {})
+  A.equal(hooks.upperBound(state, 3, prepared, {}), 9.5)
+end)
+
+test("set optimizer bound upgrades two selected plus two reachable pieces to 4pc", function()
+  local policy = setPreferencePolicy(newAddon())
+  local head = setAssignment(110, 77, "head")
+  local shoulders = setAssignment(100, 77, "shoulders")
+  local groups = {
+    setGroup("head", 1, { head }),
+    setGroup("shoulders", 2, { shoulders }),
+    setGroup("chest", 3, { setAssignment(105, 77, "chest") }),
+    setGroup("legs", 4, { setAssignment(95, 77, "legs") }),
+  }
+  local hooks, prepared, state = newSetSearch(policy, groups)
+
+  hooks.push(state, head, 1, prepared, {})
+  hooks.push(state, shoulders, 2, prepared, {})
+  A.equal(hooks.upperBound(state, 3, prepared, {}), 41)
+end)
+
+test("set optimizer bound upgrades three selected plus one reachable piece to 4pc", function()
+  local policy = setPreferencePolicy(newAddon())
+  local head = setAssignment(110, 77, "head")
+  local shoulders = setAssignment(100, 77, "shoulders")
+  local chest = setAssignment(105, 77, "chest")
+  local groups = {
+    setGroup("head", 1, { head }),
+    setGroup("shoulders", 2, { shoulders }),
+    setGroup("chest", 3, { chest }),
+    setGroup("legs", 4, { setAssignment(95, 77, "legs") }),
+  }
+  local hooks, prepared, state = newSetSearch(policy, groups)
+
+  hooks.push(state, head, 1, prepared, {})
+  hooks.push(state, shoulders, 2, prepared, {})
+  hooks.push(state, chest, 3, prepared, {})
+  A.equal(hooks.upperBound(state, 4, prepared, {}), 41)
+end)
+
+test("unrelated sets never combine to reach a set threshold", function()
+  local policy = setPreferencePolicy(newAddon())
+  local selected = setAssignment(100, 77, "set-a")
+  local hooks, prepared, state = newSetSearch(policy, {
+    setGroup("head", 1, { selected }),
+    setGroup("legs", 2, { setAssignment(100, 88, "set-b") }),
+  })
+
+  hooks.push(state, selected, 1, prepared, {})
+  A.equal(hooks.upperBound(state, 2, prepared, {}), 0)
+end)
+
+test("set optimizer push and pop restore exact state without sibling leakage", function()
+  local policy = setPreferencePolicy(newAddon())
+  local setA = setAssignment(100, 77, "set-a")
+  local setB = setAssignment(90, 88, "set-b")
+  local hooks, prepared, state = newSetSearch(policy, {
+    setGroup("choice", 1, { setA, setB }),
+  })
+
+  local undoA = hooks.push(state, setA, 1, prepared, {})
+  A.equal(state.sets["set:77"].count, 1)
+  hooks.pop(state, undoA, setA, 1, prepared, {})
+  A.same(state.sets, {})
+
+  local undoB = hooks.push(state, setB, 1, prepared, {})
+  A.falsy(state.sets["set:77"], "the sibling branch must not observe Set A")
+  A.equal(state.sets["set:88"].count, 1)
+  A.equal(hooks.upperBound(state, 2, prepared, {}), 0)
+  hooks.pop(state, undoB, setB, 1, prepared, {})
+  A.same(state.sets, {})
+end)
+
+test("2pc and 4pc final set preference scores remain authoritative", function()
+  local policy = setPreferencePolicy(newAddon())
+  local two = {
+    a = setAssignment(110, 77, "a"),
+    b = setAssignment(90, 77, "b"),
+  }
+  local four = {
+    a = setAssignment(110, 77, "a"),
+    b = setAssignment(100, 77, "b"),
+    c = setAssignment(105, 77, "c"),
+    d = setAssignment(95, 77, "d"),
+  }
+
+  A.equal(policy.apply({ assignments = two, summaries = { setCounts = { ["set:77"] = 2 } } }, {}).preferenceAdjustment, 10)
+  A.equal(policy.apply({ assignments = four, summaries = { setCounts = { ["set:77"] = 4 } } }, {}).preferenceAdjustment, 41)
+end)
+
+test("optimistic cross-set suffix potential never prunes the exhaustive optimum", function()
+  local addon = newAddon()
+  local policy = setPreferencePolicy(addon)
+  local groups = {
+    setGroup("head", 1, { setAssignment(100, 77, "a1"), setAssignment(99, 88, "b1") }),
+    setGroup("shoulders", 2, { setAssignment(98, 77, "a2"), setAssignment(97, 88, "b2") }),
+    setGroup("chest", 3, { setAssignment(96, 77, "a3"), setAssignment(95, 88, "b3") }),
+  }
+  local hooks, prepared, state = newSetSearch(policy, groups)
+  local optimistic = hooks.upperBound(state, 1, prepared, {})
+
+  local expectedScore, expected = -math.huge, nil
+  for _, a in ipairs(groups[1].frontier) do
+    for _, b in ipairs(groups[2].frontier) do
+      for _, c in ipairs(groups[3].frontier) do
+        local chosen = { head = a, shoulders = b, chest = c }
+        local counts = {}
+        for _, assignment in pairs(chosen) do
+          for key, count in pairs(assignment.setCounts or {}) do counts[key] = (counts[key] or 0) + count end
+        end
+        local result = policy.apply({ assignments = chosen, summaries = { setCounts = counts } }, {})
+        local score = a.score + b.score + c.score + (result and result.preferenceAdjustment or 0)
+        if score > expectedScore then expectedScore, expected = score, chosen end
+      end
+    end
+  end
+
+  A.truthy(optimistic > 10, "the prepared suffix intentionally overestimates incompatible set choices")
+  local context = {
+    profilePreferences = { preferSetBonuses = true },
+    policies = { loadout = {}, preference = { policy } },
+  }
+  local selected, score = addon.Optimization.LoadoutOptimizer.FindBest(
+    groups, addon.Assignments.LoadoutState.New(), context)
+  A.equal(score, expectedScore)
+  A.equal(selected.head.tag, expected.head.tag)
+  A.equal(selected.shoulders.tag, expected.shoulders.tag)
+  A.equal(selected.chest.tag, expected.chest.tag)
+end)
+
+test("set preference off creates no optimizer policy state overhead", function()
+  local addon = newAddon()
+  local policy = setPreferencePolicy(addon)
+  local counters = {}
+  local context = {
+    profilePreferences = { preferSetBonuses = false },
+    policies = { loadout = {}, preference = { policy } },
+    perf = {
+      Add = function(_, key, amount) counters[key] = (counters[key] or 0) + (amount or 1) end,
+    },
+  }
+  local selected, score = addon.Optimization.LoadoutOptimizer.FindBest({
+    setGroup("head", 1, { setAssignment(100, nil, "plain-1"), setAssignment(90, 77, "tier-1") }),
+    setGroup("legs", 2, { setAssignment(100, nil, "plain-2"), setAssignment(90, 77, "tier-2") }),
+  }, addon.Assignments.LoadoutState.New(), context)
+
+  A.equal(score, 200)
+  A.equal(selected.head.tag, "plain-1")
+  A.equal(counters["optimizer.policy_state_pushes"] or 0, 0)
+  A.equal(counters["optimizer.policy_state_pops"] or 0, 0)
+  A.equal(counters["set_bonus.bound_calls"] or 0, 0)
 end)
 
 return tests

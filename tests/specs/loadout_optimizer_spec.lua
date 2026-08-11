@@ -1609,4 +1609,67 @@ test("active bounded preference policies allow policy-bound score pruning", func
     "a bounded preference policy should keep score pruning available")
 end)
 
+test("optimizer-aware policy hooks prepare once and restore branch state after every push", function()
+  local addon = newAddon()
+  local counters, calls, createdState = {}, { prepare = 0, create = 0, push = 0, pop = 0 }, nil
+  local context = {
+    policies = {
+      loadout = {},
+      preference = {
+        {
+          id = "Test.incremental_bound",
+          apply = function() return nil end,
+          optimizer = {
+            prepare = function(ordered)
+              calls.prepare = calls.prepare + 1
+              return { groupCount = #ordered }
+            end,
+            createState = function(prepared)
+              calls.create = calls.create + 1
+              A.equal(prepared.groupCount, 3)
+              createdState = { depth = 0 }
+              return createdState
+            end,
+            push = function(state)
+              calls.push = calls.push + 1
+              local previous = state.depth
+              state.depth = previous + 1
+              return previous
+            end,
+            pop = function(state, previous)
+              calls.pop = calls.pop + 1
+              state.depth = previous
+            end,
+            upperBound = function(state, nextIndex, prepared)
+              A.equal(state.depth, nextIndex - 1)
+              A.equal(prepared.groupCount, 3)
+              return 0
+            end,
+          },
+        },
+      },
+    },
+    perf = {
+      Add = function(_, key, value) counters[key] = (counters[key] or 0) + (value or 1) end,
+    },
+  }
+  local groups = {
+    { id = "A", slots = { 1 }, frontier = { assignment(100, {}), assignment(1, {}) } },
+    { id = "B", slots = { 2 }, frontier = { assignment(100, {}), assignment(1, {}) } },
+    { id = "C", slots = { 3 }, frontier = { assignment(100, {}), assignment(1, {}) } },
+  }
+
+  local combination, score = addon.Optimization.LoadoutOptimizer.FindBest(
+    groups, addon.Assignments.LoadoutState.New(), context)
+
+  A.truthy(combination)
+  A.equal(score, 300)
+  A.equal(calls.prepare, 1)
+  A.equal(calls.create, 1)
+  A.equal(calls.push, calls.pop)
+  A.equal(createdState.depth, 0)
+  A.equal(counters["optimizer.policy_state_pushes"], calls.push)
+  A.equal(counters["optimizer.policy_state_pops"], calls.pop)
+end)
+
 return tests

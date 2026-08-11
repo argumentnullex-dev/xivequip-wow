@@ -56,6 +56,12 @@ local COUNTER_ORDER = {
   "optimizer.filled_slot_prunes",
   "optimizer.score_bound_prunes",
   "optimizer.policy_bound_prunes",
+  "optimizer.policy_state_pushes",
+  "optimizer.policy_state_pops",
+  "set_bonus.bound_calls",
+  "set_bonus.bound_zero",
+  "set_bonus.bound_2pc",
+  "set_bonus.bound_4pc",
 }
 
 local function nowMs()
