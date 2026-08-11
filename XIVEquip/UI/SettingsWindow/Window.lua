@@ -546,7 +546,7 @@ local function dropdown(parent, width)
   local menu = pooled(parent, "dropdown", function()
     return CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
   end)
-  if UIDropDownMenu_SetWidth then UIDropDownMenu_SetWidth(width, menu) end
+  if UIDropDownMenu_SetWidth then UIDropDownMenu_SetWidth(menu, width) end
   return menu
 end
 

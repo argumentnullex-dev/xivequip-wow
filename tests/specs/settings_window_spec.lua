@@ -88,7 +88,12 @@ local function loadWindow(addon, calls)
   _G.PanelTemplates_SelectTab = function() end
   _G.PanelTemplates_DeselectTab = function() end
   _G.UIDropDownMenu_Initialize = function() end
-  _G.UIDropDownMenu_SetWidth = function() end
+  _G.UIDropDownMenu_SetWidth = function(menu, width)
+    if type(menu) ~= "table" or type(width) ~= "number" then
+      error("UIDropDownMenu_SetWidth expects (frame, width)")
+    end
+    menu.dropdownWidth = width
+  end
   _G.UIDropDownMenu_SetSelectedValue = function() end
   _G.UIDropDownMenu_SetText = function(text, menu) menu.dropdownText = text end
   _G.GameFontNormal = { name = "GameFontNormal" }
