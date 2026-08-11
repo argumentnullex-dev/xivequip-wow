@@ -53,6 +53,7 @@ local function pooled(parent, kind, create)
     pool.items[kind][index] = item
   end
   if item.ClearAllPoints then item:ClearAllPoints() end
+  if item.Enable then item:Enable() end
   if item.Show then item:Show() end
   return item
 end
@@ -61,9 +62,15 @@ local function beginRender(parent)
   parent._xivEquipPool = parent._xivEquipPool or { items = {}, cursors = {} }
   local pool = parent._xivEquipPool
   pool.cursors = {}
-  for _, items in pairs(pool.items) do
-    for _, item in ipairs(items) do if item.Hide then item:Hide() end end
+  local function resetFrame(frame)
+    if frame.Hide then frame:Hide() end
+    if frame._xivEquipPool then beginRender(frame) end
+    for _, child in pairs(frame._xivEquipFrames or {}) do resetFrame(child) end
   end
+  for _, items in pairs(pool.items) do
+    for _, item in ipairs(items) do resetFrame(item) end
+  end
+  for _, frame in pairs(parent._xivEquipFrames or {}) do resetFrame(frame) end
 end
 
 local function pooledFrame(parent, key, frameType, template)
@@ -86,6 +93,7 @@ local function font(parent, template, text)
   local f = pooled(parent, "font", function()
     return parent:CreateFontString(nil, "ARTWORK", template or "GameFontNormal")
   end)
+  if f.SetFontObject and template then f:SetFontObject(template) end
   f:SetText(text or "")
   f:SetJustifyH("LEFT")
   return f
@@ -955,10 +963,23 @@ local function showConfig(content)
       end)
     elseif profile and profile.automatic == false and mode == "integration" then
       local overrides = profile.manual.integration.overrides or {}
+      local configuredOverride = overrides[spec.id]
       local items = integrationItems(C, integrationProvider, runtime, spec.id)
+      local availableOverride = not configuredOverride
+      for _, item in ipairs(items) do
+        if item.value == configuredOverride then availableOverride = true; break end
+      end
+      if configuredOverride and not availableOverride then
+        table.insert(items, 2, {
+          value = configuredOverride,
+          label = "Missing: " .. tostring(configuredOverride) .. " [Unavailable]",
+        })
+        label:SetText(tostring(spec.name) .. " (Default fallback)")
+        textColor(label, 1, 0.65, 0.25)
+      end
       local menu = dropdown(mapPanel, 190)
       menu:SetPoint("TOPLEFT", 128, mapY + 8)
-      setDropdown(menu, items, overrides[spec.id] or "", function(value)
+      setDropdown(menu, items, configuredOverride or "", function(value)
         if value == "" then Profiles.ClearIntegrationOverride(profile, spec.id) else Profiles.SetIntegrationOverride(profile, spec.id, value) end
         Window.ShowTab(1)
       end)
@@ -1051,7 +1072,7 @@ local function showImportDialog(specID, C)
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("LEFT", frame.TitleBg, "LEFT", 6, 0)
     title:SetText("Import Scale")
-    local note = font(frame, "GameFontHighlightSmall", "Paste Pawn or stat-weight export text (Raidbots, SimC, AMR, Wowhead), or XIVEquip JSON, then detect and import it as a Custom scale.")
+    local note = font(frame, "GameFontHighlightSmall", "Paste Pawn or stat-weight text, or XIVEquip JSON, then detect and import it as a Custom scale.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
@@ -1131,6 +1152,7 @@ local function showImportDialog(specID, C)
         imported.meta.importedFrom = parsed.format
         imported.source = { kind = "manual", importedFrom = parsed.format, specID = frame.specID }
         C.SaveScale(imported)
+        Window.ScaleRevision = (Window.ScaleRevision or 0) + 1
         Window.SelectedSpecID = frame.specID
         Window.SelectedScaleID = imported.id
         frame:Hide()
@@ -1210,7 +1232,7 @@ local function showScales(content)
   local selectedScale = selected and C.Repository():Get(selected)
   if not selectedScale or C.GetScaleSpecID(selectedScale) ~= tonumber(specID) then selectedScale = scales[1]; selected = selectedScale and selectedScale.id end
   Window.SelectedScaleID = selected
-  local viewKey = table.concat({ "scales", tostring(specID), tostring(selected or "") }, "|")
+  local viewKey = table.concat({ "scales", tostring(specID), tostring(selected or ""), tostring(Window.ScaleRevision or 0) }, "|")
   if content.page and content.page._viewKey == viewKey then content.page:Show(); return end
   local page = clearContent(content)
   page._viewKey = viewKey
@@ -1316,8 +1338,10 @@ local function showScales(content)
     end
     selectedScale.name = value
     C.SaveScale(selectedScale)
+    Window.ScaleRevision = (Window.ScaleRevision or 0) + 1
     errorLine:SetText("")
     status:SetText("Autosaved ✓")
+    if UIDropDownMenu_SetText then UIDropDownMenu_SetText(value, scaleMenu) end
   end
   nameEdit:SetScript("OnEnterPressed", function(self) commitName(); self:ClearFocus() end)
   nameEdit:SetScript("OnEditFocusLost", commitName)

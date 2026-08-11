@@ -23,6 +23,7 @@ local function loadWindow(addon, calls)
     return {
       SetText = function(_, text) calls.fontText[#calls.fontText + 1] = tostring(text or "") end,
       SetTextColor = function() end,
+      SetFontObject = function() end,
       SetPoint = function() end,
       SetWidth = function() end,
       SetJustifyH = function() end,
@@ -34,6 +35,10 @@ local function loadWindow(addon, calls)
     function f:SetSize() end
     function f:SetHeight() end
     function f:SetWidth() end
+    function f:SetMinMaxValues() end
+    function f:SetValueStep() end
+    function f:SetObeyStepOnDrag() end
+    function f:SetValue(value) self.value = value end
     function f:SetFrameStrata() end
     function f:SetMovable() end
     function f:EnableMouse() end
@@ -52,6 +57,14 @@ local function loadWindow(addon, calls)
     function f:StartMoving() end
     function f:StopMovingOrSizing() end
     function f:RegisterForClicks() end
+    function f:Enable() self.enabled = true end
+    function f:Disable() self.enabled = false end
+    function f:SetAutoFocus() end
+    function f:ClearFocus() end
+    function f:GetText() return self.text end
+    function f:SetTextInsets() end
+    function f:SetMultiLine() end
+    function f:SetFontObject() end
     function f:SetText(text) self.text = text; calls.buttons[text] = self end
     function f:SetID(id) self.id = id end
     function f:GetID() return self.id end
@@ -68,6 +81,10 @@ local function loadWindow(addon, calls)
   _G.PanelTemplates_SetTab = function() end
   _G.PanelTemplates_SelectTab = function() end
   _G.PanelTemplates_DeselectTab = function() end
+  _G.UIDropDownMenu_Initialize = function() end
+  _G.UIDropDownMenu_SetWidth = function() end
+  _G.UIDropDownMenu_SetSelectedValue = function() end
+  _G.UIDropDownMenu_SetText = function(text, menu) menu.dropdownText = text end
   _G.CreateFrame = function(_, name)
     return frame(name)
   end
@@ -319,6 +336,149 @@ test("repeated Config renders reuse the page frame", function()
   local page = Window.Frame.content.page
   Window.ShowTab(1)
   A.equal(Window.Frame.content.page, page, "same-state Config refresh should reuse the page frame")
+end)
+
+test("state changes and tab switches reset nested Config pools before rebinding", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default",
+    automatic = false,
+    manual = { mode = "custom", customOverrides = {}, integration = { overrides = {} } },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = {
+      Defaults = {
+        SpecsForClass = function() return { { id = 70, name = "Retribution" } } end,
+      },
+    },
+    Config = {
+      ResolveResultForSpec = function()
+        return { scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } } }
+      end,
+      ListIntegrations = function() return {} end,
+      ListManualScales = function() return {} end,
+      GetScaleSpecID = function() return nil end,
+      Repository = function() return { Get = function() return nil end } end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = 1 } end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local page = Window.Frame.content.page
+  local profilePanel = page._xivEquipPool.items.panel[1]
+  local modePanel = page._xivEquipPool.items.panel[2]
+  local profileFontCount = #profilePanel._xivEquipPool.items.font
+  local profileButtonCount = #profilePanel._xivEquipPool.items.button
+  local modeButtonCount = #modePanel._xivEquipPool.items.button
+
+  profile.automatic = true
+  Window.ShowTab(1)
+  A.equal(#profilePanel._xivEquipPool.items.font, profileFontCount, "profile controls should be reused after a state change")
+  A.equal(#profilePanel._xivEquipPool.items.button, profileButtonCount, "profile buttons should not accumulate after a state change")
+  A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode buttons should not accumulate after a state change")
+  A.falsy(modePanel._xivEquipPool.items.button[1].enabled, "automatic mode should disable manual mode controls")
+
+  profile.automatic = false
+  Window.ShowTab(2)
+  Window.ShowTab(1)
+  A.equal(Window.Frame.content.page, page, "Config to Scales to Config should reuse the same page frame")
+  A.equal(#profilePanel._xivEquipPool.items.font, profileFontCount, "profile controls should remain pooled after tab switches")
+  A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode controls should remain pooled after tab switches")
+  A.truthy(modePanel._xivEquipPool.items.button[1].enabled, "rebound manual mode controls should be enabled again")
+end)
+
+test("Config identifies missing per-spec Integration overrides and their Default fallback", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-integration",
+    automatic = false,
+    manual = {
+      mode = "integration",
+      customOverrides = {},
+      integration = { provider = "pawn", overrides = { [65] = "My Holy Scale" } },
+    },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = {
+      Defaults = {
+        SpecsForClass = function()
+          return { { id = 65, name = "Holy" }, { id = 70, name = "Retribution" } }
+        end,
+      },
+    },
+    Config = {
+      ResolveResultForSpec = function()
+        return { scale = { resolution = { sourceLabel = "Pawn", scaleLabel = "Retribution" } } }
+      end,
+      ListIntegrations = function()
+        return { { id = "pawn", label = "Pawn", ListScales = function() return {} end } }
+      end,
+      ListManualScales = function() return {} end,
+      SpecName = function(id) return id == 65 and "Holy" or "Retribution" end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = 1 } end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local text = table.concat(calls.fontText, "\n")
+  A.truthy(text:find("Holy %(Default fallback%)"), "missing Integration mappings should identify their effective Default fallback")
+end)
+
+test("renaming a Custom scale refreshes the active selector label without rebuilding the editor", function()
+  local addon, calls = harness()
+  local scale = { id = "manual:retribution", name = "Retribution Raid", weights = { strength = 1 }, meta = { specID = 70 } }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = {
+      Defaults = {
+        SpecsForClass = function() return { { id = 70, name = "Retribution" } } end,
+      },
+    },
+    Config = {
+      ListManualScales = function() return { scale } end,
+      GetScaleSpecID = function(item) return item.meta.specID end,
+      Repository = function() return { Get = function(_, id) return id == scale.id and scale or nil end } end,
+      SaveScale = function() end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(2)
+  local page = Window.Frame.content.page
+  local scroll = page._xivEquipFrames["settings-scroll"]
+  local nameEdit = scroll._xivEquipScrollChild._xivEquipFrames["scale-name"]
+  nameEdit:SetText("Retribution Mythic")
+  nameEdit.scripts.OnEnterPressed(nameEdit)
+
+  A.equal(scale.name, "Retribution Mythic", "rename should save the selected Custom scale")
+  A.equal(page._xivEquipPool.items.dropdown[2].dropdownText, "Retribution Mythic", "rename should refresh the selected-scale menu label")
 end)
 
 return tests
