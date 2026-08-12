@@ -320,6 +320,38 @@ test("Avoidlist accepts Ctrl-clicked item links and removes existing entries", f
   A.falsy(updates[2].listed, "Remove should clear the Avoidlist entry")
 end)
 
+test("Wishlist/Avoidlist tabs name useful item-link sources for players who don't know the Ctrl-click workflow", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default", name = "Default", automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.Evaluation = { CandidateCollector = { Collect = function() return { candidates = {} } end } }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      GetSpecPreferences = function() return { wishlist = {}, avoidlist = {} } end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(3)
+  local rows = Window.Frame.content.page._xivEquipFrames["settings-scroll"]._xivEquipScrollChild
+  local rowsText = {}
+  for _, item in ipairs(rows._xivEquipPool.items.font) do rowsText[#rowsText + 1] = item.text end
+  local joined = table.concat(rowsText, "\n")
+  A.truthy(joined:find("Ctrl-click", 1, true), "should still name the real capture-key workflow")
+  A.truthy(joined:find("Collections", 1, true), "should mention Collections as a source for gear players don't own yet")
+  A.truthy(joined:find("bags", 1, true), "should mention bags as an item-link source")
+  A.truthy(joined:find("chat", 1, true), "should mention chat as an item-link source")
+end)
+
 test("Settings reads and displays the full add-on version", function()
   local addon, calls = harness()
   _G.GetAddOnMetadata = nil
@@ -643,28 +675,27 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   -- modePanel's own top (modePanel.points[1][3]) PLUS the control's
   -- offset, not the offset alone. Comparing an unconverted relative
   -- offset against another panel's absolute page position is exactly the
-  -- coordinate-frame mistake that let the scoring panel's last control
-  -- silently overlap the Wishlist & Avoidlist panel below it.
-  local itemPrefsPanel = page._xivEquipPool.items.panel[3]
+  -- coordinate-frame mistake that once let the scoring panel's last
+  -- control silently overlap the panel below it.
+  local customMapPanel = page._xivEquipPool.items.panel[3]
   local specTrinketNote
   for _, item in ipairs(modePanel._xivEquipPool.items.font) do
     if item.text:find("Wishlisted trinkets are always shown.", 1, true) then specTrinketNote = item end
   end
   local modePanelTop = modePanel.points[1][3]
   local modePanelBottom = modePanelTop - modePanel.height
-  local itemPrefsPanelTop = itemPrefsPanel.points[1][3]
+  local customMapPanelTop = customMapPanel.points[1][3]
   local specTrinketNoteAbsoluteY = modePanelTop + specTrinketNote.points[1][3]
-  A.truthy(modePanelBottom >= itemPrefsPanelTop,
-    "the scoring panel's own declared height must not extend past where the Wishlist panel begins")
-  A.truthy(specTrinketNoteAbsoluteY >= itemPrefsPanelTop,
-    "the last scoring control must end above the Wishlist & Avoidlist panel, not inside it")
+  A.truthy(modePanelBottom >= customMapPanelTop,
+    "the scoring panel's own declared height must not extend past where the next panel begins")
+  A.truthy(specTrinketNoteAbsoluteY >= customMapPanelTop,
+    "the last scoring control must end above the next panel, not inside it")
 
-  local customMapPanel = page._xivEquipPool.items.panel[4]
   local customMenu = customMapPanel._xivEquipPool.items.dropdown[1]
   local customEdit = customMapPanel._xivEquipPool.items.button[1]
   A.truthy(customEdit.points[1][2] >= customMenu.points[1][2] + customMenu.dropdownWidth + 36,
     "custom scale action buttons should clear the dropdown template's visible right edge")
-  local generalPanel = page._xivEquipPool.items.panel[5]
+  local generalPanel = page._xivEquipPool.items.panel[4]
   local debugBox = generalPanel._xivEquipPool.items.checkbox[3]
   local minimapBox = generalPanel._xivEquipPool.items.checkbox[6]
   local macroButton = generalPanel._xivEquipPool.items.button[1]
@@ -695,7 +726,7 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode buttons should not accumulate after a state change")
   A.falsy(modePanel._xivEquipPool.items.button[1].enabled, "automatic mode should disable manual mode controls")
   A.equal(modePanel._xivEquipPool.items.button[2].text, "Custom", "Automatic should retain the selected manual mode as disabled context")
-  local mapPanel = page._xivEquipPool.items.panel[4]
+  local mapPanel = page._xivEquipPool.items.panel[3]
   A.truthy(mapPanel:IsShown(), "Automatic should keep the remembered Custom mappings visible")
   A.falsy(mapPanel._xivEquipPool.items.dropdown[1].enabled,
     "remembered Custom mappings should be disabled while Automatic is enabled")
@@ -708,126 +739,6 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.equal(#modePanel._xivEquipPool.items.button, modeButtonCount, "mode controls should remain pooled after tab switches")
   A.truthy(modePanel._xivEquipPool.items.button[1].enabled, "rebound manual mode controls should be enabled again")
   A.truthy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "stored mapping controls should re-enable with manual mode")
-end)
-
-local function xivWeightsFake()
-  return {
-    Builtin = { Defaults = { SpecsForClass = function() return { { id = 70, name = "Retribution" } } end } },
-    Config = {
-      ResolveResultForSpec = function()
-        return { scale = { resolution = { sourceLabel = "Default", scaleLabel = "Retribution" } } }
-      end,
-      ListIntegrations = function() return {} end,
-      ListManualScales = function() return {} end,
-      GetScaleSpecID = function() return nil end,
-      Repository = function() return { Get = function() return nil end } end,
-      SpecName = function() return "Retribution" end,
-    },
-  }
-end
-
-local function retributionProfile()
-  return {
-    id = "paladin-default",
-    automatic = false,
-    manual = { mode = "default", customOverrides = {}, integration = { overrides = {} } },
-  }
-end
-
-local function stubRetributionCharacter()
-  _G.GetSpecialization = function() return 1 end
-  _G.GetSpecializationInfo = function() return 70, "Retribution" end
-  _G.UnitClass = function() return "Paladin", "PALADIN" end
-end
-
-test("Settings surfaces the Wishlist/Avoidlist with breadcrumb text, item names, and Remove controls", function()
-  local addon, calls = harness()
-  local profile = retributionProfile()
-  stubRetributionCharacter()
-  _G.GetItemInfo = function(itemID)
-    return ({ [111] = "Wished Trinket", [222] = "Avoided Ring" })[itemID]
-  end
-  addon.XIVWeights = xivWeightsFake()
-  local removedWishlist, removedAvoidlist
-  addon.Profiles = {
-    Config = {
-      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
-      GetForCharacter = function() return profile end,
-      List = function() return { profile } end,
-      Usage = function() return { count = 1 } end,
-      GetSpecPreferences = function()
-        return {
-          preferSetBonuses = false, preferSpecAppropriateTrinkets = false,
-          wishlist = { [111] = true }, avoidlist = { [222] = true },
-        }
-      end,
-      SetWishlistItem = function(_, specID, itemID, listed)
-        removedWishlist = { specID = specID, itemID = itemID, listed = listed }
-      end,
-      SetAvoidlistItem = function(_, specID, itemID, listed)
-        removedAvoidlist = { specID = specID, itemID = itemID, listed = listed }
-      end,
-    },
-  }
-
-  local Window = loadWindow(addon, calls)
-  Window.Open()
-  local page = Window.Frame.content.page
-  local itemPrefsPanel = page._xivEquipPool.items.panel[3]
-
-  local panelText = {}
-  for _, item in ipairs(itemPrefsPanel._xivEquipPool.items.font) do panelText[#panelText + 1] = item.text end
-  local joined = table.concat(panelText, "\n")
-  A.truthy(joined:find("Shift-click", 1, true), "breadcrumb should name the real WoW chat-link modifier")
-  A.falsy(joined:find("Ctrl-click", 1, true), "must not describe the wrong modifier key")
-  A.truthy(joined:find("/xive wish add", 1, true))
-  A.truthy(joined:find("/xive avoid add", 1, true))
-  A.truthy(joined:find("Collections", 1, true), "should mention Collections as an uncollected-item source")
-  A.truthy(joined:find("Wished Trinket", 1, true), "wishlist row should resolve the item's display name")
-  A.truthy(joined:find("Avoided Ring", 1, true), "avoidlist row should resolve the item's display name")
-
-  local removeClicked = 0
-  for _, btn in ipairs(itemPrefsPanel._xivEquipPool.items.button) do
-    if btn.text == "Remove" then
-      btn.scripts.OnClick(btn)
-      removeClicked = removeClicked + 1
-    end
-  end
-  A.equal(removeClicked, 2, "both the wishlisted and avoidlisted rows should offer a Remove control")
-  A.equal(removedWishlist.itemID, 111)
-  A.equal(removedWishlist.specID, 70)
-  A.falsy(removedWishlist.listed)
-  A.equal(removedAvoidlist.itemID, 222)
-  A.falsy(removedAvoidlist.listed)
-end)
-
-test("Wishlist/Avoidlist panel shows instructional text, not a blank list, when nothing is saved", function()
-  local addon, calls = harness()
-  local profile = retributionProfile()
-  stubRetributionCharacter()
-  addon.XIVWeights = xivWeightsFake()
-  addon.Profiles = {
-    Config = {
-      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
-      GetForCharacter = function() return profile end,
-      List = function() return { profile } end,
-      Usage = function() return { count = 1 } end,
-      GetSpecPreferences = function()
-        return { preferSetBonuses = false, preferSpecAppropriateTrinkets = false, wishlist = {}, avoidlist = {} }
-      end,
-    },
-  }
-
-  local Window = loadWindow(addon, calls)
-  Window.Open()
-  local page = Window.Frame.content.page
-  local itemPrefsPanel = page._xivEquipPool.items.panel[3]
-
-  local panelText = {}
-  for _, item in ipairs(itemPrefsPanel._xivEquipPool.items.font) do panelText[#panelText + 1] = item.text end
-  local joined = table.concat(panelText, "\n")
-  A.truthy(joined:find("No items yet", 1, true), "empty lists must be instructional, not blank")
-  A.equal(#(itemPrefsPanel._xivEquipPool.items.button or {}), 0, "an empty list should not offer Remove controls")
 end)
 
 test("Automatic keeps the remembered manual configuration visible while Pawn supplies active weights", function()
@@ -901,7 +812,7 @@ test("Automatic keeps the remembered manual configuration visible while Pawn sup
     "the remembered Custom mode should remain selected while Automatic is enabled")
   A.falsy(refreshedModePanel._xivEquipPool.items.button[3].locked,
     "Automatic's effective Pawn source should not replace the remembered manual mode in the UI")
-  local refreshedMapPanel = page._xivEquipPool.items.panel[4]
+  local refreshedMapPanel = page._xivEquipPool.items.panel[3]
   A.truthy(refreshedMapPanel:IsShown(), "the remembered Custom mapping panel should remain visible")
   A.equal(refreshedMapPanel._xivEquipPool.items.font[1].text, "Custom scale overrides by specialization")
   A.equal(refreshedMapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Default")
@@ -958,7 +869,7 @@ test("Integration dropdown refreshes live scales when opened and distinguishes t
 
   local Window = loadWindow(addon, calls)
   Window.Open()
-  local mapPanel = Window.Frame.content.page._xivEquipPool.items.panel[4]
+  local mapPanel = Window.Frame.content.page._xivEquipPool.items.panel[3]
   local menu = mapPanel._xivEquipPool.items.dropdown[1]
   A.equal(menu.dropdownText, "Recommended (Retribution)",
     "collapsed automatic selection should distinguish a recommendation from a pinned scale")
@@ -1154,7 +1065,7 @@ test("unavailable Integrations do not list scales and show Default fallback for 
 
   local Window = loadWindow(addon, calls)
   Window.Open()
-  local mapPanel = Window.Frame.content.page._xivEquipPool.items.panel[4]
+  local mapPanel = Window.Frame.content.page._xivEquipPool.items.panel[3]
   A.falsy(listed, "unavailable Integration must not receive ListScales calls")
   A.equal(mapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Recommended (Default - Pawn unavailable)",
     "automatic Integration mapping should show its effective Default fallback")

@@ -836,59 +836,6 @@ local function mapStateKey(values)
   return table.concat(out, ",")
 end
 
-local function itemDisplayName(itemID)
-  local fn = GetItemInfo
-  local ok, name = pcall(fn, itemID)
-  if ok and type(name) == "string" and name ~= "" then return name end
-  return "Item #" .. tostring(itemID)
-end
-
-local function sortedItemIDs(map)
-  local ids = {}
-  for itemID in pairs(map or {}) do ids[#ids + 1] = tonumber(itemID) end
-  table.sort(ids)
-  return ids
-end
-
-local ITEM_PREFERENCE_LIST_ROWS = 5
-
--- Read-only: adding items stays a Shift-click + slash-command action (see
--- Profiles/Commands.lua) -- this only surfaces what's already saved and
--- lets a player remove an entry without leaving Settings. An empty list is
--- instructional rather than blank, matching the breadcrumb text above it.
-local function renderItemPreferenceColumn(parent, x, titleText, addCommand, itemIDs, onRemove)
-  local title = font(parent, "GameFontHighlightSmall", titleText)
-  title:SetPoint("TOPLEFT", x, -70)
-
-  if #itemIDs == 0 then
-    local empty = font(parent, "GameFontDisableSmall",
-      "No items yet -- type " .. addCommand .. ", then Shift-click a link and press Enter.")
-    empty:SetPoint("TOPLEFT", x, -88)
-    empty:SetWidth(270)
-    return
-  end
-
-  local rowY = -88
-  for i = 1, math.min(#itemIDs, ITEM_PREFERENCE_LIST_ROWS) do
-    local itemID = itemIDs[i]
-    local label = font(parent, "GameFontHighlightSmall", itemDisplayName(itemID))
-    label:SetPoint("TOPLEFT", x, rowY)
-    label:SetWidth(190)
-    local remove = button(parent, "Remove", 70, 18)
-    remove:SetPoint("TOPLEFT", x + 198, rowY - 2)
-    remove:SetScript("OnClick", function() onRemove(itemID) end)
-    rowY = rowY - 20
-  end
-
-  if #itemIDs > ITEM_PREFERENCE_LIST_ROWS then
-    local listCommand = addCommand:gsub(" add$", " list")
-    local more = font(parent, "GameFontDisableSmall",
-      "+" .. tostring(#itemIDs - ITEM_PREFERENCE_LIST_ROWS) .. " more -- see " .. listCommand)
-    more:SetPoint("TOPLEFT", x, rowY)
-    more:SetWidth(270)
-  end
-end
-
 local function showConfig(content)
   local C, Profiles, runtime, context, specID, classFile, profile = currentState()
   local resolved = C and specID and C.ResolveResultForSpec and C.ResolveResultForSpec(specID, runtime)
@@ -901,7 +848,6 @@ local function showConfig(content)
     tostring(manual.integration and manual.integration.provider),
     tostring(preferences.preferSetBonuses == true),
     tostring(preferences.preferSpecAppropriateTrinkets == true),
-    mapStateKey(preferences.wishlist), mapStateKey(preferences.avoidlist),
     mapStateKey(manual.customOverrides),
     mapStateKey(manual.integration and manual.integration.overrides),
     tostring(resolved and resolved.scale and resolved.scale.resolution and resolved.scale.resolution.sourceKind),
@@ -1094,35 +1040,8 @@ local function showConfig(content)
     "Hide trinkets Blizzard doesn't consider appropriate for this specialization. Wishlisted trinkets are always shown.")
   specTrinketPreferenceNote:SetPoint("TOPLEFT", 36, -244)
 
-  local itemPrefsPanel = panel(page, 0, -432, CONTENT_WIDTH, 216)
-  sectionTitle(itemPrefsPanel, "Wishlist & Avoidlist", 14, -14)
-  local breadcrumb1 = font(itemPrefsPanel, "GameFontHighlightSmall",
-    "Type /xive wish add (or /xive avoid add), then Shift-click an item link into the chat box and press Enter.")
-  breadcrumb1:SetPoint("TOPLEFT", 14, -34)
-  breadcrumb1:SetWidth(CONTENT_WIDTH - 28)
-  local breadcrumb2 = font(itemPrefsPanel, "GameFontDisableSmall",
-    "Works with links from Collections (even gear you don't own yet), your bags, or chat. Wishlisted trinkets always bypass the spec-appropriate filter above.")
-  breadcrumb2:SetPoint("TOPLEFT", 14, -50)
-  breadcrumb2:SetWidth(CONTENT_WIDTH - 28)
-
-  if profile and specID then
-    renderItemPreferenceColumn(itemPrefsPanel, 14, "Wishlist", "/xive wish add", sortedItemIDs(preferences.wishlist),
-      function(itemID)
-        Profiles.SetWishlistItem(profile, specID, itemID, false)
-        Window.ShowTab(1)
-      end)
-    renderItemPreferenceColumn(itemPrefsPanel, 302, "Avoidlist", "/xive avoid add", sortedItemIDs(preferences.avoidlist),
-      function(itemID)
-        Profiles.SetAvoidlistItem(profile, specID, itemID, false)
-        Window.ShowTab(1)
-      end)
-  else
-    local unavailable = font(itemPrefsPanel, "GameFontDisableSmall", "Select a profile to manage Wishlist/Avoidlist.")
-    unavailable:SetPoint("TOPLEFT", 14, -70)
-  end
-
   local specs = defaults and defaults.SpecsForClass(classFile) or {}
-  local mapPanel = panel(page, 0, -660, CONTENT_WIDTH, 132)
+  local mapPanel = panel(page, 0, -432, CONTENT_WIDTH, 132)
   local mappingTitle = displayMode == "custom" and "Custom scale overrides by specialization"
       or "Integration scales by specialization"
   sectionTitle(mapPanel, mappingTitle, 14, -14)
@@ -1208,7 +1127,7 @@ local function showConfig(content)
   end
   if not profile or displayMode == "default" then mapPanel:Hide() end
 
-  local generalY = (profile and displayMode ~= "default") and -806 or -660
+  local generalY = (profile and displayMode ~= "default") and -578 or -432
   addGeneralSettings(page, 0, generalY, CONTENT_WIDTH)
 end
 
@@ -1788,10 +1707,11 @@ local function showItemList(content, kind)
     local query = string.lower(tostring(input:GetText() or ""):gsub("^%s+", ""):gsub("%s+$", ""))
     if query == "" then
       local guidance = font(rows, "GameFontDisableSmall",
-        "Type part of an item name above, or Ctrl-click any item link while this tab is open.")
+        "Type part of an item name above, paste an item link or ID, or Ctrl-click any item link while this tab "
+        .. "is open -- works from Collections (even gear you don't own yet), your bags, chat, or any other item link.")
       guidance:SetPoint("TOPLEFT", 10, y)
       guidance:SetWidth(530)
-      y = y - 34
+      y = y - 46
     else
       local matches = 0
       for _, item in ipairs(ownedItems) do
@@ -1880,14 +1800,14 @@ function Window.Create()
   if Window.Frame then return Window.Frame end
 
   local frame = CreateFrame("Frame", WINDOW_NAME, UIParent, "BasicFrameTemplateWithInset")
-  -- 1088 = the Config tab's tallest branch (Automatic/Custom/Integration
+  -- 860 = the Config tab's tallest branch (Automatic/Custom/Integration
   -- mapping visible): addGeneralSettings's panel bottom edge at
-  -- generalY(-806) - height(216) = -1022, plus the same 48/18 top/bottom
+  -- generalY(-578) - height(216) = -794, plus the same 48/18 top/bottom
   -- content margins makeContent already uses elsewhere in this file. Tab 1
   -- has no scrollframe of its own (unlike the per-scale weight editor,
   -- which scrolls internally), so the window itself must be tall enough
   -- for its tallest branch or the bottom content silently clips.
-  frame:SetSize(760, 1088)
+  frame:SetSize(760, 860)
   frame:SetFrameStrata("MEDIUM")
   frame:SetMovable(true)
   frame:EnableMouse(true)
