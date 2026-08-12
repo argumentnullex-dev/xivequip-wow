@@ -223,6 +223,8 @@ The suite loads addon modules with mocked WoW APIs and covers scale resolution, 
 - `/xive status` — print settings schema, planner, auto-equip state, and auto-save state
 - `/xive plan` — print the current native equip plan without equipping it
 - `/xive equip` — equip the current native recommendation
+- `/xive wish <add|remove> <item link|itemID>` — manage the active Profile and specialization's Wishlist
+- `/xive avoid <add|remove> <item link|itemID>` — manage the active Profile and specialization's Avoidlist
 - `/xive perf` — run a native planning pass and print timing/counter diagnostics
 - `/xive test` — run in-game regression checks that do not equip gear
 - `/xive fixture capture` — save current character, equipped item, bag item, and active Pawn scale data to `XIVEquip_Settings.TestFixtures.LastCapture`
@@ -236,8 +238,10 @@ Fixture capture is intended for building realistic offline test cases. Run it on
 
 Open `/xive` or `/xive settings`.
 
-- **Config** – Profiles, automatic scale selection, per-spec custom and addon-integration assignments, wishlist/avoidlist preferences, set-bonus preference, notifications, automation, minimap visibility, and the `/xivequip` macro helper.
+- **Config** – Profiles, automatic scale selection, per-spec custom and addon-integration assignments, set-bonus preference, notifications, automation, minimap visibility, and the `/xivequip` macro helper.
 - **Scales** – Create, import, duplicate, export, rename, edit, and delete custom scales tied to a specialization. Built-in defaults remain immutable.
+- **Wishlist** – Search equipped and bag gear, or enter/Ctrl-click an item link, to prefer gear for the active Profile and specialization.
+- **Avoidlist** – Search equipped and bag gear, or enter/Ctrl-click an item link, to exclude gear for the active Profile and specialization.
 
 Fresh specs use immutable built-in defaults. Choosing to customize a spec creates a normal SavedVariables scale named after the spec, such as `Protection`, `Retribution`, or `Holy`. Resetting a customized spec scale replaces your copy with a fresh copy of the shipped default for that spec.
 

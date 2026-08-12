@@ -74,6 +74,28 @@ test("profile preferences are spec-scoped, mutually exclusive, and profile-owned
   A.equal(Profiles.SetWishlistItem(profile, 73, 1, true), nil, "a Paladin Profile cannot own a Warrior spec list")
 end)
 
+test("prefer-spec-appropriate-trinkets is per-spec, defaults enabled, and is independent of Wishlist/Avoidlist", function()
+  local addon = newAddon()
+  local Profiles = addon.Profiles.Config
+  local profile = Profiles.GetDefault("PALADIN")
+
+  A.truthy(Profiles.GetSpecPreferences(profile, 70).preferSpecAppropriateTrinkets,
+    "default must be on -- best onboarding default for the 2.0 planner")
+
+  A.truthy(Profiles.SetPreferSpecAppropriateTrinkets(profile, 70, false))
+  A.falsy(Profiles.GetSpecPreferences(profile, 70).preferSpecAppropriateTrinkets)
+  A.truthy(Profiles.GetSpecPreferences(profile, 66).preferSpecAppropriateTrinkets,
+    "disabling one specialization must not leak to another, which should still default on")
+
+  A.truthy(Profiles.SetWishlistItem(profile, 70, 12345, true))
+  local retribution = Profiles.GetSpecPreferences(profile, 70)
+  A.falsy(retribution.preferSpecAppropriateTrinkets, "wishlist changes must not disturb this preference")
+  A.truthy(retribution.wishlist[12345])
+
+  A.equal(Profiles.SetPreferSpecAppropriateTrinkets(profile, 73, true), nil,
+    "a Paladin Profile cannot own a Warrior spec preference")
+end)
+
 test("planning-relevant profile changes invalidate the preview cache", function()
   local addon = newAddon()
   local invalidations = 0
@@ -113,6 +135,7 @@ test("evaluation context snapshots the active Profile's specialization preferenc
   A.truthy(context.profilePreferences.preferSetBonuses)
   A.truthy(context.profilePreferences.wishlist[444])
   A.falsy(context.profilePreferences.avoidlist[444])
+  A.truthy(context.profilePreferences.preferSpecAppropriateTrinkets, "defaults on and is snapshotted like any other preference")
 end)
 
 test("profile list policy excludes avoided candidates and gives wished candidates a ten-percent score bonus", function()
@@ -159,6 +182,229 @@ test("an avoided current item remains representable but cannot become a proposed
   A.equal(#frontier, 1)
   A.equal(frontier[1].picks.slot, current)
   A.falsy(frontier[1].policyValid, "the retained current state must remain marked policy-invalid")
+end)
+
+local function trinketContext(overrides)
+  local context = {
+    profilePreferences = { preferSpecAppropriateTrinkets = true, wishlist = {}, avoidlist = {} },
+    classID = 1, specID = 71,
+    caches = {},
+    policies = {},
+  }
+  for k, v in pairs(overrides or {}) do context[k] = v end
+  return context
+end
+
+test("spec-appropriate-trinkets filter is a no-op when the preference is disabled", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local trinketPolicy = policyByID(resolved.candidate, "XIVEquip.spec_appropriate_trinkets")
+  _G.C_Item = { DoesItemContainSpec = function() return false end }
+
+  local context = trinketContext({
+    profilePreferences = { preferSpecAppropriateTrinkets = false, wishlist = {}, avoidlist = {} },
+    policies = { candidate = { trinketPolicy } },
+  })
+  local result = addon.Evaluation.CandidateEvaluator.Evaluate({ itemID = 500 }, context, {
+    groupId = "trinkets", score = function() return 100 end,
+  })
+  A.truthy(result.eligible, "disabled preference must behave exactly as before")
+end)
+
+test("rejects a trinket Blizzard reports as spec-inappropriate, using classID/specID from context", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local trinketPolicy = policyByID(resolved.candidate, "XIVEquip.spec_appropriate_trinkets")
+  local seen
+  _G.C_Item = {
+    DoesItemContainSpec = function(itemInfo, classID, specID)
+      seen = { itemInfo = itemInfo, classID = classID, specID = specID }
+      return false
+    end,
+  }
+
+  local context = trinketContext({ policies = { candidate = { trinketPolicy } } })
+  local result = addon.Evaluation.CandidateEvaluator.Evaluate({ itemID = 501 }, context, {
+    groupId = "trinkets", score = function() return 100 end,
+  })
+  A.falsy(result.eligible)
+  A.equal(result.reasons[1], "not-spec-appropriate")
+  A.equal(seen.itemInfo, 501)
+  A.equal(seen.classID, 1)
+  A.equal(seen.specID, 71)
+end)
+
+test("keeps a Blizzard-appropriate trinket eligible", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local trinketPolicy = policyByID(resolved.candidate, "XIVEquip.spec_appropriate_trinkets")
+  _G.C_Item = { DoesItemContainSpec = function() return true end }
+
+  local context = trinketContext({ policies = { candidate = { trinketPolicy } } })
+  local result = addon.Evaluation.CandidateEvaluator.Evaluate({ itemID = 502 }, context, {
+    groupId = "trinkets", score = function() return 100 end,
+  })
+  A.truthy(result.eligible)
+end)
+
+test("treats unavailable spec-suitability metadata as eligible rather than creating a false rejection", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local trinketPolicy = policyByID(resolved.candidate, "XIVEquip.spec_appropriate_trinkets")
+  _G.C_Item = { DoesItemContainSpec = function() return nil end }
+
+  local context = trinketContext({ policies = { candidate = { trinketPolicy } } })
+  local result = addon.Evaluation.CandidateEvaluator.Evaluate({ itemID = 503 }, context, {
+    groupId = "trinkets", score = function() return 100 end,
+  })
+  A.truthy(result.eligible, "nil (unknown) must be conservative and allow, not reject")
+end)
+
+test("treats a missing/erroring C_Item.DoesItemContainSpec as eligible", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local trinketPolicy = policyByID(resolved.candidate, "XIVEquip.spec_appropriate_trinkets")
+  _G.C_Item = { DoesItemContainSpec = function() error("simulated API failure") end }
+
+  local context = trinketContext({ policies = { candidate = { trinketPolicy } } })
+  local result = addon.Evaluation.CandidateEvaluator.Evaluate({ itemID = 504 }, context, {
+    groupId = "trinkets", score = function() return 100 end,
+  })
+  A.truthy(result.eligible)
+end)
+
+test("does not affect candidates outside the trinkets group", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local trinketPolicy = policyByID(resolved.candidate, "XIVEquip.spec_appropriate_trinkets")
+  _G.C_Item = { DoesItemContainSpec = function() return false end }
+
+  local context = trinketContext({ policies = { candidate = { trinketPolicy } } })
+  local result = addon.Evaluation.CandidateEvaluator.Evaluate({ itemID = 505 }, context, {
+    groupId = "rings", score = function() return 100 end,
+  })
+  A.truthy(result.eligible, "the policy is scoped to trinkets and must not reject items from other groups")
+end)
+
+test("a wishlisted trinket bypasses the filter even when Blizzard marks it inappropriate, and still gets its wishlist bonus", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local trinketPolicy = policyByID(resolved.candidate, "XIVEquip.spec_appropriate_trinkets")
+  local listPolicy = policyByID(resolved.candidate, "XIVEquip.profile_item_lists")
+  _G.C_Item = { DoesItemContainSpec = function() return false end }
+
+  local context = trinketContext({
+    profilePreferences = { preferSpecAppropriateTrinkets = true, wishlist = { [506] = true }, avoidlist = {} },
+    policies = { candidate = { trinketPolicy, listPolicy } },
+  })
+  local result = addon.Evaluation.CandidateEvaluator.Evaluate({ itemID = 506 }, context, {
+    groupId = "trinkets", score = function() return 100 end,
+  })
+  A.truthy(result.eligible, "wishlisted trinkets must remain eligible regardless of spec-appropriateness")
+  A.equal(result.scoreAdjustment, 10, "wishlist scoring must be unaffected")
+end)
+
+test("avoidlist still rejects a trinket even when the spec-appropriate filter would have allowed it", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local trinketPolicy = policyByID(resolved.candidate, "XIVEquip.spec_appropriate_trinkets")
+  local listPolicy = policyByID(resolved.candidate, "XIVEquip.profile_item_lists")
+  _G.C_Item = { DoesItemContainSpec = function() return true end }
+
+  local context = trinketContext({
+    profilePreferences = { preferSpecAppropriateTrinkets = true, wishlist = {}, avoidlist = { [507] = true } },
+    policies = { candidate = { trinketPolicy, listPolicy } },
+  })
+  local result = addon.Evaluation.CandidateEvaluator.Evaluate({ itemID = 507 }, context, {
+    groupId = "trinkets", score = function() return 100 end,
+  })
+  A.falsy(result.eligible)
+  A.equal(result.reasons[1], "avoidlist")
+end)
+
+test("caches repeated spec-suitability lookups for the same item within a planning pass", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local trinketPolicy = policyByID(resolved.candidate, "XIVEquip.spec_appropriate_trinkets")
+  local calls = 0
+  _G.C_Item = { DoesItemContainSpec = function() calls = calls + 1; return false end }
+
+  local context = trinketContext({ policies = { candidate = { trinketPolicy } } })
+  for _ = 1, 3 do
+    trinketPolicy.apply({ itemID = 508 }, context, {})
+  end
+  A.equal(calls, 1, "identical classID/specID/itemID lookups should be cached, not repeated")
+end)
+
+test("planner-level: a much higher-scoring spec-inappropriate trinket is excluded, then becomes eligible once wishlisted", function()
+  local addon = newAddon()
+  _G.XIVEquip = addon
+
+  FakeWorld.Install({
+    items = {
+      inappropriate = { itemID = 601, equipLoc = "INVTYPE_TRINKET", stats = { ITEM_MOD_STRENGTH_SHORT = 500 } },
+      appropriate = { itemID = 602, equipLoc = "INVTYPE_TRINKET", stats = { ITEM_MOD_STRENGTH_SHORT = 50 } },
+    },
+    equipped = {},
+    bags = { [0] = { "inappropriate", "appropriate" } },
+  })
+  _G.C_Item.DoesItemContainSpec = function(itemInfo)
+    local id = tonumber(tostring(itemInfo):match("|Hitem:(%d+)"))
+    return id ~= 601
+  end
+
+  local Profiles = addon.Profiles.Config
+  local profile = Profiles.GetDefault("WARRIOR")
+  Profiles.SetPreferSpecAppropriateTrinkets(profile, 71, true)
+
+  local scale = addon.XIVWeights.NewScale({
+    weights = addon.XIVWeights.Normalizer.Normalize({ strength = 1 }),
+  })
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local runtime = {
+    UnitClass = function() return "Player", "WARRIOR", 1 end,
+    UnitName = function() return "Tester", "Realm" end,
+    GetSpecialization = function() return 1 end,
+    GetSpecializationInfo = function() return 71, "Arms" end,
+    UnitLevel = function() return 80 end,
+    IsDualWielding = function() return false end,
+    ResolveWeights = function() return scale end,
+  }
+  local context = addon.Evaluation.ContextBuilder.BuildContext(resolved, runtime)
+  A.truthy(context.profilePreferences.preferSpecAppropriateTrinkets)
+
+  local function candidateFor(itemID)
+    return addon.Evaluation.CandidateNormalizer.FromLink(FakeWorld.ItemLink(itemID), { guid = "guid-" .. itemID })
+  end
+  local inappropriate, appropriate = candidateFor(601), candidateFor(602)
+  local loadoutState = addon.Assignments.LoadoutState.New()
+
+  local frontier = addon.Assignments.Groups.Trinkets.Frontier(
+    { inappropriate, appropriate }, context, loadoutState, nil, nil)
+  local combination = addon.Optimization.LoadoutOptimizer.FindBest(
+    { { id = "trinkets", slots = { 13, 14 }, frontier = frontier } }, loadoutState)
+
+  local function hasCandidate(picks, target)
+    for _, c in pairs(picks) do if c == target then return true end end
+    return false
+  end
+  A.truthy(hasCandidate(combination.trinkets.picks, appropriate),
+    "the appropriate trinket should be chosen despite its much lower raw score")
+  A.falsy(hasCandidate(combination.trinkets.picks, inappropriate),
+    "the spec-inappropriate trinket must be excluded even though it scores far higher")
+
+  -- Now wishlist the inappropriate trinket for this spec and rebuild the
+  -- pipeline from a fresh context -- it must become eligible and compete on
+  -- its (much higher) raw score again.
+  Profiles.SetWishlistItem(profile, 71, 601, true)
+  local wishlistedContext = addon.Evaluation.ContextBuilder.BuildContext(resolved, runtime)
+  local wishlistedFrontier = addon.Assignments.Groups.Trinkets.Frontier(
+    { inappropriate, appropriate }, wishlistedContext, loadoutState, nil, nil)
+  local wishlistedCombination = addon.Optimization.LoadoutOptimizer.FindBest(
+    { { id = "trinkets", slots = { 13, 14 }, frontier = wishlistedFrontier } }, loadoutState)
+
+  A.truthy(hasCandidate(wishlistedCombination.trinkets.picks, inappropriate),
+    "wishlisting must restore eligibility and let the trinket compete on its own score")
 end)
 
 test("normalization preserves an item's set ID for candidate policies", function()

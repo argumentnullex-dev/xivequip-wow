@@ -36,6 +36,7 @@ local function loadWindow(addon, calls)
         self.points = self.points or {}
         self.points[#self.points + 1] = { ... }
       end,
+      SetAllPoints = function() end,
       ClearAllPoints = function(self) self.points = {} end,
       SetWidth = function() end,
       SetJustifyH = function() end,
@@ -77,6 +78,8 @@ local function loadWindow(addon, calls)
     function f:Enable() self.enabled = true end
     function f:Disable() self.enabled = false end
     function f:SetAutoFocus() end
+    function f:SetFocus() self.focused = true end
+    function f:HasFocus() return self.focused == true end
     function f:ClearFocus() end
     function f:GetText() return self.text end
     function f:SetTextInsets() end
@@ -140,6 +143,10 @@ local function loadWindow(addon, calls)
     end,
   }
   _G.GetActionInfo = calls.getActionInfo or function() return nil end
+  _G.hooksecurefunc = function(name, fn)
+    calls.hooks[name] = fn
+  end
+  _G.IsControlKeyDown = function() return calls.controlDown == true end
 
   local chunk = assert(loadfile(root .. sep .. "XIVEquip" .. sep .. "UI" .. sep .. "SettingsWindow" .. sep .. "Window.lua"))
   chunk("XIVEquip", addon)
@@ -148,7 +155,10 @@ end
 
 local function harness()
   local settingsTable = { UI = { SettingsWindow = {} } }
-  local calls = { buttons = {}, fontText = {}, fontObjects = {}, created = nil, edited = nil, pickup = nil, settings = settingsTable }
+  local calls = {
+    buttons = {}, fontText = {}, fontObjects = {}, hooks = {}, controlDown = false,
+    created = nil, edited = nil, pickup = nil, settings = settingsTable,
+  }
   local addon = {
     UI = {},
     L = { AddonPrefix = "XIVEquip: " },
@@ -180,7 +190,177 @@ test("Settings uses a vertical navigation rail", function()
   A.equal(frame.tabs[2].points[1][1], "TOP", "second navigation item should stack vertically")
   A.equal(frame.tabs[2].points[1][2], frame.tabs[1], "second navigation item should follow the first")
   A.equal(frame.tabs[2].points[1][3], "BOTTOM", "navigation should be vertical rather than horizontal")
+  A.equal(frame.tabs[3].text, "Wishlist", "settings should expose Wishlist in the navigation rail")
+  A.equal(frame.tabs[4].text, "Avoidlist", "settings should expose Avoidlist in the navigation rail")
+  A.equal(frame.tabs[4].points[1][2], frame.tabs[3], "list navigation items should continue the vertical stack")
   A.equal(frame.content.points[1][4], 146, "page content should begin to the right of the rail")
+end)
+
+test("Wishlist searches owned gear and adds the selected item for the active Profile and spec", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default", name = "Default", automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  local wishlist, avoidlist, updates = {}, {}, {}
+  local shiningLink = "|cff0070dd|Hitem:101::::::::80:::::|h[Shining Helm]|h|r"
+  local darkLink = "|cff0070dd|Hitem:102::::::::80:::::|h[Dark Boots]|h|r"
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  _G.GetItemInfoInstant = function(value)
+    local id = tonumber(tostring(value):match("item:(%d+)") or value)
+    return id, nil, nil, id == 102 and "INVTYPE_FEET" or "INVTYPE_HEAD"
+  end
+  _G.GetItemInfo = function(value)
+    local id = tonumber(tostring(value):match("item:(%d+)") or value)
+    if id == 101 then return "Shining Helm", shiningLink end
+    if id == 102 then return "Dark Boots", darkLink end
+    return nil
+  end
+  addon.Evaluation = {
+    CandidateCollector = {
+      Collect = function()
+        return { candidates = {
+          { itemID = 101, link = shiningLink, source = { kind = "bag" } },
+          { itemID = 102, link = darkLink, source = { kind = "equipped" } },
+        } }
+      end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      GetSpecPreferences = function() return { wishlist = wishlist, avoidlist = avoidlist } end,
+      SetWishlistItem = function(_, specID, itemID, listed)
+        updates[#updates + 1] = { kind = "wishlist", specID = specID, itemID = itemID, listed = listed }
+        wishlist[itemID] = listed and true or nil
+        if listed then avoidlist[itemID] = nil end
+        return profile
+      end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(3)
+  local page = Window.Frame.content.page
+  local input = page._xivEquipFrames["item-list-input"]
+  input:SetText("Shining")
+  input.scripts.OnTextChanged(input, true)
+  local rows = page._xivEquipFrames["settings-scroll"]._xivEquipScrollChild
+  local linkRows = rows._xivEquipPool.items["item-link-row"]
+  A.equal(#linkRows, 1, "name filtering should show only matching equipped or bag gear")
+  A.truthy(linkRows[1].label.text:find("Shining Helm", 1, true), "search result should display the item link name")
+  rows._xivEquipPool.items.button[1].scripts.OnClick(rows._xivEquipPool.items.button[1])
+
+  A.equal(updates[1].kind, "wishlist")
+  A.equal(updates[1].specID, 70, "Wishlist update should use the active specialization")
+  A.equal(updates[1].itemID, 101, "matching result should add its item ID")
+  A.truthy(updates[1].listed, "matching result should add rather than remove")
+end)
+
+test("Avoidlist accepts Ctrl-clicked item links and removes existing entries", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default", name = "Default", automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  local wishlist, avoidlist = {}, { [202] = true }
+  local updates = {}
+  local avoidedLink = "|cffa335ee|Hitem:202::::::::80:::::|h[Avoided Greaves]|h|r"
+  local newLink = "|cffa335ee|Hitem:303::::::::80:::::|h[Unwanted Shoulders]|h|r"
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  _G.GetItemInfoInstant = function(value)
+    local id = tonumber(tostring(value):match("item:(%d+)") or value)
+    return id, nil, nil, "INVTYPE_LEGS"
+  end
+  _G.GetItemInfo = function(value)
+    local id = tonumber(tostring(value):match("item:(%d+)") or value)
+    if id == 202 then return "Avoided Greaves", avoidedLink end
+    if id == 303 then return "Unwanted Shoulders", newLink end
+    return nil
+  end
+  addon.Evaluation = { CandidateCollector = { Collect = function() return { candidates = {} } end } }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      GetSpecPreferences = function() return { wishlist = wishlist, avoidlist = avoidlist } end,
+      SetAvoidlistItem = function(_, specID, itemID, listed)
+        updates[#updates + 1] = { specID = specID, itemID = itemID, listed = listed }
+        avoidlist[itemID] = listed and true or nil
+        if listed then wishlist[itemID] = nil end
+        return profile
+      end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(4)
+  calls.controlDown = true
+  A.truthy(calls.hooks.HandleModifiedItemClick, "settings should install one modified-item-click capture hook")
+  calls.hooks.HandleModifiedItemClick(newLink)
+  A.equal(Window.ItemListInput.text, newLink, "Ctrl-click should fill the active Avoidlist input")
+  A.truthy(Window.ItemListInput.focused, "captured item link should focus the input")
+  Window.Frame.content.page._xivEquipPool.items.button[1].scripts.OnClick(
+    Window.Frame.content.page._xivEquipPool.items.button[1])
+  A.equal(updates[1].itemID, 303, "Add Item should store the Ctrl-clicked item")
+  A.truthy(updates[1].listed)
+
+  local rows = Window.Frame.content.page._xivEquipFrames["settings-scroll"]._xivEquipScrollChild
+  rows._xivEquipPool.items.button[1].scripts.OnClick(rows._xivEquipPool.items.button[1])
+  A.equal(updates[2].itemID, 202, "Remove should target the listed item")
+  A.falsy(updates[2].listed, "Remove should clear the Avoidlist entry")
+end)
+
+test("Wishlist and Avoidlist tabs each explain the Ctrl-click workflow, link sources, and their own slash command", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default", name = "Default", automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.Evaluation = { CandidateCollector = { Collect = function() return { candidates = {} } end } }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      GetSpecPreferences = function() return { wishlist = {}, avoidlist = {} } end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+
+  local function pageText()
+    local joined = {}
+    for _, item in ipairs(Window.Frame.content.page._xivEquipPool.items.font) do joined[#joined + 1] = item.text end
+    return table.concat(joined, "\n")
+  end
+
+  Window.ShowTab(3)
+  local wishlistText = pageText()
+  A.truthy(wishlistText:find("Ctrl-click", 1, true), "should name the real capture-key workflow")
+  A.truthy(wishlistText:find("Collections", 1, true), "should mention Collections as a source for gear players don't own yet")
+  A.truthy(wishlistText:find("bags", 1, true), "should mention bags as an item-link source")
+  A.truthy(wishlistText:find("chat", 1, true), "should mention chat as an item-link source")
+  A.truthy(wishlistText:find("/xive wish add", 1, true), "Wishlist tab should mention its own slash command")
+  A.falsy(wishlistText:find("/xive avoid add", 1, true), "Wishlist tab should not mention the Avoidlist command")
+
+  Window.ShowTab(4)
+  local avoidlistText = pageText()
+  A.truthy(avoidlistText:find("/xive avoid add", 1, true), "Avoidlist tab should mention its own slash command")
+  A.falsy(avoidlistText:find("/xive wish add", 1, true), "Avoidlist tab should not mention the Wishlist command")
 end)
 
 test("Settings reads and displays the full add-on version", function()
@@ -489,11 +669,39 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.equal(setPreferenceBox.points[1][2], 14, "set preference should align beneath Automatic")
   A.truthy(setPreferenceBox.points[1][3] < automaticBox.points[1][3], "set preference should render below Automatic")
   A.equal(setPreferenceBox.checkboxText, "Prefer set bonuses", "set preference should retain its clear label")
+  local specTrinketBox = modePanel._xivEquipPool.items.checkbox[3]
+  A.equal(specTrinketBox.points[1][2], 14, "spec-appropriate-trinkets preference should align with the other preferences")
+  A.truthy(specTrinketBox.points[1][3] < setPreferenceBox.points[1][3],
+    "spec-appropriate-trinkets preference should render below Prefer set bonuses")
+  A.equal(specTrinketBox.checkboxText, "Prefer spec-appropriate trinkets", "should use a clear, discoverable label")
   local modeText = {}
   for _, item in ipairs(modePanel._xivEquipPool.items.font) do modeText[#modeText + 1] = item.text end
   A.truthy(table.concat(modeText, "\n"):find("Favor loadouts that complete 2-piece and 4-piece set bonuses.", 1, true),
     "set preference should explain its optimization effect")
+  A.truthy(table.concat(modeText, "\n"):find("Wishlisted trinkets are always shown.", 1, true),
+    "spec-appropriate-trinkets preference should explain the Wishlist override")
+
+  -- Every SetPoint offset below is relative to modePanel's OWN top-left,
+  -- not the page's -- so a control's absolute page position is
+  -- modePanel's own top (modePanel.points[1][3]) PLUS the control's
+  -- offset, not the offset alone. Comparing an unconverted relative
+  -- offset against another panel's absolute page position is exactly the
+  -- coordinate-frame mistake that once let the scoring panel's last
+  -- control silently overlap the panel below it.
   local customMapPanel = page._xivEquipPool.items.panel[3]
+  local specTrinketNote
+  for _, item in ipairs(modePanel._xivEquipPool.items.font) do
+    if item.text:find("Wishlisted trinkets are always shown.", 1, true) then specTrinketNote = item end
+  end
+  local modePanelTop = modePanel.points[1][3]
+  local modePanelBottom = modePanelTop - modePanel.height
+  local customMapPanelTop = customMapPanel.points[1][3]
+  local specTrinketNoteAbsoluteY = modePanelTop + specTrinketNote.points[1][3]
+  A.truthy(modePanelBottom >= customMapPanelTop,
+    "the scoring panel's own declared height must not extend past where the next panel begins")
+  A.truthy(specTrinketNoteAbsoluteY >= customMapPanelTop,
+    "the last scoring control must end above the next panel, not inside it")
+
   local customMenu = customMapPanel._xivEquipPool.items.dropdown[1]
   local customEdit = customMapPanel._xivEquipPool.items.button[1]
   A.truthy(customEdit.points[1][2] >= customMenu.points[1][2] + customMenu.dropdownWidth + 36,
@@ -508,6 +716,19 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.truthy(minimapBox.points[1][3] <= debugBox.points[1][3] - 62,
     "Minimap Button should have breathing room below the message checkboxes")
   A.equal(macroButton.points[1][3], minimapBox.points[1][3], "Minimap and Macro controls should share a baseline")
+
+  -- The Config tab's page frame (makeContent) is not a scrollframe -- unlike
+  -- the per-scale weight editor, content that runs past the window's own
+  -- height simply renders outside the visible window rather than clipping
+  -- cleanly or becoming scrollable. This is the tab's deepest branch
+  -- (Automatic/Custom mapping visible, so Addon Settings sits at its lowest
+  -- position) -- if this ever fails, frame:SetSize's height needs growing
+  -- to match, not the content trimming down.
+  local CONTENT_TOP_MARGIN, CONTENT_BOTTOM_MARGIN = 48, 18
+  local generalPanelBottom = -generalPanel.points[1][3] + generalPanel.height
+  local availableContentHeight = Window.Frame.height - CONTENT_TOP_MARGIN - CONTENT_BOTTOM_MARGIN
+  A.truthy(generalPanelBottom <= availableContentHeight,
+    "the Config tab's tallest branch must fit inside the settings window without clipping")
 
   profile.automatic = true
   Window.ShowTab(1)

@@ -106,6 +106,24 @@ addCase("preview setting round-trips through shared settings API", function()
   end)
 end)
 
+-- None of the other cases in this file ever exercise the actual planner --
+-- they only check settings/slash-command plumbing. That makes /xive smoke
+-- a poor smoke test for the addon's actual core feature: producing a
+-- legal equipment plan against the player's real gear/bags/spec. This case
+-- runs the real native planner (Gear:PlanBest, which internally wraps
+-- Planning.Coordinator/PlanBuilder in xpcall and already never raises to
+-- its caller) and fails loudly with the planner's own failure detail if it
+-- can't produce a well-formed result, so /xive smoke actually validates
+-- the addon's core behavior, not just its settings surface.
+addCase("PlanBest completes and returns a well-formed plan against live gear/bags/spec", function()
+  expectTruthy(XIVEquip.Gear and XIVEquip.Gear.PlanBest, "Gear:PlanBest is not available")
+  local changes, pending, _, _, detail = XIVEquip.Gear:PlanBest()
+  if changes == nil then
+    fail("PlanBest failed: " .. tostring(detail or pending or "unknown error"))
+  end
+  expectEqual(type(changes), "table", "PlanBest should return a list of planned changes")
+end)
+
 addCase("/xive status completes without error", function()
   withSavedSettings(function()
     expectTruthy(SlashCmdList and SlashCmdList.XIVE, "Slash command is not registered")

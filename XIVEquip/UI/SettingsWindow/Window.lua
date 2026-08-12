@@ -13,7 +13,7 @@ local TAB_RAIL_WIDTH = 118
 local CONTENT_LEFT = 146
 local CONTENT_WIDTH = 590
 
-local tabs = { "Config", "Scales" }
+local tabs = { "Config", "Scales", "Wishlist", "Avoidlist" }
 
 local function settings()
   return XIVEquip.Settings and XIVEquip.Settings:Get() or _G.XIVEquip_Settings or {}
@@ -535,6 +535,69 @@ local function currentState()
   return C, Profiles, runtime, context, specID, classFile, profile
 end
 
+local function parseItemID(value)
+  if type(value) == "number" then return value > 0 and math.floor(value) or nil end
+  value = tostring(value or "")
+  local itemID = tonumber(value:match("|Hitem:(%d+)") or value:match("item:(%d+)") or value:match("^%s*(%d+)%s*$"))
+  if itemID and itemID > 0 then return math.floor(itemID) end
+  if type(GetItemInfoInstant) == "function" then
+    local ok, resolved = pcall(GetItemInfoInstant, value)
+    if ok and tonumber(resolved) and tonumber(resolved) > 0 then return math.floor(tonumber(resolved)) end
+  end
+  return nil
+end
+
+local function itemNameAndLink(itemID, fallbackLink)
+  local name, link
+  if type(GetItemInfo) == "function" then
+    local ok, resolvedName, resolvedLink = pcall(GetItemInfo, fallbackLink or itemID)
+    if ok then name, link = resolvedName, resolvedLink end
+  end
+  link = link or fallbackLink
+  if not name and type(link) == "string" then name = link:match("|h%[([^%]]+)%]|h") end
+  if not name and C_Item and type(C_Item.GetItemNameByID) == "function" then
+    local ok, resolvedName = pcall(C_Item.GetItemNameByID, itemID)
+    if ok then name = resolvedName end
+  end
+  if not link and C_Item and type(C_Item.GetItemLinkByID) == "function" then
+    local ok, resolvedLink = pcall(C_Item.GetItemLinkByID, itemID)
+    if ok then link = resolvedLink end
+  end
+  if not name and C_Item and type(C_Item.RequestLoadItemDataByID) == "function" then
+    pcall(C_Item.RequestLoadItemDataByID, itemID)
+  end
+  return name or ("Item " .. tostring(itemID)), link
+end
+
+local function ownedGearItems()
+  local collector = XIVEquip.Evaluation and XIVEquip.Evaluation.CandidateCollector
+  if not (collector and type(collector.Collect) == "function") then return {} end
+  local ok, collected = pcall(collector.Collect)
+  if not ok or type(collected) ~= "table" then return {} end
+  local seen, out = {}, {}
+  for _, candidate in ipairs(collected.candidates or {}) do
+    local itemID = tonumber(candidate.itemID) or parseItemID(candidate.link)
+    if itemID and not seen[itemID] then
+      seen[itemID] = true
+      local name, link = itemNameAndLink(itemID, candidate.link)
+      out[#out + 1] = { itemID = itemID, name = name, link = link or candidate.link }
+    end
+  end
+  table.sort(out, function(a, b)
+    local aName, bName = string.lower(tostring(a.name)), string.lower(tostring(b.name))
+    if aName == bName then return a.itemID < b.itemID end
+    return aName < bName
+  end)
+  return out
+end
+
+local function isGearItem(itemID, value)
+  if type(GetItemInfoInstant) ~= "function" then return true end
+  local ok, resolved, _, _, equipLoc = pcall(GetItemInfoInstant, value or itemID)
+  if not ok or not resolved then return true end
+  return type(equipLoc) == "string" and equipLoc ~= ""
+end
+
 local function panel(parent, x, y, width, height)
   local frame = pooled(parent, "panel", function()
     return CreateFrame("Frame", nil, parent, "BackdropTemplate")
@@ -778,12 +841,13 @@ local function showConfig(content)
   local resolved = C and specID and C.ResolveResultForSpec and C.ResolveResultForSpec(specID, runtime)
   local manual = profile and profile.manual or {}
   local preferences = Profiles and Profiles.GetSpecPreferences and profile and specID
-      and Profiles.GetSpecPreferences(profile, specID) or { preferSetBonuses = false }
+      and Profiles.GetSpecPreferences(profile, specID) or { preferSetBonuses = true, preferSpecAppropriateTrinkets = true }
   local viewKey = table.concat({
     "config", tostring(classFile), tostring(specID), tostring(profile and profile.id or ""),
     tostring(profile and profile.automatic), tostring(manual.mode),
     tostring(manual.integration and manual.integration.provider),
     tostring(preferences.preferSetBonuses == true),
+    tostring(preferences.preferSpecAppropriateTrinkets == true),
     mapStateKey(manual.customOverrides),
     mapStateKey(manual.integration and manual.integration.overrides),
     tostring(resolved and resolved.scale and resolved.scale.resolution and resolved.scale.resolution.sourceKind),
@@ -887,7 +951,7 @@ local function showConfig(content)
     end)
   end)
 
-  local modePanel = panel(page, 0, -152, CONTENT_WIDTH, 228)
+  local modePanel = panel(page, 0, -152, CONTENT_WIDTH, 268)
   sectionTitle(modePanel, "Scoring Configuration", 14, -14)
   local mode = profile and profile.manual and string.lower(tostring(profile.manual.mode or "default")) or "default"
   local manualEditable = profile and profile.automatic == false
@@ -967,9 +1031,17 @@ local function showConfig(content)
   setPreference:SetPoint("TOPLEFT", 14, -184)
   local setPreferenceNote = font(modePanel, "GameFontDisableSmall", "Favor loadouts that complete 2-piece and 4-piece set bonuses.")
   setPreferenceNote:SetPoint("TOPLEFT", 36, -204)
+  local specTrinketPreference = checkbox(modePanel, "Prefer spec-appropriate trinkets",
+    preferences.preferSpecAppropriateTrinkets == true, function(value)
+      if profile and specID then Profiles.SetPreferSpecAppropriateTrinkets(profile, specID, value); Window.ShowTab(1) end
+    end)
+  specTrinketPreference:SetPoint("TOPLEFT", 14, -224)
+  local specTrinketPreferenceNote = font(modePanel, "GameFontDisableSmall",
+    "Hide trinkets Blizzard doesn't consider appropriate for this specialization. Wishlisted trinkets are always shown.")
+  specTrinketPreferenceNote:SetPoint("TOPLEFT", 36, -244)
 
   local specs = defaults and defaults.SpecsForClass(classFile) or {}
-  local mapPanel = panel(page, 0, -392, CONTENT_WIDTH, 132)
+  local mapPanel = panel(page, 0, -432, CONTENT_WIDTH, 132)
   local mappingTitle = displayMode == "custom" and "Custom scale overrides by specialization"
       or "Integration scales by specialization"
   sectionTitle(mapPanel, mappingTitle, 14, -14)
@@ -1055,7 +1127,7 @@ local function showConfig(content)
   end
   if not profile or displayMode == "default" then mapPanel:Hide() end
 
-  local generalY = (profile and displayMode ~= "default") and -538 or -392
+  local generalY = (profile and displayMode ~= "default") and -578 or -432
   addGeneralSettings(page, 0, generalY, CONTENT_WIDTH)
 end
 
@@ -1487,7 +1559,237 @@ local function showScales(content)
   editor:SetHeight(math.max(500, -y + 24))
 end
 
-local renderers = { showConfig, showScales }
+local itemListDefinitions = {
+  wishlist = {
+    title = "Wishlist",
+    note = "Wishlisted gear receives a scoring preference when XIVEquip builds a recommendation.",
+    empty = "No gear is wishlisted for this Profile and specialization.",
+    setter = "SetWishlistItem",
+    slashVerb = "wish",
+    tab = 3,
+  },
+  avoidlist = {
+    title = "Avoidlist",
+    note = "Avoidlisted gear is excluded from XIVEquip recommendations.",
+    empty = "No gear is avoided for this Profile and specialization.",
+    setter = "SetAvoidlistItem",
+    slashVerb = "avoid",
+    tab = 4,
+  },
+}
+
+local function itemLinkButton(parent, displayText, link, onClick)
+  local row = pooled(parent, "item-link-row", function()
+    local control = CreateFrame("Button", nil, parent)
+    control.label = control:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    control.label:SetAllPoints(control)
+    control.label:SetJustifyH("LEFT")
+    return control
+  end)
+  row:SetSize(438, 22)
+  row.label:SetText(displayText)
+  row:SetScript("OnClick", onClick)
+  row:SetScript("OnEnter", function(self)
+    if link and GameTooltip and GameTooltip.SetOwner and GameTooltip.SetHyperlink then
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetHyperlink(link)
+      GameTooltip:Show()
+    end
+  end)
+  row:SetScript("OnLeave", function()
+    if GameTooltip and GameTooltip.Hide then GameTooltip:Hide() end
+  end)
+  return row
+end
+
+local function showItemList(content, kind)
+  local definition = itemListDefinitions[kind]
+  local _, Profiles, _, _, specID, _, profile = currentState()
+  local page = clearContent(content)
+  page._viewKey = nil
+  local specName = currentSpecName() or tostring(specID or "Unknown specialization")
+  local profileName = profile and profile.name or "Unavailable"
+  local preferences = Profiles and Profiles.GetSpecPreferences and profile and specID
+      and Profiles.GetSpecPreferences(profile, specID) or { wishlist = {}, avoidlist = {} }
+  local listed = preferences[kind] or {}
+  local ownedItems = ownedGearItems()
+
+  local title = font(page, "GameFontNormalLarge", definition.title)
+  title:SetPoint("TOPLEFT", 0, 0)
+  local note = font(page, "GameFontHighlightSmall", definition.note)
+  note:SetPoint("TOPLEFT", 0, -30)
+  note:SetWidth(CONTENT_WIDTH)
+  local breadcrumb1 = font(page, "GameFontDisableSmall",
+    "Ctrl-click any item link while this tab is open to drop it into the box below -- works with links from "
+    .. "Collections (even gear you don't own yet), your bags, or chat.")
+  breadcrumb1:SetPoint("TOPLEFT", 0, -52)
+  breadcrumb1:SetWidth(CONTENT_WIDTH)
+  local breadcrumb2 = font(page, "GameFontDisableSmall",
+    "Prefer the command line? /xive " .. definition.slashVerb .. " add <item link> does the same thing without opening Settings.")
+  breadcrumb2:SetPoint("TOPLEFT", 0, -70)
+  breadcrumb2:SetWidth(CONTENT_WIDTH)
+  local contextLine = font(page, "GameFontDisableSmall",
+    "Profile: " .. tostring(profileName) .. "  |  Specialization: " .. tostring(specName))
+  contextLine:SetPoint("TOPLEFT", 0, -92)
+
+  local inputLabel = font(page, "GameFontNormal", "Add gear")
+  inputLabel:SetPoint("TOPLEFT", 0, -122)
+  local input = pooledFrame(page, "item-list-input", "EditBox", "InputBoxTemplate")
+  input:SetSize(402, 22)
+  input:SetPoint("TOPLEFT", 0, -144)
+  input:SetAutoFocus(false)
+  input:SetScript("OnTextChanged", nil)
+  input:SetText("")
+  Window.ItemListInput = input
+  Window.ItemListKind = kind
+
+  local feedback = font(page, "GameFontDisableSmall", "")
+  feedback:SetPoint("TOPLEFT", 0, -172)
+  feedback:SetWidth(CONTENT_WIDTH)
+
+  local add = button(page, "Add Item", 78, 22)
+  add:SetPoint("TOPLEFT", 412, -144)
+  local refresh = button(page, "Refresh Gear", 94, 22)
+  refresh:SetPoint("LEFT", add, "RIGHT", 6, 0)
+
+  local _, rows = createScroll(page, 0, -200, CONTENT_WIDTH, 568)
+  local function addListedItem(value)
+    local itemID = parseItemID(value)
+    if not itemID then
+      feedback:SetText("Enter an item link or item ID.")
+      textColor(feedback, 1, 0.45, 0.35)
+      return
+    end
+    if not isGearItem(itemID, value) then
+      feedback:SetText("That item is not equippable gear.")
+      textColor(feedback, 1, 0.45, 0.35)
+      return
+    end
+    local setter = Profiles and Profiles[definition.setter]
+    local ok, reason = setter and profile and specID and setter(profile, specID, itemID, true)
+    if not ok then
+      feedback:SetText("Unable to update the " .. definition.title .. ": " .. tostring(reason or "profile unavailable") .. ".")
+      textColor(feedback, 1, 0.45, 0.35)
+      return
+    end
+    Window.ItemListRevision = (Window.ItemListRevision or 0) + 1
+    Window.ShowTab(definition.tab)
+  end
+
+  local function renderRows()
+    beginRender(rows)
+    hidePooledFrames(rows)
+    local y = -8
+    sectionTitle(rows, "Items on this list", 10, y)
+    y = y - 30
+    local ids = {}
+    for itemID, enabled in pairs(listed) do
+      if enabled then ids[#ids + 1] = tonumber(itemID) or itemID end
+    end
+    table.sort(ids, function(a, b)
+      local aNumber, bNumber = tonumber(a), tonumber(b)
+      if aNumber and bNumber then return aNumber < bNumber end
+      return tostring(a) < tostring(b)
+    end)
+    if #ids == 0 then
+      local empty = font(rows, "GameFontDisableSmall", definition.empty)
+      empty:SetPoint("TOPLEFT", 10, y)
+      y = y - 30
+    else
+      for _, itemID in ipairs(ids) do
+        local name, link = itemNameAndLink(itemID)
+        local display = link or (name .. " (item " .. tostring(itemID) .. ")")
+        local row = itemLinkButton(rows, display, link, function() input:SetText(link or tostring(itemID)); input:SetFocus() end)
+        row:SetPoint("TOPLEFT", 10, y + 5)
+        local remove = button(rows, "Remove", 72, 20)
+        remove:SetPoint("TOPLEFT", 460, y + 5)
+        remove:SetScript("OnClick", function()
+          local setter = Profiles and Profiles[definition.setter]
+          if setter and profile and specID then setter(profile, specID, itemID, false) end
+          Window.ItemListRevision = (Window.ItemListRevision or 0) + 1
+          Window.ShowTab(definition.tab)
+        end)
+        y = y - 28
+      end
+    end
+
+    sectionTitle(rows, "Matching equipped and bag gear", 10, y)
+    y = y - 28
+    local query = string.lower(tostring(input:GetText() or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+    if query == "" then
+      local guidance = font(rows, "GameFontDisableSmall",
+        "Type part of an item name above to search equipped and bag gear.")
+      guidance:SetPoint("TOPLEFT", 10, y)
+      guidance:SetWidth(530)
+      y = y - 34
+    else
+      local matches = 0
+      for _, item in ipairs(ownedItems) do
+        local matchesName = string.find(string.lower(tostring(item.name or "")), query, 1, true)
+        local matchesID = string.find(tostring(item.itemID), query, 1, true)
+        if not listed[item.itemID] and (matchesName or matchesID) then
+          matches = matches + 1
+          local display = item.link or (item.name .. " (item " .. tostring(item.itemID) .. ")")
+          local row = itemLinkButton(rows, display, item.link, function()
+            input:SetText(item.link or tostring(item.itemID)); input:SetFocus()
+          end)
+          row:SetPoint("TOPLEFT", 10, y + 5)
+          local addMatch = button(rows, "Add", 72, 20)
+          addMatch:SetPoint("TOPLEFT", 460, y + 5)
+          addMatch:SetScript("OnClick", function() addListedItem(item.link or item.itemID) end)
+          y = y - 28
+        end
+      end
+      if matches == 0 then
+        local noMatches = font(rows, "GameFontDisableSmall", "No matching gear was found in equipped slots or bags.")
+        noMatches:SetPoint("TOPLEFT", 10, y)
+        y = y - 30
+      end
+    end
+    rows:SetHeight(math.max(568, -y + 16))
+  end
+
+  input:SetScript("OnTextChanged", function(_, userInput)
+    if userInput ~= false then feedback:SetText("") end
+    renderRows()
+  end)
+  input:SetScript("OnEnterPressed", function(self) addListedItem(self:GetText()) end)
+  add:SetScript("OnClick", function() addListedItem(input:GetText()) end)
+  refresh:SetScript("OnClick", function()
+    ownedItems = ownedGearItems()
+    feedback:SetText("Equipped and bag gear refreshed.")
+    textColor(feedback, 0.4, 1, 0.4)
+    renderRows()
+  end)
+  renderRows()
+end
+
+function Window.CaptureItemLink(link)
+  local frame = Window.Frame
+  if not frame or not frame.IsShown or not frame:IsShown() then return false end
+  if frame.selectedTab ~= 3 and frame.selectedTab ~= 4 then return false end
+  if type(IsControlKeyDown) == "function" and not IsControlKeyDown() then return false end
+  local input = Window.ItemListInput
+  if not input or type(link) ~= "string" or not parseItemID(link) then return false end
+  input:SetText(link)
+  if input.SetFocus then input:SetFocus() end
+  return true
+end
+
+local function installItemLinkCapture()
+  if Window.ItemLinkCaptureInstalled or type(hooksecurefunc) ~= "function" then return end
+  local ok = pcall(hooksecurefunc, "HandleModifiedItemClick", function(link)
+    Window.CaptureItemLink(link)
+  end)
+  Window.ItemLinkCaptureInstalled = ok
+end
+
+local renderers = {
+  showConfig,
+  showScales,
+  function(content) showItemList(content, "wishlist") end,
+  function(content) showItemList(content, "avoidlist") end,
+}
 
 function Window.ShowTab(index)
   local frame = Window.Frame
@@ -1508,7 +1810,14 @@ function Window.Create()
   if Window.Frame then return Window.Frame end
 
   local frame = CreateFrame("Frame", WINDOW_NAME, UIParent, "BasicFrameTemplateWithInset")
-  frame:SetSize(760, 820)
+  -- 860 = the Config tab's tallest branch (Automatic/Custom/Integration
+  -- mapping visible): addGeneralSettings's panel bottom edge at
+  -- generalY(-578) - height(216) = -794, plus the same 48/18 top/bottom
+  -- content margins makeContent already uses elsewhere in this file. Tab 1
+  -- has no scrollframe of its own (unlike the per-scale weight editor,
+  -- which scrolls internally), so the window itself must be tall enough
+  -- for its tallest branch or the bottom content silently clips.
+  frame:SetSize(760, 860)
   frame:SetFrameStrata("MEDIUM")
   frame:SetMovable(true)
   frame:EnableMouse(true)
@@ -1551,6 +1860,7 @@ function Window.Create()
   frame.sidebar = sidebar
 
   frame.content = makeContent(frame)
+  installItemLinkCapture()
   frame.tabs = {}
   for i, label in ipairs(tabs) do
     local tab = CreateFrame("Button", "XIVEquipSettingsTab" .. tostring(i), sidebar, "UIPanelButtonTemplate")

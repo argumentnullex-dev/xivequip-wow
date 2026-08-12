@@ -74,7 +74,7 @@ local function defaultProfile(classFile)
       },
     },
     preferences = {
-      preferSetBonuses = false,
+      preferSetBonuses = true,
       bySpec = {},
     },
   }
@@ -316,7 +316,16 @@ end
 local function preferenceState(profile)
   if type(profile) ~= "table" then return nil end
   profile.preferences = type(profile.preferences) == "table" and profile.preferences or {}
-  profile.preferences.preferSetBonuses = profile.preferences.preferSetBonuses == true
+  -- Unset (nil) defaults to enabled, matching Profile.automatic's own
+  -- ~= false convention -- the best onboarding default for the 2.0
+  -- planner is Automatic scale selection plus both scoring preferences
+  -- on, so an existing Profile that predates this preference (or a
+  -- brand-new one, before defaultProfile's explicit `true` is ever
+  -- touched) still gets the improved behavior without a migration step.
+  -- SetPreferSetBonuses's `enabled == true` is intentionally different:
+  -- that's normalizing an explicit user action, where nil must never be
+  -- possible in the first place.
+  profile.preferences.preferSetBonuses = profile.preferences.preferSetBonuses ~= false
   profile.preferences.bySpec = type(profile.preferences.bySpec) == "table"
       and profile.preferences.bySpec or {}
   return profile.preferences
@@ -349,6 +358,8 @@ local function specPreferenceState(profile, specID)
   end
   state.wishlist = type(state.wishlist) == "table" and state.wishlist or {}
   state.avoidlist = type(state.avoidlist) == "table" and state.avoidlist or {}
+  -- Same unset-defaults-to-enabled convention as preferSetBonuses above.
+  state.preferSpecAppropriateTrinkets = state.preferSpecAppropriateTrinkets ~= false
   return state
 end
 
@@ -366,7 +377,7 @@ end
 function Profiles.GetSpecPreferences(profile, specID)
   local validated = validateProfileSpec(profile, specID)
   if not validated then
-    return { preferSetBonuses = false, wishlist = {}, avoidlist = {} }
+    return { preferSetBonuses = true, wishlist = {}, avoidlist = {}, preferSpecAppropriateTrinkets = true }
   end
   local preferences = preferenceState(profile)
   local state = specPreferenceState(profile, validated)
@@ -374,6 +385,7 @@ function Profiles.GetSpecPreferences(profile, specID)
     preferSetBonuses = preferences.preferSetBonuses == true,
     wishlist = copy(state.wishlist),
     avoidlist = copy(state.avoidlist),
+    preferSpecAppropriateTrinkets = state.preferSpecAppropriateTrinkets == true,
   }
 end
 
@@ -399,6 +411,19 @@ end
 
 function Profiles.SetAvoidlistItem(profile, specID, itemID, listed)
   return setListedItem(profile, specID, itemID, listed, "avoidlist", "wishlist")
+end
+
+-- Unlike SetPreferSetBonuses (a profile-wide preference), this affects only
+-- how one specialization's trinkets are filtered -- it belongs beside
+-- Wishlist/Avoidlist in the per-spec preference state, not the profile-wide
+-- preferences table.
+function Profiles.SetPreferSpecAppropriateTrinkets(profile, specID, enabled)
+  local validated = validateProfileSpec(profile, specID)
+  if not validated then return nil, "invalid-profile-spec" end
+  local state = specPreferenceState(profile, validated)
+  state.preferSpecAppropriateTrinkets = enabled == true
+  invalidatePreview()
+  return profile
 end
 
 function Profiles.SetAutomatic(profile, enabled)
