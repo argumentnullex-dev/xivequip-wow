@@ -517,7 +517,9 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.falsy(modePanel._xivEquipPool.items.button[1].enabled, "automatic mode should disable manual mode controls")
   A.equal(modePanel._xivEquipPool.items.button[2].text, "Custom", "Automatic should retain the selected manual mode as disabled context")
   local mapPanel = page._xivEquipPool.items.panel[3]
-  A.falsy(mapPanel:IsShown(), "Automatic should hide per-spec mappings when its effective source is Default")
+  A.truthy(mapPanel:IsShown(), "Automatic should keep the remembered Custom mappings visible")
+  A.falsy(mapPanel._xivEquipPool.items.dropdown[1].enabled,
+    "remembered Custom mappings should be disabled while Automatic is enabled")
 
   profile.automatic = false
   Window.ShowTab(2)
@@ -529,12 +531,12 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.truthy(mapPanel._xivEquipPool.items.dropdown[1].enabled, "stored mapping controls should re-enable with manual mode")
 end)
 
-test("clicking Automatic highlights Pawn integration when Pawn is the effective source", function()
+test("Automatic keeps the remembered manual configuration visible while Pawn supplies active weights", function()
   local addon, calls = harness()
   local profile = {
     id = "paladin-default",
     automatic = false,
-    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+    manual = { mode = "custom", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
   }
   _G.GetSpecialization = function() return 1 end
   _G.GetSpecializationInfo = function() return 70, "Retribution" end
@@ -594,13 +596,18 @@ test("clicking Automatic highlights Pawn integration when Pawn is the effective 
   automaticBox.scripts.OnClick(automaticBox)
 
   A.equal(profile.automatic, true, "Automatic click should enable Automatic on the Profile")
-  A.equal(profile.manual.mode, "default", "Automatic click should not mutate the stored manual mode")
+  A.equal(profile.manual.mode, "custom", "Automatic click should not mutate the stored manual mode")
   local refreshedModePanel = page._xivEquipPool.items.panel[2]
-  A.falsy(refreshedModePanel._xivEquipPool.items.button[1].locked, "Default should no longer be highlighted when Pawn wins Automatic")
-  A.truthy(refreshedModePanel._xivEquipPool.items.button[3].locked, "Addon Integration should be highlighted when Pawn wins Automatic")
+  A.truthy(refreshedModePanel._xivEquipPool.items.button[2].locked,
+    "the remembered Custom mode should remain selected while Automatic is enabled")
+  A.falsy(refreshedModePanel._xivEquipPool.items.button[3].locked,
+    "Automatic's effective Pawn source should not replace the remembered manual mode in the UI")
   local refreshedMapPanel = page._xivEquipPool.items.panel[3]
-  A.equal(refreshedMapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Recommended (Retribution)",
-    "automatic integration rows should show that the resolved Pawn scale remains provider-recommended")
+  A.truthy(refreshedMapPanel:IsShown(), "the remembered Custom mapping panel should remain visible")
+  A.equal(refreshedMapPanel._xivEquipPool.items.font[1].text, "Custom scale overrides by specialization")
+  A.equal(refreshedMapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Default")
+  A.falsy(refreshedMapPanel._xivEquipPool.items.dropdown[1].enabled,
+    "remembered Custom mappings should remain disabled while Automatic is enabled")
   local text = table.concat(calls.fontText, "\n")
   A.truthy(text:find("Active weights: Pawn | Retribution", 1, true), "Active source should show Pawn after enabling Automatic")
   A.truthy(text:find("Selection disabled while Automatic mode is engaged.", 1, true),

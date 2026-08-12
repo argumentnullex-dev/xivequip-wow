@@ -893,10 +893,6 @@ local function showConfig(content)
   local manualEditable = profile and profile.automatic == false
   local automatic = profile and profile.automatic ~= false
   local displayMode = mode
-  if automatic then
-    local sourceKind = resolution and resolution.sourceKind
-    displayMode = sourceKind == "integration" and "integration" or "default"
-  end
   local modes = {
     { id = "default", label = "Default", note = "Use the built-in recommended scale for every specialization." },
     { id = "custom", label = "Custom", note = "Use Default unless a specialization has its own scale." },
