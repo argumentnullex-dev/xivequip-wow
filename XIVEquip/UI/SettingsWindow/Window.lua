@@ -1374,25 +1374,18 @@ local function showScales(content)
     editor:SetHeight(500)
     return
   end
-  local info = panel(editor, 0, 0, 172, 118)
-  sectionTitle(info, "Scale", 14, -14)
-  local specLine = font(info, "GameFontHighlightSmall", "Specialization: " .. tostring(C.SpecName(specID) or specID))
-  specLine:SetPoint("TOPLEFT", 14, -46)
-  local tied = font(info, "GameFontDisableSmall", "This scale is tied to this specialization.")
-  tied:SetPoint("TOPLEFT", 14, -70)
-  tied:SetWidth(148)
-  local errorLine = font(info, "GameFontDisableSmall", "")
-  errorLine:SetPoint("TOPLEFT", 14, -94)
-  errorLine:SetWidth(148)
   local work = {}
   for key, value in pairs(selectedScale.weights or {}) do work[key] = tonumber(value) or 0 end
   local nameLabel = font(editor, "GameFontNormal", "Scale name")
-  nameLabel:SetPoint("TOPLEFT", 190, -10)
+  nameLabel:SetPoint("TOPLEFT", 14, -10)
   local nameEdit = pooledFrame(editor, "scale-name", "EditBox", "InputBoxTemplate")
-  nameEdit:SetSize(260, 22)
-  nameEdit:SetPoint("TOPLEFT", 190, -34)
+  nameEdit:SetSize(320, 22)
+  nameEdit:SetPoint("TOPLEFT", 14, -34)
   nameEdit:SetAutoFocus(false)
   nameEdit:SetText(selectedScale.name or "Custom Scale")
+  local errorLine = font(editor, "GameFontDisableSmall", "")
+  errorLine:SetPoint("TOPLEFT", 350, -38)
+  errorLine:SetWidth(220)
   local function commitName()
     local value = tostring(nameEdit:GetText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
     local duplicateName = false
@@ -1413,13 +1406,14 @@ local function showScales(content)
   nameEdit:SetScript("OnEnterPressed", function(self) commitName(); self:ClearFocus() end)
   nameEdit:SetScript("OnEditFocusLost", commitName)
 
-  local y = -72
-  local weightInputX = 360
-  local weightSliderX = 426
-  local weightSliderWidth = 146
+  local y = -76
+  local weightLabelX = 14
+  local weightInputX = 300
+  local weightSliderX = 366
+  local weightSliderWidth = 164
   local function addWeightRow(feature, label)
     local rowLabel = font(editor, "GameFontHighlightSmall", label)
-    rowLabel:SetPoint("TOPLEFT", 190, y)
+    rowLabel:SetPoint("TOPLEFT", weightLabelX, y)
     local edit = pooledFrame(editor, "weight-edit:" .. feature, "EditBox", "InputBoxTemplate")
     edit:SetSize(54, 20)
     edit:SetPoint("TOPLEFT", weightInputX, y + 2)
@@ -1484,7 +1478,7 @@ local function showScales(content)
   end
   for _, group in ipairs(featureGroups) do
     local groupLabel = font(editor, "GameFontNormalSmall", group[1])
-    groupLabel:SetPoint("TOPLEFT", 190, y)
+    groupLabel:SetPoint("TOPLEFT", weightLabelX, y)
     textColor(groupLabel, 1, 0.82, 0.1)
     y = y - 22
     for _, feature in ipairs(group[2]) do addWeightRow(feature, featureLabels[feature] or feature) end

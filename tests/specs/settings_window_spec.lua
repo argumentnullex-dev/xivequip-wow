@@ -861,7 +861,7 @@ test("unavailable Integrations do not list scales and show Default fallback for 
     "automatic Integration mapping should show its effective Default fallback")
 end)
 
-test("Scale editor shows specialization binding and refreshes the active selector label", function()
+test("Scale editor uses its full width and refreshes the active selector label", function()
   local addon, calls = harness()
   local sourceScale = { id = "manual:source", name = "Protection Raid" }
   local scale = {
@@ -912,7 +912,8 @@ test("Scale editor shows specialization binding and refreshes the active selecto
   A.equal(scaleLabel.points[1][2], scaleMenu.points[1][2] + 16,
     "Scale label should align with the dropdown's visible left edge")
   local editorText = table.concat(calls.fontText, "\n")
-  A.truthy(editorText:find("Specialization: Retribution", 1, true), "editor should make the scale specialization clear")
+  A.falsy(editorText:find("This scale is tied to this specialization.", 1, true),
+    "editor should not reserve a summary card for redundant specialization information")
   A.falsy(editorText:find("Based on: Default", 1, true), "editor should not show routine provenance noise")
   local scroll = page._xivEquipFrames["settings-scroll"]
   local editor = scroll._xivEquipScrollChild
@@ -922,6 +923,7 @@ test("Scale editor shows specialization binding and refreshes the active selecto
     if item.text == "Scale name" then nameLabel = item end
   end
   A.truthy(nameLabel, "scale editor should show the Scale name label")
+  A.equal(nameLabel.points[1][2], 14, "scale editor content should use the left side freed by the removed summary card")
   A.equal(nameEdit.points[1][2], nameLabel.points[1][2], "scale name input should align with its label")
   A.truthy(nameEdit.points[1][3] < nameLabel.points[1][3], "scale name input should sit below its label")
   local swingLabel
@@ -930,8 +932,8 @@ test("Scale editor shows specialization binding and refreshes the active selecto
   end
   local swingEdit = editor._xivEquipFrames["weight-edit:weaponSwingIntervalSeconds"]
   A.truthy(swingLabel, "scale editor should show the weapon swing interval label")
-  A.truthy(swingEdit.points[1][2] >= swingLabel.points[1][2] + 170,
-    "the longest weight label should not overlap its numeric input")
+  A.truthy(swingEdit.points[1][2] >= swingLabel.points[1][2] + 286,
+    "the full-width editor should give stat labels a generous lane before numeric inputs")
   nameEdit:SetText("Retribution Mythic")
   nameEdit.scripts.OnEnterPressed(nameEdit)
 
