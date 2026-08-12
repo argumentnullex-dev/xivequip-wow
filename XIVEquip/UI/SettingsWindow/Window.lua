@@ -929,7 +929,7 @@ local function showConfig(content)
     textColor(warning, 1, 0.65, 0.25)
   end
 
-  local profilePanel = panel(page, 0, -76, CONTENT_WIDTH, 64)
+  local profilePanel = panel(page, 0, -76, CONTENT_WIDTH, 70)
   sectionTitle(profilePanel, "Profile for this character", 14, -14)
   local profileItems = {}
   for _, item in ipairs(Profiles and classFile and Profiles.List(classFile) or {}) do
