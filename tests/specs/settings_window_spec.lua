@@ -354,13 +354,13 @@ test("Wishlist and Avoidlist tabs each explain the Ctrl-click workflow, link sou
   A.truthy(wishlistText:find("Collections", 1, true), "should mention Collections as a source for gear players don't own yet")
   A.truthy(wishlistText:find("bags", 1, true), "should mention bags as an item-link source")
   A.truthy(wishlistText:find("chat", 1, true), "should mention chat as an item-link source")
-  A.truthy(wishlistText:find("/xive wish add", 1, true), "Wishlist tab should mention its own slash command")
-  A.falsy(wishlistText:find("/xive avoid add", 1, true), "Wishlist tab should not mention the Avoidlist command")
+  A.truthy(wishlistText:find("/xive wish <item link>", 1, true), "Wishlist tab should mention its own slash command")
+  A.falsy(wishlistText:find("/xive avoid <item link>", 1, true), "Wishlist tab should not mention the Avoidlist command")
 
   Window.ShowTab(4)
   local avoidlistText = pageText()
-  A.truthy(avoidlistText:find("/xive avoid add", 1, true), "Avoidlist tab should mention its own slash command")
-  A.falsy(avoidlistText:find("/xive wish add", 1, true), "Avoidlist tab should not mention the Wishlist command")
+  A.truthy(avoidlistText:find("/xive avoid <item link>", 1, true), "Avoidlist tab should mention its own slash command")
+  A.falsy(avoidlistText:find("/xive wish <item link>", 1, true), "Avoidlist tab should not mention the Wishlist command")
 end)
 
 test("Wishlist/Avoidlist breadcrumb text anchors relative to each other's actual rendered height, and the context line is styled prominently", function()

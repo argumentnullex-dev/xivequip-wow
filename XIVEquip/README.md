@@ -66,8 +66,8 @@ This README has two audiences:
 - `/xive status` — print settings schema, planner, auto-equip state, and auto-save state
 - `/xive perf` — run a planning pass and print timing/counter diagnostics
 - `/xive validate` — save `backup.xive`, unequip, equip the recommendation, and confirm it matches what a fresh plan would pick
-- `/xive wish <add|remove> <item link|itemID>` — manage the active Profile and specialization's Wishlist
-- `/xive avoid <add|remove> <item link|itemID>` — manage the active Profile and specialization's Avoidlist
+- `/xive wish <item link|itemID>` — add to the active Profile and specialization's Wishlist (no argument lists it; remove from the Settings UI)
+- `/xive avoid <item link|itemID>` — add to the active Profile and specialization's Avoidlist (no argument lists it; remove from the Settings UI)
 - `/xive test` — run in-game regression checks that do not equip gear
 - `/xive smoke` — run `/xive test`, then `/xive validate` if the checks pass
 - `/xive fixture capture` / `/xive fixture clear` — save or clear current character/equipped/bag/Pawn-scale data for offline test replay (see [Fixture import](#fixture-import))

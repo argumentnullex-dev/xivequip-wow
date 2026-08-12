@@ -1643,7 +1643,7 @@ local function showItemList(content, kind)
   breadcrumb1:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
   breadcrumb1:SetWidth(CONTENT_WIDTH)
   local breadcrumb2 = font(page, "GameFontDisableSmall",
-    "Prefer the command line? /xive " .. definition.slashVerb .. " add <item link> does the same thing without opening Settings.")
+    "Prefer the command line? /xive " .. definition.slashVerb .. " <item link> does the same thing without opening Settings.")
   breadcrumb2:SetPoint("TOPLEFT", breadcrumb1, "BOTTOMLEFT", 0, -8)
   breadcrumb2:SetWidth(CONTENT_WIDTH)
   local contextLine = font(page, "GameFontHighlight",

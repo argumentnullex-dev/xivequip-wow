@@ -1,9 +1,8 @@
 -- tests/specs/profile_commands_spec.lua
 -- Profiles/Commands.lua's `/xive wish` and `/xive avoid` slash commands had
 -- zero offline coverage -- everything about their behavior (item ID
--- parsing from a link/plain number, add/remove/list dispatch, usage and
--- error messages, and the "no active profile" fallback) was only ever
--- exercised live in-game.
+-- parsing from a link/plain number, add/list dispatch, error messages, and
+-- the "no active profile" fallback) was only ever exercised live in-game.
 local root = ...
 local sep = package.config:sub(1, 1)
 local A = dofile(root .. sep .. "tests" .. sep .. "assertions.lua")
@@ -35,7 +34,7 @@ local function newAddon()
   -- XIVWeights.Builtin.Defaults.ClassForSpec (does this spec belong to this
   -- Profile's class?), so the full XIVWeights tree Bootstrap.LoadWeights
   -- loads is a real dependency here, not incidental -- without it every
-  -- add/remove silently fails validation regardless of the item ID given.
+  -- add silently fails validation regardless of the item ID given.
   Bootstrap.LoadWeights(root, addon)
   loadAddonFile("Core" .. sep .. "CommandRouter.lua", addon)
   loadAddonFile("Profiles" .. sep .. "Commands.lua", addon)
@@ -60,12 +59,12 @@ local function wireSlash(addon)
   addon.__cmd = _G.SlashCmdList.XIVE
 end
 
-test("/xive wish add <item link> adds the item to the active spec's Wishlist", function()
+test("/xive wish <item link> adds the item to the active spec's Wishlist", function()
   local addon = newAddon()
   stubRetributionPaladin()
   wireSlash(addon)
 
-  runCommand(addon, "wish add |Hitem:12345::::::::::::|h[Thing]|h")
+  runCommand(addon, "wish |Hitem:12345::::::::::::|h[Thing]|h")
 
   local Profiles = addon.Profiles.Config
   local profile = Profiles.GetDefault("PALADIN")
@@ -74,38 +73,24 @@ test("/xive wish add <item link> adds the item to the active spec's Wishlist", f
   A.contains(_G.printed, "XIVEquip: Item 12345 added to wishlist for this specialization.")
 end)
 
-test("/xive wish add <plain item ID> works without a link", function()
+test("/xive wish <plain item ID> works without a link", function()
   local addon = newAddon()
   stubRetributionPaladin()
   wireSlash(addon)
 
-  runCommand(addon, "wish add 999")
+  runCommand(addon, "wish 999")
 
   local Profiles = addon.Profiles.Config
   local profile = Profiles.GetDefault("PALADIN")
   A.truthy(Profiles.GetSpecPreferences(profile, 70).wishlist[999])
 end)
 
-test("/xive wish remove clears a previously wishlisted item", function()
+test("/xive avoid <item link|itemID> mirrors the Wishlist command for the Avoidlist, independently", function()
   local addon = newAddon()
   stubRetributionPaladin()
   wireSlash(addon)
 
-  runCommand(addon, "wish add 555")
-  runCommand(addon, "wish remove 555")
-
-  local Profiles = addon.Profiles.Config
-  local profile = Profiles.GetDefault("PALADIN")
-  A.falsy(Profiles.GetSpecPreferences(profile, 70).wishlist[555])
-  A.contains(_G.printed, "XIVEquip: Item 555 removed from wishlist for this specialization.")
-end)
-
-test("/xive avoid add mirrors the Wishlist command for the Avoidlist, independently", function()
-  local addon = newAddon()
-  stubRetributionPaladin()
-  wireSlash(addon)
-
-  runCommand(addon, "avoid add 777")
+  runCommand(addon, "avoid 777")
 
   local Profiles = addon.Profiles.Config
   local profile = Profiles.GetDefault("PALADIN")
@@ -119,8 +104,8 @@ test("/xive wish (no args) and /xive wish list both print the current Wishlist",
   stubRetributionPaladin()
   wireSlash(addon)
 
-  runCommand(addon, "wish add 1")
-  runCommand(addon, "wish add 2")
+  runCommand(addon, "wish 1")
+  runCommand(addon, "wish 2")
   _G.printed = {}
 
   runCommand(addon, "wish")
@@ -141,22 +126,12 @@ test("/xive wish list prints an explicit empty message rather than nothing", fun
   A.contains(_G.printed, "XIVEquip: wishlist is empty for this specialization.")
 end)
 
-test("an unrecognized action prints usage instead of silently failing", function()
+test("an unparseable value reports the problem instead of crashing", function()
   local addon = newAddon()
   stubRetributionPaladin()
   wireSlash(addon)
 
-  runCommand(addon, "wish bogus 12345")
-
-  A.contains(_G.printed, "XIVEquip: Usage: /xive wish <add|remove> <item link|itemID>")
-end)
-
-test("add with an unparseable value reports the problem instead of crashing", function()
-  local addon = newAddon()
-  stubRetributionPaladin()
-  wireSlash(addon)
-
-  runCommand(addon, "wish add not-an-item")
+  runCommand(addon, "wish not-an-item")
 
   A.contains(_G.printed, "XIVEquip: Provide an item link or item ID.")
   local Profiles = addon.Profiles.Config
@@ -169,7 +144,7 @@ test("commands report rather than crash when no character context is available",
   _G.UnitClass = function() return nil end
   wireSlash(addon)
 
-  runCommand(addon, "wish add 12345")
+  runCommand(addon, "wish 12345")
 
   A.contains(_G.printed, "XIVEquip: Unable to identify your active profile and specialization.")
 end)

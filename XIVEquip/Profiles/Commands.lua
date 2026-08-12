@@ -1,6 +1,7 @@
 -- Lightweight command-line management for the profile-backed item lists.
--- The Settings UI offers the same storage through browsable Wishlist and
--- Avoidlist pages; these commands remain useful for macros and quick edits.
+-- Add-only by design: the Settings UI's Wishlist/Avoidlist tabs already
+-- offer a Remove button per row, which is strictly easier than typing a
+-- remove command, so these only ever add (or list with no argument).
 local addonName, XIVEquip = ...
 
 local Commands = XIVEquip.Commands
@@ -8,6 +9,10 @@ local Profiles = XIVEquip.Profiles and XIVEquip.Profiles.Config
 local PREFIX = (XIVEquip.L and XIVEquip.L.AddonPrefix) or "XIVEquip: "
 
 if not (Commands and Commands.RegisterRoot and Profiles) then return end
+
+local function trim(value)
+  return tostring(value or ""):match("^%s*(.-)%s*$")
+end
 
 local function parseItemID(value)
   value = tostring(value or "")
@@ -38,14 +43,8 @@ local function listItems(kind)
 end
 
 local function manageList(kind, setter, rest)
-  local action, value = tostring(rest or ""):match("^%s*(%S+)%s*(.-)%s*$")
-  action = string.lower(tostring(action or ""))
-  if action == "list" or action == "" then return listItems(kind) end
-  if action ~= "add" and action ~= "remove" then
-    print(PREFIX .. "Usage: /xive " .. (kind == "wishlist" and "wish" or "avoid")
-      .. " <add|remove> <item link|itemID>")
-    return
-  end
+  local value = trim(rest)
+  if value == "" or string.lower(value) == "list" then return listItems(kind) end
   local itemID = parseItemID(value)
   if not itemID then
     print(PREFIX .. "Provide an item link or item ID.")
@@ -53,13 +52,12 @@ local function manageList(kind, setter, rest)
   end
   local profile, specID = activeProfile()
   if not profile then return end
-  local ok, reason = setter(profile, specID, itemID, action == "add")
+  local ok, reason = setter(profile, specID, itemID, true)
   if not ok then
     print(PREFIX .. "Unable to update " .. kind .. ": " .. tostring(reason or "unknown error"))
     return
   end
-  print(PREFIX .. "Item " .. tostring(itemID) .. (action == "add" and " added to " or " removed from ")
-    .. kind .. " for this specialization.")
+  print(PREFIX .. "Item " .. tostring(itemID) .. " added to " .. kind .. " for this specialization.")
 end
 
 Commands.RegisterRoot("wish", function(rest)
@@ -68,5 +66,5 @@ end)
 Commands.RegisterRoot("avoid", function(rest)
   manageList("avoidlist", Profiles.SetAvoidlistItem, rest)
 end)
-Commands.Help(" /xive wish <add|remove> <item link|itemID> - manage this spec's wishlist")
-Commands.Help(" /xive avoid <add|remove> <item link|itemID> - manage this spec's avoidlist")
+Commands.Help(" /xive wish <item link|itemID> - add to this spec's wishlist (no argument lists it)")
+Commands.Help(" /xive avoid <item link|itemID> - add to this spec's avoidlist (no argument lists it)")
