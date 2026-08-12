@@ -104,7 +104,7 @@ test("hover documents minimap button actions", function()
   button.scripts.OnEnter(button)
 
   local text = table.concat(calls.tooltip, "\n")
-  A.truthy(text:find("Left Click - Equip Best", 1, true))
+  A.truthy(text:find("Left Click - Equip Recommended Gear", 1, true))
   A.truthy(text:find("Right Click - Open Config", 1, true))
   A.truthy(text:find("Shift + Left Click - Preview recommendations", 1, true))
 end)

@@ -704,7 +704,7 @@ local function addGeneralSettings(parent, x, y, width)
   }
   local automation = {
     { "Auto-equip on spec change", function() return S:GetAutomation("SpecEquip") end, function(v) S:SetAutomation("SpecEquip", v) end },
-    { "Auto-save equipment set after equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
+    { "Save Equipment set after auto-equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
   }
   for i, row in ipairs(messages) do
     local cb = checkbox(box, row[1], row[2](), row[3])
