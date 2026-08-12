@@ -102,6 +102,42 @@ test("automatic Pawn selection prefers active class and specialization match", f
   A.equal(values.Strength, 10)
 end)
 
+test("automatic Pawn selection prefers an exact spec name over a provider-prefixed spec match", function()
+  clearGlobals()
+  installPaladinGlobals()
+  _G.GetSpecialization = function() return 1 end
+  _G.PawnCommon = {
+    Scales = {
+      ["Holy"] = {
+        LocalizedName = "Holy",
+        ClassID = 2,
+        PerCharacterOptions = {
+          ["Talkamar-Wyrmrest Accord"] = { Visible = true },
+        },
+        Values = { Intellect = 11, CritRating = 4 },
+      },
+      ["\"MrRobot\":PALADIN1"] = {
+        LocalizedName = "Paladin: Holy",
+        ClassID = 2,
+        SpecID = 1,
+        Provider = "MrRobot",
+        PerCharacterOptions = {
+          ["Talkamar-Wyrmrest Accord"] = { Visible = true },
+        },
+      },
+    },
+  }
+  _G.PawnGetScaleValues = function(key)
+    if key == "\"MrRobot\":PALADIN1" then return { Intellect = 20, HasteRating = 7 } end
+  end
+  local addon = loadPawn()
+
+  local values, entry = addon.Pawn.GetBestScaleValuesForPlayer()
+
+  A.equal(entry.name, "Holy")
+  A.equal(values.Intellect, 11)
+end)
+
 test("automatic Pawn selection can use a provider scale by class and spec when no active custom scale matches", function()
   clearGlobals()
   installPaladinGlobals()

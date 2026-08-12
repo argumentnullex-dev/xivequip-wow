@@ -130,20 +130,29 @@ local function specMatches(scale, specIndex)
   return scaleSpec ~= nil and specIndex ~= nil and scaleSpec == specIndex
 end
 
-local function nameMatches(scale, normalizedSpec)
+local function exactNameMatches(scale, normalizedSpec)
   if normalizedSpec == "" then return false end
   local name = normalized(scale and (scale.name or scale.key))
-  return name == normalizedSpec or name:find(normalizedSpec, 1, true) ~= nil
+  return name == normalizedSpec
+end
+
+local function containsNameMatch(scale, normalizedSpec)
+  if normalizedSpec == "" then return false end
+  local name = normalized(scale and (scale.name or scale.key))
+  return name:find(normalizedSpec, 1, true) ~= nil
 end
 
 local function exactMatch(scales, classID, specIndex, normalizedSpec)
+  for _, scale in ipairs(scales or {}) do
+    if classMatches(scale, classID) and exactNameMatches(scale, normalizedSpec) then return scale end
+  end
   for _, scale in ipairs(scales or {}) do
     if classMatches(scale, classID) then
       if specMatches(scale, specIndex) then return scale end
     end
   end
   for _, scale in ipairs(scales or {}) do
-    if classMatches(scale, classID) and nameMatches(scale, normalizedSpec) then return scale end
+    if classMatches(scale, classID) and containsNameMatch(scale, normalizedSpec) then return scale end
   end
   return nil
 end
