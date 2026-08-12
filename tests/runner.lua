@@ -61,6 +61,7 @@ local specs = {
   "candidate_collector_spec",
   "candidate_evaluator_spec",
   "profile_preferences_policy_spec",
+  "profile_commands_spec",
   "evaluation_context_pipeline_spec",
   "assignment_loadout_state_spec",
   "assignment_paired_spec",
@@ -71,6 +72,34 @@ local specs = {
   "loadout_optimizer_spec",
   "planning_coordinator_spec",
 }
+
+-- `specs` above is an explicit, ordered list, not directory discovery --
+-- deliberately, so run order stays deterministic and a scratch/WIP file
+-- dropped in tests/specs/ doesn't silently start running. The tradeoff is
+-- the opposite failure mode: a real new spec file that never gets added
+-- here just never runs, with no error and no visible gap in the summary
+-- line. This best-effort check (via `dir`/`ls`, whichever the host shell
+-- provides) catches that class of mistake -- it only warns, never fails
+-- the run, since a host without shell access to enumerate the directory
+-- must not block testing on that account.
+local function warnUnlistedSpecs()
+  local specsDir = join(root, "tests", "specs")
+  local listed = {}
+  for _, name in ipairs(specs) do listed[name] = true end
+
+  local handle = io.popen('dir /b "' .. specsDir .. '\\*.lua" 2>NUL')
+      or io.popen('ls "' .. specsDir .. '" 2>/dev/null')
+  if not handle then return end
+  for fileName in handle:lines() do
+    local name = fileName:match("^(.*)%.lua$")
+    if name and not listed[name] then
+      io.stderr:write("WARNING: tests/specs/" .. fileName
+        .. " exists but is not in runner.lua's `specs` list -- it will never run. Add it there.\n")
+    end
+  end
+  handle:close()
+end
+warnUnlistedSpecs()
 
 local total, failed, skipped = 0, 0, 0
 
