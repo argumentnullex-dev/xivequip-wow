@@ -945,7 +945,7 @@ local function showConfig(content)
   manage:SetPoint("LEFT", profileMenu, "RIGHT", 4, 0)
   manage:SetScript("OnClick", showProfileDialog)
 
-  local modePanel = panel(page, 0, -152, CONTENT_WIDTH, 184)
+  local modePanel = panel(page, 0, -152, CONTENT_WIDTH, 228)
   sectionTitle(modePanel, "Scoring Configuration", 14, -14)
   local mode = profile and profile.manual and string.lower(tostring(profile.manual.mode or "default")) or "default"
   local manualEditable = profile and profile.automatic == false
@@ -1020,16 +1020,18 @@ local function showConfig(content)
     if profile then Profiles.SetAutomatic(profile, value); Window.ShowTab(1) end
   end)
   auto:SetPoint("TOPLEFT", 14, -144)
-  local setPreference = checkbox(modePanel, "Prefer set bonuses", preferences.preferSetBonuses == true, function(value)
-    if profile then Profiles.SetPreferSetBonuses(profile, value); Window.ShowTab(1) end
-  end)
-  setPreference:SetPoint("TOPLEFT", 302, -144)
   local recommendation = font(modePanel, "GameFontHighlightSmall", "Choose the recommended scale for your spec automatically.")
   recommendation:SetPoint("TOPLEFT", 36, -164)
   textColor(recommendation, 0.4, 1, 0.4)
+  local setPreference = checkbox(modePanel, "Prefer set bonuses", preferences.preferSetBonuses == true, function(value)
+    if profile then Profiles.SetPreferSetBonuses(profile, value); Window.ShowTab(1) end
+  end)
+  setPreference:SetPoint("TOPLEFT", 14, -184)
+  local setPreferenceNote = font(modePanel, "GameFontDisableSmall", "Favor loadouts that complete 2-piece and 4-piece set bonuses.")
+  setPreferenceNote:SetPoint("TOPLEFT", 36, -204)
 
   local specs = defaults and defaults.SpecsForClass(classFile) or {}
-  local mapPanel = panel(page, 0, -348, CONTENT_WIDTH, 132)
+  local mapPanel = panel(page, 0, -392, CONTENT_WIDTH, 132)
   local mappingTitle = displayMode == "custom" and "Custom scale overrides by specialization"
       or "Integration scales by specialization"
   sectionTitle(mapPanel, mappingTitle, 14, -14)
@@ -1113,7 +1115,7 @@ local function showConfig(content)
   end
   if not profile or displayMode == "default" then mapPanel:Hide() end
 
-  local generalY = (profile and displayMode ~= "default") and -494 or -348
+  local generalY = (profile and displayMode ~= "default") and -538 or -392
   addGeneralSettings(page, 0, generalY, CONTENT_WIDTH)
 end
 
@@ -1367,6 +1369,7 @@ local function showScales(content)
   note:SetWidth(CONTENT_WIDTH)
   local specLabel = font(page, "GameFontHighlightSmall", "Specialization")
   specLabel:SetPoint("TOPLEFT", 0, -50)
+  textColor(specLabel, 1, 1, 1)
   local specMenu = dropdown(page, 150)
   specMenu:SetPoint("TOPLEFT", 0, -68)
   setDropdown(specMenu, specs, specID, function(value)
@@ -1375,9 +1378,9 @@ local function showScales(content)
   local scaleItems = {}
   for _, scale in ipairs(scales) do scaleItems[#scaleItems + 1] = { value = scale.id, label = scale.name or scale.id } end
   local scaleLabel = font(page, "GameFontHighlightSmall", "Scale")
-  scaleLabel:SetPoint("TOPLEFT", 164, -50)
+  scaleLabel:SetPoint("TOPLEFT", 200, -50)
   local scaleMenu = dropdown(page, 210)
-  scaleMenu:SetPoint("TOPLEFT", 164, -68)
+  scaleMenu:SetPoint("TOPLEFT", 184, -68)
   setDropdown(scaleMenu, scaleItems, selected, function(value) Window.SelectedScaleID = value; Window.ShowTab(2) end)
   local new = button(page, "Create", 68, 22)
   new:SetPoint("TOPLEFT", 0, -102)
@@ -1599,7 +1602,12 @@ function Window.Create()
   local brand = sidebar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   brand:SetPoint("TOP", logo, "BOTTOM", 0, -8)
   brand:SetText("XIVEquip")
-  local version = GetAddOnMetadata and GetAddOnMetadata(addonName, "Version") or "2.0"
+  local version
+  if C_AddOns and C_AddOns.GetAddOnMetadata then
+    version = C_AddOns.GetAddOnMetadata(addonName, "Version")
+  elseif GetAddOnMetadata then
+    version = GetAddOnMetadata(addonName, "Version")
+  end
   local versionText = sidebar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   versionText:SetPoint("TOP", brand, "BOTTOM", 0, -3)
   versionText:SetText("v" .. tostring(version or "unknown"))

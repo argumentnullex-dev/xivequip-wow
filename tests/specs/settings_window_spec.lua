@@ -25,12 +25,18 @@ local function loadWindow(addon, calls)
         self.text = tostring(text or "")
         calls.fontText[#calls.fontText + 1] = self.text
       end,
-      SetTextColor = function() end,
+      SetTextColor = function(self, ...)
+        self.textColor = { ... }
+      end,
       SetFontObject = function(self, fontObject)
         self.fontObject = fontObject
         calls.fontObjects[#calls.fontObjects + 1] = fontObject
       end,
-      SetPoint = function() end,
+      SetPoint = function(self, ...)
+        self.points = self.points or {}
+        self.points[#self.points + 1] = { ... }
+      end,
+      ClearAllPoints = function(self) self.points = {} end,
       SetWidth = function() end,
       SetJustifyH = function() end,
     }
@@ -85,7 +91,7 @@ local function loadWindow(addon, calls)
     function f:SetChecked(value) self.checked = value end
     function f:GetChecked() return self.checked end
     f.TitleBg = frame
-    f.Text = { SetText = function() end }
+    f.Text = { SetText = function(_, text) f.checkboxText = text end }
     return f
   end
 
@@ -168,6 +174,24 @@ test("Settings uses a vertical navigation rail", function()
   A.equal(frame.tabs[2].points[1][2], frame.tabs[1], "second navigation item should follow the first")
   A.equal(frame.tabs[2].points[1][3], "BOTTOM", "navigation should be vertical rather than horizontal")
   A.equal(frame.content.points[1][4], 146, "page content should begin to the right of the rail")
+end)
+
+test("Settings reads and displays the full add-on version", function()
+  local addon, calls = harness()
+  _G.GetAddOnMetadata = nil
+  _G.C_AddOns = {
+    GetAddOnMetadata = function(name, field)
+      A.equal(name, "XIVEquip", "version lookup should use the add-on name")
+      A.equal(field, "Version", "version lookup should request TOC metadata")
+      return "2.0.0-dev.78"
+    end,
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Create()
+  _G.C_AddOns = nil
+
+  A.truthy(table.concat(calls.fontText, "\n"):find("v2.0.0-dev.78", 1, true), "sidebar should display the complete TOC version")
 end)
 
 test("Create Macro uses the built-in armor upgrade icon", function()
@@ -448,6 +472,16 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   local profileFontCount = #profilePanel._xivEquipPool.items.font
   local profileButtonCount = #profilePanel._xivEquipPool.items.button
   local modeButtonCount = #modePanel._xivEquipPool.items.button
+  local automaticBox = modePanel._xivEquipPool.items.checkbox[1]
+  local setPreferenceBox = modePanel._xivEquipPool.items.checkbox[2]
+  A.equal(automaticBox.points[1][2], 14, "Automatic should use the left settings column")
+  A.equal(setPreferenceBox.points[1][2], 14, "set preference should align beneath Automatic")
+  A.truthy(setPreferenceBox.points[1][3] < automaticBox.points[1][3], "set preference should render below Automatic")
+  A.equal(setPreferenceBox.checkboxText, "Prefer set bonuses", "set preference should retain its clear label")
+  local modeText = {}
+  for _, item in ipairs(modePanel._xivEquipPool.items.font) do modeText[#modeText + 1] = item.text end
+  A.truthy(table.concat(modeText, "\n"):find("Favor loadouts that complete 2-piece and 4-piece set bonuses.", 1, true),
+    "set preference should explain its optimization effect")
 
   profile.automatic = true
   Window.ShowTab(1)
@@ -722,6 +756,16 @@ test("Scale editor shows specialization binding and refreshes the active selecto
   Window.Open()
   Window.ShowTab(2)
   local page = Window.Frame.content.page
+  local specLabel = page._xivEquipPool.items.font[3]
+  local scaleLabel = page._xivEquipPool.items.font[4]
+  local specMenu = page._xivEquipPool.items.dropdown[1]
+  local scaleMenu = page._xivEquipPool.items.dropdown[2]
+  A.equal(specLabel.textColor[1], 1, "Specialization label should reset the prior Config page's green color")
+  A.equal(specLabel.textColor[2], 1, "Specialization label should be white")
+  A.truthy(scaleMenu.points[1][2] > specMenu.points[1][2] + specMenu.dropdownWidth,
+    "specialization and scale dropdowns should have a visible gap")
+  A.equal(scaleLabel.points[1][2], scaleMenu.points[1][2] + 16,
+    "Scale label should align with the dropdown's visible left edge")
   local editorText = table.concat(calls.fontText, "\n")
   A.truthy(editorText:find("Specialization: Retribution", 1, true), "editor should make the scale specialization clear")
   A.falsy(editorText:find("Based on: Default", 1, true), "editor should not show routine provenance noise")
