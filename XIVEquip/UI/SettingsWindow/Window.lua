@@ -571,14 +571,30 @@ end
 
 local function setDropdown(menu, items, selected, onSelect)
   if not UIDropDownMenu_Initialize then return end
-  local selectedLabel
-  for _, item in ipairs(items or {}) do
-    if item.value == selected then selectedLabel = item.label end
+
+  local function currentItems()
+    if type(items) == "function" then
+      local ok, resolved = pcall(items)
+      return ok and type(resolved) == "table" and resolved or {}
+    end
+    return items or {}
   end
+
+  local function refreshSelection(rows)
+    local selectedLabel
+    for _, item in ipairs(rows) do
+      if item.value == selected then selectedLabel = item.label end
+    end
+    UIDropDownMenu_SetSelectedValue(menu, selected)
+    UIDropDownMenu_SetText(menu, selectedLabel or "Select")
+  end
+
   UIDropDownMenu_Initialize(menu, function()
-    for _, item in ipairs(items or {}) do
+    local rows = currentItems()
+    refreshSelection(rows)
+    for _, item in ipairs(rows) do
       local info = UIDropDownMenu_CreateInfo()
-      info.text = item.label
+      info.text = item.menuLabel or item.label
       info.value = item.value
       info.checked = item.value == selected
       info.disabled = item.disabled == true
@@ -588,8 +604,7 @@ local function setDropdown(menu, items, selected, onSelect)
       UIDropDownMenu_AddButton(info)
     end
   end)
-  UIDropDownMenu_SetSelectedValue(menu, selected)
-  UIDropDownMenu_SetText(menu, selectedLabel or "Select")
+  refreshSelection(currentItems())
 end
 
 local function setDropdownEnabled(menu, enabled)
@@ -675,6 +690,7 @@ local function integrationItems(C, providerID, runtime, specID)
   local providerLabel = entry and (entry.label or entry.id) or tostring(providerID or "provider")
   if guessed then
     out[1].label = tostring(guessed)
+    out[1].menuLabel = "Recommended (" .. tostring(guessed) .. ")"
   elseif available then
     out[1].label = "Default - no suitable " .. tostring(providerLabel) .. " scale"
   else
@@ -1087,22 +1103,28 @@ local function showConfig(content)
     elseif profile and displayMode == "integration" then
       local overrides = profile.manual.integration.overrides or {}
       local configuredOverride = overrides[spec.id]
-      local items = integrationItems(C, integrationProvider, runtime, spec.id)
-      local availableOverride = not configuredOverride
-      for _, item in ipairs(items) do
-        if item.value == configuredOverride then availableOverride = true; break end
+      local function liveIntegrationItems()
+        local items = integrationItems(C, integrationProvider, runtime, spec.id)
+        local availableOverride = not configuredOverride
+        for _, item in ipairs(items) do
+          if item.value == configuredOverride then availableOverride = true; break end
+        end
+        if configuredOverride and not availableOverride then
+          table.insert(items, 2, {
+            value = configuredOverride,
+            label = "Missing: " .. tostring(configuredOverride) .. " [Unavailable]",
+          })
+        end
+        return items, availableOverride
       end
+      local _, availableOverride = liveIntegrationItems()
       if configuredOverride and not availableOverride then
-        table.insert(items, 2, {
-          value = configuredOverride,
-          label = "Missing: " .. tostring(configuredOverride) .. " [Unavailable]",
-        })
         label:SetText(tostring(spec.name) .. " (Default fallback)")
         textColor(label, 1, 0.65, 0.25)
       end
       local menu = dropdown(mapPanel, 190)
       menu:SetPoint("TOPLEFT", 128, mapY + 8)
-      setDropdown(menu, items, configuredOverride or "", function(value)
+      setDropdown(menu, liveIntegrationItems, configuredOverride or "", function(value)
         if value == "" then Profiles.ClearIntegrationOverride(profile, spec.id) else Profiles.SetIntegrationOverride(profile, spec.id, value) end
         Window.ShowTab(1)
       end)

@@ -101,7 +101,9 @@ local function loadWindow(addon, calls)
   _G.PanelTemplates_SetTab = function() end
   _G.PanelTemplates_SelectTab = function() end
   _G.PanelTemplates_DeselectTab = function() end
-  _G.UIDropDownMenu_Initialize = function() end
+  _G.UIDropDownMenu_Initialize = function(menu, initializer)
+    menu.dropdownInitializer = initializer
+  end
   _G.UIDropDownMenu_SetWidth = function(menu, width)
     if type(menu) ~= "table" or type(width) ~= "number" then
       error("UIDropDownMenu_SetWidth expects (frame, width)")
@@ -109,6 +111,11 @@ local function loadWindow(addon, calls)
     menu.dropdownWidth = width
   end
   _G.UIDropDownMenu_SetSelectedValue = function() end
+  _G.UIDropDownMenu_CreateInfo = function() return {} end
+  _G.UIDropDownMenu_AddButton = function(info)
+    calls.dropdownButtons = calls.dropdownButtons or {}
+    calls.dropdownButtons[#calls.dropdownButtons + 1] = info
+  end
   _G.UIDropDownMenu_SetText = function(menu, text)
     if type(menu) ~= "table" or type(text) ~= "string" then
       error("UIDropDownMenu_SetText expects (frame, text)")
@@ -589,6 +596,67 @@ test("clicking Automatic highlights Pawn integration when Pawn is the effective 
   A.truthy(text:find("Active weights: Pawn | Retribution", 1, true), "Active source should show Pawn after enabling Automatic")
   A.truthy(text:find("Selection disabled while Automatic mode is engaged.", 1, true),
     "automatic mapping notice should explain why selection is unavailable")
+end)
+
+test("Integration dropdown refreshes live scales when opened and distinguishes the recommended choice", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-integration",
+    automatic = false,
+    manual = { mode = "integration", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  local scales = { { key = "ret-custom", name = "Retribution" } }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = { Defaults = { SpecsForClass = function() return { { id = 70, name = "Retribution" } } end } },
+    Config = {
+      ResolveResultForSpec = function()
+        return { scale = { resolution = { sourceLabel = "Pawn", scaleLabel = "Retribution" } } }
+      end,
+      ListIntegrations = function()
+        return {
+          {
+            id = "pawn",
+            label = "Pawn",
+            IsAvailable = function() return true end,
+            Resolve = function() return { name = "Retribution" } end,
+            ListScales = function() return scales end,
+          },
+        }
+      end,
+      ListManualScales = function() return {} end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = 1 } end,
+      ClearIntegrationOverride = function() return profile end,
+      SetIntegrationOverride = function() return profile end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local mapPanel = Window.Frame.content.page._xivEquipPool.items.panel[3]
+  local menu = mapPanel._xivEquipPool.items.dropdown[1]
+  A.equal(menu.dropdownText, "Retribution", "collapsed automatic selection should remain compact")
+
+  calls.dropdownButtons = {}
+  menu.dropdownInitializer()
+  A.equal(calls.dropdownButtons[1].text, "Recommended (Retribution)")
+  A.equal(calls.dropdownButtons[2].text, "Retribution")
+
+  scales[#scales + 1] = { key = "ret-default", name = "Paladin: Retribution" }
+  calls.dropdownButtons = {}
+  menu.dropdownInitializer()
+  A.equal(calls.dropdownButtons[3].text, "Paladin: Retribution",
+    "opening the existing dropdown should read newly enabled provider scales")
 end)
 
 test("Profile Management reuses its name field and refreshes profile usage", function()
