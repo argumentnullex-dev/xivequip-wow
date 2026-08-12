@@ -203,6 +203,18 @@ test("slash automation commands mutate canonical fields", function()
   A.equal(st.Automation.SaveSpecSet, true)
 end)
 
+test("/xive help prints the command list", function()
+  newAddon({})
+
+  SlashCmdList.XIVE("help")
+
+  A.contains(_G.printed, "XIVEquip: Commands:")
+  A.contains(_G.printed, "/xive help")
+  A.contains(_G.printed, "/xive settings")
+  A.contains(_G.printed, "/xive equip")
+  A.contains(_G.printed, "/xive status")
+end)
+
 test("plan and equip commands use the native-only entry points", function()
   local addon, calls = commandHarness({})
   SlashCmdList.XIVE("plan")
