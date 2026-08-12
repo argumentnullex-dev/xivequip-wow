@@ -106,36 +106,37 @@ test("hover documents minimap button actions", function()
   local text = table.concat(calls.tooltip, "\n")
   A.truthy(text:find("Left Click - Equip Best", 1, true))
   A.truthy(text:find("Right Click - Open Config", 1, true))
-  A.truthy(text:find("Hold Shift - Preview recommendations", 1, true))
+  A.truthy(text:find("Shift + Left Click - Preview recommendations", 1, true))
 end)
 
-test("shift hover renders the shared equip preview", function()
+test("shift left click renders the shared equip preview without equipping", function()
   local _, calls, button = harness()
   _G.IsShiftKeyDown = function() return true end
 
-  button.scripts.OnEnter(button)
+  button.scripts.OnClick(button, "LeftButton")
 
   A.equal(calls.preview, 1)
   A.equal(calls.previewAnchor, "ANCHOR_LEFT")
+  A.equal(calls.equip, 0)
 end)
 
-test("shift hover does not immediately rerender the preview on the first update", function()
+test("holding shift while hovering keeps the help tooltip until clicked", function()
   local _, calls, button = harness()
   _G.IsShiftKeyDown = function() return true end
 
   button.scripts.OnEnter(button)
-  button.scripts.OnUpdate(button)
 
-  A.equal(calls.preview, 1)
+  A.equal(calls.preview, 0)
+  A.truthy(table.concat(calls.tooltip, "\n"):find("Shift + Left Click", 1, true))
 end)
 
-test("drag restores shift-hover update handling", function()
+test("drag removes its temporary update handler when released", function()
   local _, _, button = harness()
 
   button.scripts.OnDragStart(button)
   A.equal(button.scripts.OnUpdate ~= nil, true)
   button.scripts.OnDragStop(button)
-  A.equal(button.scripts.OnUpdate ~= nil, true)
+  A.equal(button.scripts.OnUpdate, nil)
 end)
 
 return tests
