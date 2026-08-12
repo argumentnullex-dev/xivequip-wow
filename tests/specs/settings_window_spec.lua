@@ -44,7 +44,7 @@ local function loadWindow(addon, calls)
 
   local function frame(name)
     local f = { name = name, scripts = {}, shown = false }
-    function f:SetSize() end
+    function f:SetSize(width, height) self.width, self.height = width, height end
     function f:SetHeight() end
     function f:SetWidth() end
     function f:SetMinMaxValues() end
@@ -482,6 +482,11 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   for _, item in ipairs(modePanel._xivEquipPool.items.font) do modeText[#modeText + 1] = item.text end
   A.truthy(table.concat(modeText, "\n"):find("Favor loadouts that complete 2-piece and 4-piece set bonuses.", 1, true),
     "set preference should explain its optimization effect")
+  local generalPanel = page._xivEquipPool.items.panel[4]
+  local minimapBox = generalPanel._xivEquipPool.items.checkbox[6]
+  local macroButton = generalPanel._xivEquipPool.items.button[1]
+  A.equal(generalPanel.height, 198, "Addon Settings should contain its bottom controls with padding")
+  A.equal(macroButton.points[1][3], minimapBox.points[1][3], "Minimap and Macro controls should share a baseline")
 
   profile.automatic = true
   Window.ShowTab(1)
@@ -572,8 +577,13 @@ test("clicking Automatic highlights Pawn integration when Pawn is the effective 
   local refreshedModePanel = page._xivEquipPool.items.panel[2]
   A.falsy(refreshedModePanel._xivEquipPool.items.button[1].locked, "Default should no longer be highlighted when Pawn wins Automatic")
   A.truthy(refreshedModePanel._xivEquipPool.items.button[3].locked, "Addon Integration should be highlighted when Pawn wins Automatic")
+  local refreshedMapPanel = page._xivEquipPool.items.panel[3]
+  A.equal(refreshedMapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Retribution",
+    "automatic integration rows should show the resolved Pawn scale name without a redundant prefix")
   local text = table.concat(calls.fontText, "\n")
   A.truthy(text:find("Active weights: Pawn | Retribution", 1, true), "Active source should show Pawn after enabling Automatic")
+  A.truthy(text:find("Selection disabled while Automatic mode is engaged.", 1, true),
+    "automatic mapping notice should explain why selection is unavailable")
 end)
 
 test("Profile Management reuses its name field and refreshes profile usage", function()

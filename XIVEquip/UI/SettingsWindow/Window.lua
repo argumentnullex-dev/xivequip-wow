@@ -674,7 +674,7 @@ local function integrationItems(C, providerID, runtime, specID)
   end
   local providerLabel = entry and (entry.label or entry.id) or tostring(providerID or "provider")
   if guessed then
-    out[1].label = "Automatic: " .. tostring(guessed)
+    out[1].label = tostring(guessed)
   elseif available then
     out[1].label = "Default - no suitable " .. tostring(providerLabel) .. " scale"
   else
@@ -693,7 +693,7 @@ end
 
 local function addGeneralSettings(parent, x, y, width)
   local S = XIVEquip.Settings
-  local box = panel(parent, x, y, width, 176)
+  local box = panel(parent, x, y, width, 198)
   sectionTitle(box, "Addon Settings", 14, -14)
   sectionTitle(box, "Messages", 14, -42)
   sectionTitle(box, "Automation", 302, -42)
@@ -723,7 +723,7 @@ local function addGeneralSettings(parent, x, y, width)
   minimapBox:SetPoint("TOPLEFT", 14, -164)
   sectionTitle(box, "Macro", 302, -142)
   local macro = button(box, "Create Macro", 150, 22)
-  macro:SetPoint("TOPLEFT", 302, -160)
+  macro:SetPoint("TOPLEFT", 302, -164)
   macro:SetScript("OnClick", createEquipMacro)
   return box
 end
@@ -1036,7 +1036,7 @@ local function showConfig(content)
       or "Integration scales by specialization"
   sectionTitle(mapPanel, mappingTitle, 14, -14)
   if profile and not manualEditable then
-    local stored = font(mapPanel, "GameFontDisableSmall", "Automatic selection (disabled while Automatic is enabled)")
+    local stored = font(mapPanel, "GameFontDisableSmall", "Selection disabled while Automatic mode is engaged.")
     stored:SetPoint("TOPRIGHT", -12, -16)
   end
   local mapY = -42
