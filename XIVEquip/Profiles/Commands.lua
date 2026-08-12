@@ -1,7 +1,6 @@
--- Lightweight management commands for the profile-backed item lists. Shift-
--- clicking an item link into the command line is the natural WoW workflow;
--- the Settings UI can later offer richer browsing without changing storage
--- or policy behavior.
+-- Lightweight command-line management for the profile-backed item lists.
+-- The Settings UI offers the same storage through browsable Wishlist and
+-- Avoidlist pages; these commands remain useful for macros and quick edits.
 local addonName, XIVEquip = ...
 
 local Commands = XIVEquip.Commands

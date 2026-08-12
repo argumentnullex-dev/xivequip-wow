@@ -36,6 +36,7 @@ local function loadWindow(addon, calls)
         self.points = self.points or {}
         self.points[#self.points + 1] = { ... }
       end,
+      SetAllPoints = function() end,
       ClearAllPoints = function(self) self.points = {} end,
       SetWidth = function() end,
       SetJustifyH = function() end,
@@ -77,6 +78,8 @@ local function loadWindow(addon, calls)
     function f:Enable() self.enabled = true end
     function f:Disable() self.enabled = false end
     function f:SetAutoFocus() end
+    function f:SetFocus() self.focused = true end
+    function f:HasFocus() return self.focused == true end
     function f:ClearFocus() end
     function f:GetText() return self.text end
     function f:SetTextInsets() end
@@ -140,6 +143,10 @@ local function loadWindow(addon, calls)
     end,
   }
   _G.GetActionInfo = calls.getActionInfo or function() return nil end
+  _G.hooksecurefunc = function(name, fn)
+    calls.hooks[name] = fn
+  end
+  _G.IsControlKeyDown = function() return calls.controlDown == true end
 
   local chunk = assert(loadfile(root .. sep .. "XIVEquip" .. sep .. "UI" .. sep .. "SettingsWindow" .. sep .. "Window.lua"))
   chunk("XIVEquip", addon)
@@ -148,7 +155,10 @@ end
 
 local function harness()
   local settingsTable = { UI = { SettingsWindow = {} } }
-  local calls = { buttons = {}, fontText = {}, fontObjects = {}, created = nil, edited = nil, pickup = nil, settings = settingsTable }
+  local calls = {
+    buttons = {}, fontText = {}, fontObjects = {}, hooks = {}, controlDown = false,
+    created = nil, edited = nil, pickup = nil, settings = settingsTable,
+  }
   local addon = {
     UI = {},
     L = { AddonPrefix = "XIVEquip: " },
@@ -180,7 +190,134 @@ test("Settings uses a vertical navigation rail", function()
   A.equal(frame.tabs[2].points[1][1], "TOP", "second navigation item should stack vertically")
   A.equal(frame.tabs[2].points[1][2], frame.tabs[1], "second navigation item should follow the first")
   A.equal(frame.tabs[2].points[1][3], "BOTTOM", "navigation should be vertical rather than horizontal")
+  A.equal(frame.tabs[3].text, "Wishlist", "settings should expose Wishlist in the navigation rail")
+  A.equal(frame.tabs[4].text, "Avoidlist", "settings should expose Avoidlist in the navigation rail")
+  A.equal(frame.tabs[4].points[1][2], frame.tabs[3], "list navigation items should continue the vertical stack")
   A.equal(frame.content.points[1][4], 146, "page content should begin to the right of the rail")
+end)
+
+test("Wishlist searches owned gear and adds the selected item for the active Profile and spec", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default", name = "Default", automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  local wishlist, avoidlist, updates = {}, {}, {}
+  local shiningLink = "|cff0070dd|Hitem:101::::::::80:::::|h[Shining Helm]|h|r"
+  local darkLink = "|cff0070dd|Hitem:102::::::::80:::::|h[Dark Boots]|h|r"
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  _G.GetItemInfoInstant = function(value)
+    local id = tonumber(tostring(value):match("item:(%d+)") or value)
+    return id, nil, nil, id == 102 and "INVTYPE_FEET" or "INVTYPE_HEAD"
+  end
+  _G.GetItemInfo = function(value)
+    local id = tonumber(tostring(value):match("item:(%d+)") or value)
+    if id == 101 then return "Shining Helm", shiningLink end
+    if id == 102 then return "Dark Boots", darkLink end
+    return nil
+  end
+  addon.Evaluation = {
+    CandidateCollector = {
+      Collect = function()
+        return { candidates = {
+          { itemID = 101, link = shiningLink, source = { kind = "bag" } },
+          { itemID = 102, link = darkLink, source = { kind = "equipped" } },
+        } }
+      end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      GetSpecPreferences = function() return { wishlist = wishlist, avoidlist = avoidlist } end,
+      SetWishlistItem = function(_, specID, itemID, listed)
+        updates[#updates + 1] = { kind = "wishlist", specID = specID, itemID = itemID, listed = listed }
+        wishlist[itemID] = listed and true or nil
+        if listed then avoidlist[itemID] = nil end
+        return profile
+      end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(3)
+  local page = Window.Frame.content.page
+  local input = page._xivEquipFrames["item-list-input"]
+  input:SetText("Shining")
+  input.scripts.OnTextChanged(input, true)
+  local rows = page._xivEquipFrames["settings-scroll"]._xivEquipScrollChild
+  local linkRows = rows._xivEquipPool.items["item-link-row"]
+  A.equal(#linkRows, 1, "name filtering should show only matching equipped or bag gear")
+  A.truthy(linkRows[1].label.text:find("Shining Helm", 1, true), "search result should display the item link name")
+  rows._xivEquipPool.items.button[1].scripts.OnClick(rows._xivEquipPool.items.button[1])
+
+  A.equal(updates[1].kind, "wishlist")
+  A.equal(updates[1].specID, 70, "Wishlist update should use the active specialization")
+  A.equal(updates[1].itemID, 101, "matching result should add its item ID")
+  A.truthy(updates[1].listed, "matching result should add rather than remove")
+end)
+
+test("Avoidlist accepts Ctrl-clicked item links and removes existing entries", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default", name = "Default", automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  local wishlist, avoidlist = {}, { [202] = true }
+  local updates = {}
+  local avoidedLink = "|cffa335ee|Hitem:202::::::::80:::::|h[Avoided Greaves]|h|r"
+  local newLink = "|cffa335ee|Hitem:303::::::::80:::::|h[Unwanted Shoulders]|h|r"
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  _G.GetItemInfoInstant = function(value)
+    local id = tonumber(tostring(value):match("item:(%d+)") or value)
+    return id, nil, nil, "INVTYPE_LEGS"
+  end
+  _G.GetItemInfo = function(value)
+    local id = tonumber(tostring(value):match("item:(%d+)") or value)
+    if id == 202 then return "Avoided Greaves", avoidedLink end
+    if id == 303 then return "Unwanted Shoulders", newLink end
+    return nil
+  end
+  addon.Evaluation = { CandidateCollector = { Collect = function() return { candidates = {} } end } }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      GetSpecPreferences = function() return { wishlist = wishlist, avoidlist = avoidlist } end,
+      SetAvoidlistItem = function(_, specID, itemID, listed)
+        updates[#updates + 1] = { specID = specID, itemID = itemID, listed = listed }
+        avoidlist[itemID] = listed and true or nil
+        if listed then wishlist[itemID] = nil end
+        return profile
+      end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(4)
+  calls.controlDown = true
+  A.truthy(calls.hooks.HandleModifiedItemClick, "settings should install one modified-item-click capture hook")
+  calls.hooks.HandleModifiedItemClick(newLink)
+  A.equal(Window.ItemListInput.text, newLink, "Ctrl-click should fill the active Avoidlist input")
+  A.truthy(Window.ItemListInput.focused, "captured item link should focus the input")
+  Window.Frame.content.page._xivEquipPool.items.button[1].scripts.OnClick(
+    Window.Frame.content.page._xivEquipPool.items.button[1])
+  A.equal(updates[1].itemID, 303, "Add Item should store the Ctrl-clicked item")
+  A.truthy(updates[1].listed)
+
+  local rows = Window.Frame.content.page._xivEquipFrames["settings-scroll"]._xivEquipScrollChild
+  rows._xivEquipPool.items.button[1].scripts.OnClick(rows._xivEquipPool.items.button[1])
+  A.equal(updates[2].itemID, 202, "Remove should target the listed item")
+  A.falsy(updates[2].listed, "Remove should clear the Avoidlist entry")
 end)
 
 test("Settings reads and displays the full add-on version", function()
