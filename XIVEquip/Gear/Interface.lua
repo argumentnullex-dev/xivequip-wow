@@ -129,15 +129,17 @@ function C:_saveSpecSetSoon(delay, result)
   end)
 end
 
-function C:PlanBestNative(opts)
+-- PlanBestImpl does the real work; PlanBest below wraps it in xpcall so a
+-- planner error is reported cleanly instead of propagating raw.
+function C:PlanBestImpl(opts)
   opts = opts or {}
   local Planner = XIVEquip.Planning and XIVEquip.Planning.Coordinator
   local PlanBuilder = XIVEquip.Planning and XIVEquip.Planning.PlanBuilder
   if not (Planner and Planner.Plan and PlanBuilder and PlanBuilder.Build) then
-    return nil, "native_planner_unavailable"
+    return nil, "planner_unavailable"
   end
 
-  local result = Planner.Plan(opts.native or {})
+  local result = Planner.Plan(opts.planner or {})
   local changes, pending, plan = PlanBuilder.Build(result)
   C._lastRecommendationResult = result
   C._socketPotential = {}
@@ -149,24 +151,24 @@ function C:GetLastRecommendationResult()
   return C._lastRecommendationResult
 end
 
-local function nativeFailureDetail(err)
-  local text = tostring(err or "native planner failed")
+local function planFailureDetail(err)
+  local text = tostring(err or "planner failed")
   if debugstack then return text .. "\n" .. tostring(debugstack(2) or "") end
   if debug and type(debug.traceback) == "function" then return debug.traceback(text, 2) end
   return text
 end
 
-local function logNativePlannerFailure(detail)
+local function logPlanFailure(detail)
   local fullDetail = tostring(detail or "unknown error")
   local summary = fullDetail:match("^[^\r\n]+") or fullDetail
-  local message = "Native planner failed; aborting: " .. summary
+  local message = "Planner failed; aborting: " .. summary
   if XIVEquip.Log and type(XIVEquip.Log.Error) == "function" then
     XIVEquip.Log.Error(message)
   elseif XIVEquip.Log and type(XIVEquip.Log.Warn) == "function" then
     XIVEquip.Log.Warn(message)
   end
   if XIVEquip.Log and type(XIVEquip.Log.Debugf) == "function" then
-    XIVEquip.Log.Debugf("force", "Native 2.0 planner failure detail:\n%s", fullDetail)
+    XIVEquip.Log.Debugf("force", "Planner failure detail:\n%s", fullDetail)
   end
 end
 
@@ -175,12 +177,12 @@ end
 function C:PlanBest(opts)
   opts = opts or {}
   local ok, changes, pendingOrErr, plan, result = xpcall(function()
-    return C:PlanBestNative(opts)
-  end, nativeFailureDetail)
+    return C:PlanBestImpl(opts)
+  end, planFailureDetail)
   if ok and changes then return changes, pendingOrErr, plan, result end
 
-  local detail = pendingOrErr or changes or "native planner failed"
-  logNativePlannerFailure(detail)
+  local detail = pendingOrErr or changes or "planner failed"
+  logPlanFailure(detail)
   return nil, false, nil, nil, detail
 end
 
@@ -451,21 +453,21 @@ function C:EquipBest(opts)
   end
 
   local showEquip = not (Settings and Settings.GetMessage) or Settings:GetMessage("Equip")
-  local planOk, changesOrErr, pending, plan, nativeResult, nativeFailure = xpcall(function()
+  local planOk, changesOrErr, pending, plan, planResult, planFailure = xpcall(function()
     return C:PlanBest(opts)
-  end, nativeFailureDetail)
+  end, planFailureDetail)
   if not planOk then
     error(changesOrErr, 0)
   end
   plan = plan or {}
 
-  if nativeFailure then
+  if planFailure then
     local result = newEquipRunResult({}, false)
     result.failed = 1
-    table.insert(result.steps, { index = 1, status = "failed", reason = "native_planner_failed", detail = tostring(nativeFailure) })
+    table.insert(result.steps, { index = 1, status = "failed", reason = "planner_failed", detail = tostring(planFailure) })
     C._lastEquipResult = result
     return C:_completeEquipRun(result, showEquip, {
-      failureMessage = "Native 2.0 planner failed; no gear was equipped. Check the XIVEquip debug log for details.",
+      failureMessage = "Planner failed; no gear was equipped. Check the XIVEquip debug log for details.",
       onComplete = opts.onComplete,
     })
   end
@@ -535,10 +537,10 @@ end
 -- filled". A fresh PlanBest pass against the now-equipped state should find
 -- nothing left to change; if it does, the equip wasn't actually optimal.
 local function checkFullyOptimal()
-  local ok, errOrChanges, pending, plan, nativeResult, nativeFailure = xpcall(function()
+  local ok, errOrChanges, pending, plan, planResult, planFailure = xpcall(function()
     return C:PlanBest()
-  end, nativeFailureDetail)
-  if not ok or nativeFailure then return false, plan or {}, false, "failed", nativeFailure or errOrChanges end
+  end, planFailureDetail)
+  if not ok or planFailure then return false, plan or {}, false, "failed", planFailure or errOrChanges end
   if pending then return false, plan or {}, true, "pending" end
   if #(plan or {}) > 0 then return false, plan or {}, false, "remaining" end
   return true, {}, false, "optimal"

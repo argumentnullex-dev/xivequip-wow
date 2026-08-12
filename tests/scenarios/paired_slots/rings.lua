@@ -1,6 +1,6 @@
 -- tests/scenarios/paired_slots/rings.lua
 -- Doc section 7's ring-pair contract bullets, ported from the existing
--- native planner-level paired-slot tests (doc migration
+-- existing planner-level paired-slot tests (doc migration
 -- Step 2: port behavior, not test implementation). Where the original test
 -- accepted either slot for a symmetric-scored item ("truthy(pickID(11)==x
 -- or pickID(12)==x)"), scores here are made slot-asymmetric so the

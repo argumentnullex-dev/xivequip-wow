@@ -141,7 +141,7 @@ local function newHarness(overrides)
   return addon, calls, button, eventFrame
 end
 
-test("cold hover executes one native plan and renders it immediately", function()
+test("cold hover executes one plan and renders it immediately", function()
   local _, calls, button = newHarness({
     planReturn = function()
       return {}, false, {}, {
@@ -198,7 +198,7 @@ test("hover preview preserves explicit zero score deltas instead of recomputing 
   A.equal(calls.pawnScores, 0)
 end)
 
-test("hover preview reuses a short-lived native plan cache", function()
+test("hover preview reuses a short-lived plan cache", function()
   local _, calls, button = newHarness()
 
   button.scripts.OnEnter(button)
