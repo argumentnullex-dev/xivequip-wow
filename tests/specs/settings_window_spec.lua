@@ -489,6 +489,11 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   for _, item in ipairs(modePanel._xivEquipPool.items.font) do modeText[#modeText + 1] = item.text end
   A.truthy(table.concat(modeText, "\n"):find("Favor loadouts that complete 2-piece and 4-piece set bonuses.", 1, true),
     "set preference should explain its optimization effect")
+  local customMapPanel = page._xivEquipPool.items.panel[3]
+  local customMenu = customMapPanel._xivEquipPool.items.dropdown[1]
+  local customEdit = customMapPanel._xivEquipPool.items.button[1]
+  A.truthy(customEdit.points[1][2] >= customMenu.points[1][2] + customMenu.dropdownWidth + 36,
+    "custom scale action buttons should clear the dropdown template's visible right edge")
   local generalPanel = page._xivEquipPool.items.panel[4]
   local debugBox = generalPanel._xivEquipPool.items.checkbox[3]
   local minimapBox = generalPanel._xivEquipPool.items.checkbox[6]

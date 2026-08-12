@@ -1082,7 +1082,7 @@ local function showConfig(content)
       setDropdownEnabled(menu, manualEditable)
       local selectedScaleID = overrides[spec.id]
       local edit = button(mapPanel, "Edit", 52, 20)
-      edit:SetPoint("TOPLEFT", 330, mapY + 3)
+      edit:SetPoint("TOPLEFT", 354, mapY + 3)
       if not selectedScaleID then edit:Disable() end
       edit:SetScript("OnClick", function()
         if selectedScaleID then
