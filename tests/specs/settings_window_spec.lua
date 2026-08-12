@@ -1165,11 +1165,6 @@ test("Scale editor uses its full width and refreshes the active selector label",
       SaveScale = function() end,
       SpecName = function() return "Retribution" end,
     },
-    Import = {
-      Serialized = {
-        EncodeBase64 = function(text) return "base64:" .. tostring(text) end,
-      },
-    },
   }
 
   local Window = loadWindow(addon, calls)
@@ -1236,7 +1231,6 @@ test("Export reports instead of silently doing nothing when no Custom scale exis
       Repository = function() return { Get = function() return nil end } end,
       SpecName = function() return "Retribution" end,
     },
-    Import = { Serialized = { EncodeBase64 = function(text) return "base64:" .. tostring(text) end } },
   }
 
   local Window = loadWindow(addon, calls)
@@ -1258,7 +1252,7 @@ test("Export reports instead of silently doing nothing when no Custom scale exis
   A.truthy(joined:find("Select or create a Custom scale", 1, true))
 end)
 
-test("Export produces base64-encoded scale JSON via the real encoder, and Import accepts it back", function()
+test("Export produces single-line JSON with no base64 wrapping, and Import accepts it back", function()
   local Bootstrap = dofile(root .. sep .. "tests" .. sep .. "harness" .. sep .. "addon_bootstrap.lua")
   local weightsAddon = {}
   Bootstrap.LoadWeights(root, weightsAddon)
@@ -1293,7 +1287,8 @@ test("Export produces base64-encoded scale JSON via the real encoder, and Import
   A.truthy(Window.TextDialog:IsShown())
   local exported = Window.TextDialog.edit:GetText()
 
-  A.falsy(exported:find("{", 1, true), "the displayed export text should be base64, not raw JSON")
+  A.equal(exported:sub(1, 1), "{", "the displayed export text should be raw JSON, not base64")
+  A.falsy(exported:find("\n", 1, true), "exported JSON should be a single line with no linebreaks")
   A.equal(Serialized.Detect(exported), "native-json", "the real importer should detect its own export as scale JSON")
   local parsed = assert(Serialized.Parse(exported, 70))
   A.equal(parsed.name, "Retribution Raid")

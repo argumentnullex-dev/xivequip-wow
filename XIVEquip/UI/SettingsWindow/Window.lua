@@ -1180,9 +1180,7 @@ local function showTextDialog(titleText, bodyText)
     -- frame -- this note wraps to more than one line at this width, and a
     -- fixed offset here is exactly what let the Wishlist/Avoidlist
     -- breadcrumb text overlap the content below it previously.
-    local note = font(frame, "GameFontHighlightSmall",
-      "Select the text and press Ctrl+C. WoW cannot write arbitrary text to the system clipboard directly. "
-      .. "This is base64-encoded scale data -- paste the whole block back into Import to restore it.")
+    local note = font(frame, "GameFontHighlightSmall", "Select the text and press Ctrl+C. WoW cannot write arbitrary text to the system clipboard directly.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
@@ -1223,8 +1221,7 @@ local function showImportDialog(specID, C)
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("LEFT", frame.TitleBg, "LEFT", 6, 0)
     title:SetText("Import Scale")
-    local note = font(frame, "GameFontHighlightSmall",
-      "Paste Pawn or stat-weight text, or XIVEquip JSON (raw or base64-encoded, as produced by Export), then detect and import it as a Custom scale.")
+    local note = font(frame, "GameFontHighlightSmall", "Paste Pawn or stat-weight text, or XIVEquip JSON, then detect and import it as a Custom scale.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
@@ -1436,13 +1433,7 @@ local function showScales(content)
       name = selectedScale.name, specID = meta.specID, classFile = meta.classFile,
       specName = meta.specName, weights = selectedScale.weights,
     })
-    local importer = XIVEquip.XIVWeights.Import and XIVEquip.XIVWeights.Import.Serialized
-    local encoded = importer and importer.EncodeBase64 and importer.EncodeBase64(json)
-    if not encoded then
-      print(PREFIX .. "Export failed: base64 encoder not available.")
-      return
-    end
-    showTextDialog("Export Scale", encoded)
+    showTextDialog("Export Scale", json)
   end)
   local duplicate = button(page, "Duplicate", 78, 22)
   duplicate:SetPoint("LEFT", export, "RIGHT", 4, 0)
