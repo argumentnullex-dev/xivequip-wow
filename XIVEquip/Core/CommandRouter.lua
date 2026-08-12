@@ -63,6 +63,7 @@ local function print_help()
   print(PREFIX .. "Commands:")
   print("  /xive                            – open settings")
   print("  /xive settings                   – open settings")
+  print("  /xive help                       – print this command list")
   print("  /xivequip                        – equip recommended gear")
   print("  /xive equip                      – equip recommended gear")
   print("  /xive debug on|off|toggle        – toggle debug logging")
@@ -184,7 +185,7 @@ local function dispatch(msg)
     if type(one) == "function" then fn, ix = one, 1 end
   end
   if not fn then
-    print(PREFIX .. "Unknown command. Try /xive"); return
+    print(PREFIX .. "Unknown command. Try /xive help"); return
   end
 
   local rest = table.concat(tokens, " ", ix + 1)
@@ -197,6 +198,10 @@ SLASH_XIVE1 = "/xive"
 SlashCmdList["XIVE"] = function(msg) dispatch(trim(msg)) end
 
 -- handlers
+
+C.RegisterRoot("help", function(_)
+  print_help()
+end)
 
 C.RegisterRoot("settings", function(_)
   openSettings()

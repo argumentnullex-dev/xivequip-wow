@@ -18,31 +18,10 @@ local function showHelpTooltip(btn)
   GameTooltip:SetOwner(btn, "ANCHOR_LEFT")
   GameTooltip:ClearLines()
   GameTooltip:AddLine("XIVEquip")
-  GameTooltip:AddLine("Left Click - Equip Best", 0.8, 0.8, 0.8)
+  GameTooltip:AddLine("Left Click - Equip Recommended Gear", 0.8, 0.8, 0.8)
   GameTooltip:AddLine("Right Click - Open Config", 0.8, 0.8, 0.8)
-  GameTooltip:AddLine("Hold Shift - Preview recommendations", 0.8, 0.8, 0.8)
+  GameTooltip:AddLine("Shift + Left Click - Preview recommendations", 0.8, 0.8, 0.8)
   GameTooltip:Show()
-end
-
-local function showTooltip(btn)
-  if IsShiftKeyDown and IsShiftKeyDown()
-      and XIVEquip.UI and XIVEquip.UI.RenderEquipPreviewTooltip then
-    XIVEquip.UI.RenderEquipPreviewTooltip(btn, "ANCHOR_LEFT")
-  else
-    showHelpTooltip(btn)
-  end
-end
-
-local function setShiftState(btn)
-  btn._xiveShifted = IsShiftKeyDown and IsShiftKeyDown() or false
-end
-
-local function hoverUpdate(self)
-  local shifted = IsShiftKeyDown and IsShiftKeyDown() or false
-  if self._xiveShifted ~= shifted and MouseIsOver and MouseIsOver(self) then
-    self._xiveShifted = shifted
-    showTooltip(self)
-  end
 end
 
 local function minimapPoint(angle)
@@ -125,23 +104,27 @@ function Button.Create()
   btn:SetScript("OnClick", function(_, button)
     if button == "RightButton" and XIVEquip.UI.SettingsWindow and XIVEquip.UI.SettingsWindow.Toggle then
       XIVEquip.UI.SettingsWindow.Toggle()
-    elseif button == "LeftButton" and XIVEquip.EquipBestGear then
-      if XIVEquip.UI and XIVEquip.UI.ClearPreviewCache then XIVEquip.UI.ClearPreviewCache() end
-      XIVEquip:EquipBestGear()
+    elseif button == "LeftButton" then
+      if IsShiftKeyDown and IsShiftKeyDown() then
+        if XIVEquip.UI and XIVEquip.UI.RenderEquipPreviewTooltip then
+          XIVEquip.UI.RenderEquipPreviewTooltip(btn, "ANCHOR_LEFT")
+        end
+      elseif XIVEquip.EquipBestGear then
+        if XIVEquip.UI and XIVEquip.UI.ClearPreviewCache then XIVEquip.UI.ClearPreviewCache() end
+        XIVEquip:EquipBestGear()
+      end
     end
   end)
   btn:SetScript("OnDragStart", function(self)
     self:SetScript("OnUpdate", updateAngle)
   end)
   btn:SetScript("OnDragStop", function(self)
-    self:SetScript("OnUpdate", hoverUpdate)
+    self:SetScript("OnUpdate", nil)
     Button.Refresh()
   end)
   btn:SetScript("OnEnter", function(self)
-    setShiftState(self)
-    showTooltip(self)
+    showHelpTooltip(self)
   end)
-  btn:SetScript("OnUpdate", hoverUpdate)
   btn:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
 
   Button.Frame = btn

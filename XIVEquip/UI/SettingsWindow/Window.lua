@@ -571,16 +571,34 @@ end
 
 local function setDropdown(menu, items, selected, onSelect)
   if not UIDropDownMenu_Initialize then return end
-  local selectedLabel
-  for _, item in ipairs(items or {}) do
-    if item.value == selected then selectedLabel = item.label end
+
+  local function currentItems()
+    if type(items) == "function" then
+      local ok, resolved = pcall(items)
+      return ok and type(resolved) == "table" and resolved or {}
+    end
+    return items or {}
   end
+
+  local function refreshSelection(rows)
+    local selectedValue = type(selected) == "function" and selected(rows) or selected
+    local selectedLabel
+    for _, item in ipairs(rows) do
+      if item.value == selectedValue then selectedLabel = item.label end
+    end
+    UIDropDownMenu_SetSelectedValue(menu, selectedValue)
+    UIDropDownMenu_SetText(menu, selectedLabel or "Select")
+    return selectedValue
+  end
+
   UIDropDownMenu_Initialize(menu, function()
-    for _, item in ipairs(items or {}) do
+    local rows = currentItems()
+    local selectedValue = refreshSelection(rows)
+    for _, item in ipairs(rows) do
       local info = UIDropDownMenu_CreateInfo()
-      info.text = item.label
+      info.text = item.menuLabel or item.label
       info.value = item.value
-      info.checked = item.value == selected
+      info.checked = item.value == selectedValue
       info.disabled = item.disabled == true
       info.func = function()
         if not item.disabled and onSelect then onSelect(item.value) end
@@ -588,8 +606,7 @@ local function setDropdown(menu, items, selected, onSelect)
       UIDropDownMenu_AddButton(info)
     end
   end)
-  UIDropDownMenu_SetSelectedValue(menu, selected)
-  UIDropDownMenu_SetText(menu, selectedLabel or "Select")
+  refreshSelection(currentItems())
 end
 
 local function setDropdownEnabled(menu, enabled)
@@ -674,11 +691,11 @@ local function integrationItems(C, providerID, runtime, specID)
   end
   local providerLabel = entry and (entry.label or entry.id) or tostring(providerID or "provider")
   if guessed then
-    out[1].label = "Automatic: " .. tostring(guessed)
+    out[1].label = "Recommended (" .. tostring(guessed) .. ")"
   elseif available then
-    out[1].label = "Default - no suitable " .. tostring(providerLabel) .. " scale"
+    out[1].label = "Recommended (Default - no suitable " .. tostring(providerLabel) .. " scale)"
   else
-    out[1].label = "Default - " .. tostring(providerLabel) .. " unavailable"
+    out[1].label = "Recommended (Default - " .. tostring(providerLabel) .. " unavailable)"
   end
   local rows = {}
   if available and entry and entry.ListScales then
@@ -693,7 +710,7 @@ end
 
 local function addGeneralSettings(parent, x, y, width)
   local S = XIVEquip.Settings
-  local box = panel(parent, x, y, width, 176)
+  local box = panel(parent, x, y, width, 216)
   sectionTitle(box, "Addon Settings", 14, -14)
   sectionTitle(box, "Messages", 14, -42)
   sectionTitle(box, "Automation", 302, -42)
@@ -704,7 +721,7 @@ local function addGeneralSettings(parent, x, y, width)
   }
   local automation = {
     { "Auto-equip on spec change", function() return S:GetAutomation("SpecEquip") end, function(v) S:SetAutomation("SpecEquip", v) end },
-    { "Auto-save equipment set after equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
+    { "Save Equipment set after auto-equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
   }
   for i, row in ipairs(messages) do
     local cb = checkbox(box, row[1], row[2](), row[3])
@@ -714,16 +731,16 @@ local function addGeneralSettings(parent, x, y, width)
     local cb = checkbox(box, row[1], row[2](), row[3])
     cb:SetPoint("TOPLEFT", 302, -66 - ((i - 1) * 26))
   end
-  sectionTitle(box, "Minimap Button", 14, -142)
+  sectionTitle(box, "Minimap Button", 14, -156)
   local minimap = { "Show minimap button", function() return not S:GetMinimapHidden() end, function(v)
       S:SetMinimapHidden(v ~= true)
       if XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Refresh then XIVEquip.UI.MinimapButton.Refresh() end
     end }
   local minimapBox = checkbox(box, minimap[1], minimap[2](), minimap[3])
-  minimapBox:SetPoint("TOPLEFT", 14, -164)
-  sectionTitle(box, "Macro", 302, -142)
+  minimapBox:SetPoint("TOPLEFT", 14, -180)
+  sectionTitle(box, "Macro", 302, -156)
   local macro = button(box, "Create Macro", 150, 22)
-  macro:SetPoint("TOPLEFT", 302, -160)
+  macro:SetPoint("TOPLEFT", 302, -180)
   macro:SetScript("OnClick", createEquipMacro)
   return box
 end
@@ -754,117 +771,6 @@ local function mapStateKey(values)
   local out = {}
   for _, key in ipairs(keys) do out[#out + 1] = tostring(key) .. "=" .. tostring(values[key]) end
   return table.concat(out, ",")
-end
-
-local function showProfileDialog()
-  local C, Profiles, runtime, context, _, classFile, selected = currentState()
-  if not Profiles or not classFile then return end
-  local frame = Window.ProfileDialog
-  if not frame then
-    frame = CreateFrame("Frame", "XIVEquipProfileDialog", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(570, 390)
-    frame:SetFrameStrata("DIALOG")
-    frame:Hide()
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    registerEscapeClose("XIVEquipProfileDialog")
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    title:SetPoint("LEFT", frame.TitleBg, "LEFT", 6, 0)
-    title:SetText("Manage Profiles")
-    Window.ProfileDialog = frame
-  end
-  local profiles = Profiles.List(classFile)
-  local body = frame.body
-  if not body then
-    body = CreateFrame("Frame", nil, frame)
-    body:SetAllPoints(frame)
-    frame.body = body
-  end
-  beginRender(body)
-  hidePooledFrames(body)
-  if body.GetChildren then
-    local children = { body:GetChildren() }
-    for _, child in ipairs(children) do child:Hide() end
-  end
-  selected = selected or profiles[1]
-  local listTitle = sectionTitle(body, "Profiles for " .. tostring(classFile), 18, -42)
-  local list = pooledFrame(body, "profile-list", "Frame")
-  list:SetPoint("TOPLEFT", 16, -66)
-  list:SetSize(230, 255)
-  for index, profile in ipairs(profiles) do
-    local pick = button(list, tostring(profile.name), 215, 24)
-    pick:SetPoint("TOPLEFT", 0, -((index - 1) * 29))
-    if selected and selected.id == profile.id then pick:Disable() end
-    pick:SetScript("OnClick", function()
-      Window.SelectedProfileID = profile.id
-      showProfileDialog()
-    end)
-  end
-  local detail = panel(body, 260, -36, 290, 285)
-  sectionTitle(detail, "Profile Details", 14, -16)
-  local selectedProfile
-  for _, profile in ipairs(profiles) do if profile.id == Window.SelectedProfileID then selectedProfile = profile end end
-  selectedProfile = selectedProfile or selected or profiles[1]
-  local name = font(detail, "GameFontHighlight", selectedProfile and selectedProfile.name or "Default")
-  name:SetPoint("TOPLEFT", 16, -48)
-  local usage = Profiles.Usage(classFile, selectedProfile and selectedProfile.id)
-  local used = font(detail, "GameFontHighlightSmall", "Used by " .. tostring(usage and usage.count or 0) .. " characters")
-  used:SetPoint("TOPLEFT", 16, -72)
-  local use = button(detail, "Use for this character", 160, 22)
-  use:SetPoint("TOPLEFT", 16, -102)
-  use:SetScript("OnClick", function()
-    if selectedProfile and context.characterKey then
-      Profiles.AssignCharacter(context.characterKey, classFile, selectedProfile.id)
-      frame:Hide()
-      Window.ShowTab(1)
-    end
-  end)
-  local nameBox = pooledFrame(detail, "profile-name", "EditBox", "InputBoxTemplate")
-  nameBox:SetSize(190, 22)
-  nameBox:SetPoint("TOPLEFT", 16, -148)
-  nameBox:SetAutoFocus(false)
-  nameBox:SetText("")
-  local new = button(detail, "New", 70, 22)
-  new:SetPoint("TOPLEFT", 16, -184)
-  new:SetScript("OnClick", function()
-    local created = Profiles.Create(classFile, nameBox:GetText())
-    if created then Window.SelectedProfileID = created.id; showProfileDialog() else print(PREFIX .. "Profile name is required and must be unique.") end
-  end)
-  local duplicate = button(detail, "Duplicate", 82, 22)
-  duplicate:SetPoint("LEFT", new, "RIGHT", 8, 0)
-  duplicate:SetScript("OnClick", function()
-    if selectedProfile then
-      local created = Profiles.Duplicate(classFile, selectedProfile.id, nameBox:GetText())
-      if created then Window.SelectedProfileID = created.id; showProfileDialog() else print(PREFIX .. "Profile name is required and must be unique.") end
-    end
-  end)
-  local rename = button(detail, "Rename", 70, 22)
-  rename:SetPoint("TOPLEFT", 16, -220)
-  rename:SetScript("OnClick", function()
-    if selectedProfile and Profiles.Rename(classFile, selectedProfile.id, nameBox:GetText()) then showProfileDialog() end
-  end)
-  local delete = button(detail, "Delete", 70, 22)
-  delete:SetPoint("LEFT", rename, "RIGHT", 8, 0)
-  if selectedProfile and selectedProfile.id == Profiles.DefaultProfileID(classFile) and delete.Disable then
-    delete:Disable()
-  end
-  delete:SetScript("OnClick", function()
-    if selectedProfile then
-      confirmDeleteProfile(selectedProfile, usage, function()
-        local ok, reason = Profiles.Delete(classFile, selectedProfile.id)
-        if not ok then print(PREFIX .. "Cannot delete profile: " .. tostring(reason)) end
-        Window.SelectedProfileID = nil
-        showProfileDialog()
-      end)
-    end
-  end)
-  local close = button(body, "Close", 80, 22)
-  close:SetPoint("BOTTOMRIGHT", -18, 16)
-  close:SetScript("OnClick", function() frame:Hide() end)
-  revealDialog(frame)
 end
 
 local function showConfig(content)
@@ -922,14 +828,21 @@ local function showConfig(content)
       if entry.id == provider then providerLabel = entry.label or entry.id end
     end
     local reason = resolved.fallbackReason and (" (" .. tostring(resolved.fallbackReason) .. ")") or ""
-    local warning = font(page, "GameFontDisableSmall", "Fallback: " .. providerLabel
-      .. " has no suitable " .. tostring(specName) .. " scale. Using Default" .. reason .. ".")
+    local warningText
+    if resolution and resolution.sourceKind == "integration" then
+      warningText = "Fallback: configured " .. tostring(providerLabel) .. " scale is unavailable. Using Recommended ("
+        .. tostring(resolution.scaleLabel or specName) .. ")" .. reason .. "."
+    else
+      warningText = "Fallback: " .. providerLabel .. " has no suitable " .. tostring(specName)
+        .. " scale. Using Default" .. reason .. "."
+    end
+    local warning = font(page, "GameFontDisableSmall", warningText)
     warning:SetPoint("TOPLEFT", effective, "BOTTOMLEFT", 0, -4)
     warning:SetWidth(CONTENT_WIDTH)
     textColor(warning, 1, 0.65, 0.25)
   end
 
-  local profilePanel = panel(page, 0, -76, CONTENT_WIDTH, 64)
+  local profilePanel = panel(page, 0, -76, CONTENT_WIDTH, 70)
   sectionTitle(profilePanel, "Profile for this character", 14, -14)
   local profileItems = {}
   for _, item in ipairs(Profiles and classFile and Profiles.List(classFile) or {}) do
@@ -941,20 +854,45 @@ local function showConfig(content)
     if context and context.characterKey then Profiles.AssignCharacter(context.characterKey, classFile, value) end
     Window.ShowTab(1)
   end)
-  local manage = button(profilePanel, "Manage", 78, 22)
-  manage:SetPoint("LEFT", profileMenu, "RIGHT", 4, 0)
-  manage:SetScript("OnClick", showProfileDialog)
+  local profileName = pooledFrame(profilePanel, "new-profile-name", "EditBox", "InputBoxTemplate")
+  profileName:SetSize(150, 22)
+  profileName:SetPoint("TOPLEFT", 224, -38)
+  profileName:SetAutoFocus(false)
+  profileName:SetText("")
+  local createProfile = button(profilePanel, "Create", 72, 22)
+  createProfile:SetPoint("TOPLEFT", 384, -38)
+  if not Profiles or not classFile then createProfile:Disable() end
+  createProfile:SetScript("OnClick", function()
+    if not Profiles or not classFile then return end
+    local created = Profiles.Create(classFile, profileName:GetText())
+    if created then
+      if context and context.characterKey then Profiles.AssignCharacter(context.characterKey, classFile, created.id) end
+      Window.ShowTab(1)
+    else
+      print(PREFIX .. "Profile name is required and must be unique.")
+    end
+  end)
+  local deleteProfile = button(profilePanel, "Delete", 72, 22)
+  deleteProfile:SetPoint("TOPLEFT", 466, -38)
+  local defaultProfileID = Profiles and Profiles.DefaultProfileID and classFile and Profiles.DefaultProfileID(classFile)
+  local canDeleteProfile = profile and defaultProfileID and profile.id ~= defaultProfileID
+  if not canDeleteProfile then deleteProfile:Disable() end
+  deleteProfile:SetScript("OnClick", function()
+    if not canDeleteProfile then return end
+    local usage = Profiles.Usage(classFile, profile.id)
+    confirmDeleteProfile(profile, usage, function()
+      local ok, reason = Profiles.Delete(classFile, profile.id)
+      if not ok then print(PREFIX .. "Cannot delete profile: " .. tostring(reason)) end
+      Window.ShowTab(1)
+    end)
+  end)
 
-  local modePanel = panel(page, 0, -152, CONTENT_WIDTH, 184)
+  local modePanel = panel(page, 0, -152, CONTENT_WIDTH, 228)
   sectionTitle(modePanel, "Scoring Configuration", 14, -14)
   local mode = profile and profile.manual and string.lower(tostring(profile.manual.mode or "default")) or "default"
   local manualEditable = profile and profile.automatic == false
   local automatic = profile and profile.automatic ~= false
   local displayMode = mode
-  if automatic then
-    local sourceKind = resolution and resolution.sourceKind
-    displayMode = sourceKind == "integration" and "integration" or "default"
-  end
   local modes = {
     { id = "default", label = "Default", note = "Use the built-in recommended scale for every specialization." },
     { id = "custom", label = "Custom", note = "Use Default unless a specialization has its own scale." },
@@ -1020,21 +958,23 @@ local function showConfig(content)
     if profile then Profiles.SetAutomatic(profile, value); Window.ShowTab(1) end
   end)
   auto:SetPoint("TOPLEFT", 14, -144)
-  local setPreference = checkbox(modePanel, "Prefer set bonuses", preferences.preferSetBonuses == true, function(value)
-    if profile then Profiles.SetPreferSetBonuses(profile, value); Window.ShowTab(1) end
-  end)
-  setPreference:SetPoint("TOPLEFT", 302, -144)
   local recommendation = font(modePanel, "GameFontHighlightSmall", "Choose the recommended scale for your spec automatically.")
   recommendation:SetPoint("TOPLEFT", 36, -164)
   textColor(recommendation, 0.4, 1, 0.4)
+  local setPreference = checkbox(modePanel, "Prefer set bonuses", preferences.preferSetBonuses == true, function(value)
+    if profile then Profiles.SetPreferSetBonuses(profile, value); Window.ShowTab(1) end
+  end)
+  setPreference:SetPoint("TOPLEFT", 14, -184)
+  local setPreferenceNote = font(modePanel, "GameFontDisableSmall", "Favor loadouts that complete 2-piece and 4-piece set bonuses.")
+  setPreferenceNote:SetPoint("TOPLEFT", 36, -204)
 
   local specs = defaults and defaults.SpecsForClass(classFile) or {}
-  local mapPanel = panel(page, 0, -348, CONTENT_WIDTH, 132)
+  local mapPanel = panel(page, 0, -392, CONTENT_WIDTH, 132)
   local mappingTitle = displayMode == "custom" and "Custom scale overrides by specialization"
       or "Integration scales by specialization"
   sectionTitle(mapPanel, mappingTitle, 14, -14)
   if profile and not manualEditable then
-    local stored = font(mapPanel, "GameFontDisableSmall", "Automatic selection (disabled while Automatic is enabled)")
+    local stored = font(mapPanel, "GameFontDisableSmall", "Selection disabled while Automatic mode is engaged.")
     stored:SetPoint("TOPRIGHT", -12, -16)
   end
   local mapY = -42
@@ -1056,7 +996,7 @@ local function showConfig(content)
       setDropdownEnabled(menu, manualEditable)
       local selectedScaleID = overrides[spec.id]
       local edit = button(mapPanel, "Edit", 52, 20)
-      edit:SetPoint("TOPLEFT", 330, mapY + 3)
+      edit:SetPoint("TOPLEFT", 354, mapY + 3)
       if not selectedScaleID then edit:Disable() end
       edit:SetScript("OnClick", function()
         if selectedScaleID then
@@ -1085,22 +1025,24 @@ local function showConfig(content)
     elseif profile and displayMode == "integration" then
       local overrides = profile.manual.integration.overrides or {}
       local configuredOverride = overrides[spec.id]
-      local items = integrationItems(C, integrationProvider, runtime, spec.id)
-      local availableOverride = not configuredOverride
-      for _, item in ipairs(items) do
-        if item.value == configuredOverride then availableOverride = true; break end
+      local function liveIntegrationItems()
+        return integrationItems(C, integrationProvider, runtime, spec.id)
       end
-      if configuredOverride and not availableOverride then
-        table.insert(items, 2, {
-          value = configuredOverride,
-          label = "Missing: " .. tostring(configuredOverride) .. " [Unavailable]",
-        })
-        label:SetText(tostring(spec.name) .. " (Default fallback)")
+      local function effectiveSelection(items)
+        if not configuredOverride then return "" end
+        for _, item in ipairs(items or {}) do
+          if item.value == configuredOverride then return configuredOverride end
+        end
+        return ""
+      end
+      local initialItems = liveIntegrationItems()
+      if configuredOverride and effectiveSelection(initialItems) == "" then
+        label:SetText(tostring(spec.name) .. " (Recommended fallback)")
         textColor(label, 1, 0.65, 0.25)
       end
       local menu = dropdown(mapPanel, 190)
       menu:SetPoint("TOPLEFT", 128, mapY + 8)
-      setDropdown(menu, items, configuredOverride or "", function(value)
+      setDropdown(menu, liveIntegrationItems, effectiveSelection, function(value)
         if value == "" then Profiles.ClearIntegrationOverride(profile, spec.id) else Profiles.SetIntegrationOverride(profile, spec.id, value) end
         Window.ShowTab(1)
       end)
@@ -1113,7 +1055,7 @@ local function showConfig(content)
   end
   if not profile or displayMode == "default" then mapPanel:Hide() end
 
-  local generalY = (profile and displayMode ~= "default") and -494 or -348
+  local generalY = (profile and displayMode ~= "default") and -538 or -392
   addGeneralSettings(page, 0, generalY, CONTENT_WIDTH)
 end
 
@@ -1367,6 +1309,7 @@ local function showScales(content)
   note:SetWidth(CONTENT_WIDTH)
   local specLabel = font(page, "GameFontHighlightSmall", "Specialization")
   specLabel:SetPoint("TOPLEFT", 0, -50)
+  textColor(specLabel, 1, 1, 1)
   local specMenu = dropdown(page, 150)
   specMenu:SetPoint("TOPLEFT", 0, -68)
   setDropdown(specMenu, specs, specID, function(value)
@@ -1375,9 +1318,9 @@ local function showScales(content)
   local scaleItems = {}
   for _, scale in ipairs(scales) do scaleItems[#scaleItems + 1] = { value = scale.id, label = scale.name or scale.id } end
   local scaleLabel = font(page, "GameFontHighlightSmall", "Scale")
-  scaleLabel:SetPoint("TOPLEFT", 164, -50)
+  scaleLabel:SetPoint("TOPLEFT", 200, -50)
   local scaleMenu = dropdown(page, 210)
-  scaleMenu:SetPoint("TOPLEFT", 164, -68)
+  scaleMenu:SetPoint("TOPLEFT", 184, -68)
   setDropdown(scaleMenu, scaleItems, selected, function(value) Window.SelectedScaleID = value; Window.ShowTab(2) end)
   local new = button(page, "Create", 68, 22)
   new:SetPoint("TOPLEFT", 0, -102)
@@ -1431,25 +1374,18 @@ local function showScales(content)
     editor:SetHeight(500)
     return
   end
-  local info = panel(editor, 0, 0, 172, 118)
-  sectionTitle(info, "Scale", 14, -14)
-  local specLine = font(info, "GameFontHighlightSmall", "Specialization: " .. tostring(C.SpecName(specID) or specID))
-  specLine:SetPoint("TOPLEFT", 14, -46)
-  local tied = font(info, "GameFontDisableSmall", "This scale is tied to this specialization.")
-  tied:SetPoint("TOPLEFT", 14, -70)
-  tied:SetWidth(148)
-  local errorLine = font(info, "GameFontDisableSmall", "")
-  errorLine:SetPoint("TOPLEFT", 14, -94)
-  errorLine:SetWidth(148)
   local work = {}
   for key, value in pairs(selectedScale.weights or {}) do work[key] = tonumber(value) or 0 end
   local nameLabel = font(editor, "GameFontNormal", "Scale name")
-  nameLabel:SetPoint("TOPLEFT", 190, -10)
+  nameLabel:SetPoint("TOPLEFT", 14, -10)
   local nameEdit = pooledFrame(editor, "scale-name", "EditBox", "InputBoxTemplate")
-  nameEdit:SetSize(260, 22)
-  nameEdit:SetPoint("TOPLEFT", 238, -6)
+  nameEdit:SetSize(320, 22)
+  nameEdit:SetPoint("TOPLEFT", 14, -34)
   nameEdit:SetAutoFocus(false)
   nameEdit:SetText(selectedScale.name or "Custom Scale")
+  local errorLine = font(editor, "GameFontDisableSmall", "")
+  errorLine:SetPoint("TOPLEFT", 350, -38)
+  errorLine:SetWidth(220)
   local function commitName()
     local value = tostring(nameEdit:GetText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
     local duplicateName = false
@@ -1470,18 +1406,22 @@ local function showScales(content)
   nameEdit:SetScript("OnEnterPressed", function(self) commitName(); self:ClearFocus() end)
   nameEdit:SetScript("OnEditFocusLost", commitName)
 
-  local y = -48
+  local y = -76
+  local weightLabelX = 14
+  local weightInputX = 300
+  local weightSliderX = 366
+  local weightSliderWidth = 164
   local function addWeightRow(feature, label)
     local rowLabel = font(editor, "GameFontHighlightSmall", label)
-    rowLabel:SetPoint("TOPLEFT", 190, y)
+    rowLabel:SetPoint("TOPLEFT", weightLabelX, y)
     local edit = pooledFrame(editor, "weight-edit:" .. feature, "EditBox", "InputBoxTemplate")
     edit:SetSize(54, 20)
-    edit:SetPoint("TOPLEFT", 308, y + 2)
+    edit:SetPoint("TOPLEFT", weightInputX, y + 2)
     edit:SetAutoFocus(false)
     edit:SetText(string.format("%.2f", tonumber(work[feature]) or 0))
     local slider = pooledFrame(editor, "weight-slider:" .. feature, "Slider", "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", 374, y + 1)
-    slider:SetWidth(164)
+    slider:SetPoint("TOPLEFT", weightSliderX, y + 1)
+    slider:SetWidth(weightSliderWidth)
     slider:SetMinMaxValues(0, 1)
     slider:SetValueStep(0.1)
     if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
@@ -1489,7 +1429,7 @@ local function showScales(content)
     if slider.High then slider.High:Hide() end
     for index = 0, 10 do
       local tick = font(editor, "GameFontDisableSmall", "|")
-      tick:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", math.floor((index * 164) / 10) - 1, 4)
+      tick:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", math.floor((index * weightSliderWidth) / 10) - 1, 4)
     end
     local suppress = true
     local initial = tonumber(work[feature]) or 0
@@ -1538,7 +1478,7 @@ local function showScales(content)
   end
   for _, group in ipairs(featureGroups) do
     local groupLabel = font(editor, "GameFontNormalSmall", group[1])
-    groupLabel:SetPoint("TOPLEFT", 190, y)
+    groupLabel:SetPoint("TOPLEFT", weightLabelX, y)
     textColor(groupLabel, 1, 0.82, 0.1)
     y = y - 22
     for _, feature in ipairs(group[2]) do addWeightRow(feature, featureLabels[feature] or feature) end
@@ -1599,7 +1539,12 @@ function Window.Create()
   local brand = sidebar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   brand:SetPoint("TOP", logo, "BOTTOM", 0, -8)
   brand:SetText("XIVEquip")
-  local version = GetAddOnMetadata and GetAddOnMetadata(addonName, "Version") or "2.0"
+  local version
+  if C_AddOns and C_AddOns.GetAddOnMetadata then
+    version = C_AddOns.GetAddOnMetadata(addonName, "Version")
+  elseif GetAddOnMetadata then
+    version = GetAddOnMetadata(addonName, "Version")
+  end
   local versionText = sidebar:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   versionText:SetPoint("TOP", brand, "BOTTOM", 0, -3)
   versionText:SetText("v" .. tostring(version or "unknown"))
