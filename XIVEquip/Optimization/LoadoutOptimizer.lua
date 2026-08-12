@@ -113,6 +113,20 @@ local function activePolicies(context, phase)
   return (context and context.policies and context.policies[phase]) or {}
 end
 
+local function validateOptimizerHooks(policy, optimizer)
+  if type(optimizer) ~= "table" then return end
+  local pushDeclared = optimizer.push ~= nil
+  local popDeclared = optimizer.pop ~= nil
+  if pushDeclared ~= popDeclared then
+    error("optimizer policy '" .. tostring(policy and policy.id or "<unknown>")
+      .. "' must declare push and pop together", 0)
+  end
+  if pushDeclared and (type(optimizer.push) ~= "function" or type(optimizer.pop) ~= "function") then
+    error("optimizer policy '" .. tostring(policy and policy.id or "<unknown>")
+      .. "' push and pop hooks must both be functions", 0)
+  end
+end
+
 local function accumulate(counts, limits, key, limit)
   counts[key] = (counts[key] or 0) + 1
   limit = tonumber(limit) or 1
@@ -209,9 +223,15 @@ end
 -- context: optional EvaluationContext. When present, loadout-phase
 -- policies may reject a complete loadout or add loadout-level score (for
 -- example a set-threshold bonus), and preference-phase policies may then
--- adjust final ranking. Positive leaf-time adjustments are only known at
--- leaf time, so score-only branch pruning is disabled whenever loadout or
--- preference policies exist; legality and policy-validity pruning remain.
+-- adjust final ranking. A policy can keep score pruning exact by exposing
+-- optimizer-aware prepare/state/push/pop/upperBound hooks. Legacy
+-- upperBound policies remain supported; an active policy with neither
+-- bound disables score pruning while legality/validity pruning remains.
+-- push and pop are an inseparable pair: shared branch state must be restored
+-- before a sibling is visited. optimizer.upperBound must return a safe bound
+-- on the policy's TOTAL eventual adjustment for any completed descendant,
+-- including value already implied by selected assignments; accumulatedScore
+-- contains assignment scores only and does not yet include policy adjustments.
 -- Returns combination = {groupId -> assignmentRecord} and the total score
 -- of the chosen combination including loadout policy score adjustments
 -- (but NOT any combined lexicographic value -- invalid-count only ever
@@ -258,33 +278,27 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
   local hasLoadoutPolicies = #loadoutPolicies > 0
   local hasPreferencePolicies = #preferencePolicies > 0
   local preferFilledSlots = context and context.preferFilledSlots == true
+  local allPolicies = {}
+  appendAll(allPolicies, loadoutPolicies)
+  appendAll(allPolicies, preferencePolicies)
   local policiesBounded = true
-  for _, policy in ipairs(loadoutPolicies) do
-    if type(policy.upperBound) ~= "function" then policiesBounded = false end
-  end
-  for _, policy in ipairs(preferencePolicies) do
-    if type(policy.upperBound) ~= "function" then policiesBounded = false end
+  local hasLegacyPolicyBound = false
+  for _, policy in ipairs(allPolicies) do
+    local optimizer = type(policy.optimizer) == "table" and policy.optimizer or nil
+    validateOptimizerHooks(policy, optimizer)
+    if optimizer and type(optimizer.upperBound) == "function" then
+      -- The reusable optimizer-aware path is prepared below once the DFS
+      -- group order is final.
+    elseif type(policy.upperBound) == "function" then
+      hasLegacyPolicyBound = true
+    else
+      policiesBounded = false
+    end
   end
 
   local remainingGroupsByIndex
-  local function policyUpperBound(index, chosen, additions, score)
-    if not policiesBounded then return nil end
-    if not hasLoadoutPolicies and not hasPreferencePolicies then return 0 end
-    local partial = {
-      assignments = chosen,
-      additions = additions,
-      score = score,
-      summaries = summarizeChosen(chosen),
-    }
-    local bound = 0
-    for _, policy in ipairs(loadoutPolicies) do
-      bound = bound + (tonumber(policy.upperBound(partial, remainingGroupsByIndex[index], context)) or 0)
-    end
-    for _, policy in ipairs(preferencePolicies) do
-      bound = bound + (tonumber(policy.upperBound(partial, remainingGroupsByIndex[index], context)) or 0)
-    end
-    return bound
-  end
+  local policyRuntimes = {}
+  local policyStateRuntimes = {}
 
   -- maxRemainingScore[i] = best possible total from group i through the
   -- last group, inclusive, ignoring cross-group legality AND policy
@@ -344,12 +358,100 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
   for _, group in ipairs(ordered) do appendAll(allSlots, group.slots) end
   local uniqueSearchState = buildUniqueSearchState(loadoutState, allSlots)
 
-  remainingGroupsByIndex = {}
-  remainingGroupsByIndex[n + 1] = {}
-  for i = n, 1, -1 do
-    local suffix = { ordered[i] }
-    appendAll(suffix, remainingGroupsByIndex[i + 1])
-    remainingGroupsByIndex[i] = suffix
+  if policiesBounded and hasLegacyPolicyBound then
+    remainingGroupsByIndex = {}
+    remainingGroupsByIndex[n + 1] = {}
+    for i = n, 1, -1 do
+      local suffix = { ordered[i] }
+      appendAll(suffix, remainingGroupsByIndex[i + 1])
+      remainingGroupsByIndex[i] = suffix
+    end
+  end
+
+  if policiesBounded then
+    for _, policy in ipairs(allPolicies) do
+      local optimizer = type(policy.optimizer) == "table" and policy.optimizer or nil
+      if optimizer and type(optimizer.upperBound) == "function" then
+        local prepared = type(optimizer.prepare) == "function" and optimizer.prepare(ordered, context) or nil
+        local state = type(optimizer.createState) == "function"
+            and optimizer.createState(prepared, context) or {}
+        local runtime = {
+          policy = policy,
+          optimizer = optimizer,
+          prepared = prepared,
+          state = state,
+        }
+        policyRuntimes[#policyRuntimes + 1] = runtime
+        if type(optimizer.push) == "function" then
+          policyStateRuntimes[#policyStateRuntimes + 1] = runtime
+        end
+      else
+        policyRuntimes[#policyRuntimes + 1] = { policy = policy }
+      end
+    end
+  end
+
+  local function policyUpperBound(index, chosen, additions, score)
+    if not policiesBounded then return nil end
+    if #policyRuntimes == 0 then return 0 end
+
+    local bound = 0
+    local partial
+    for _, runtime in ipairs(policyRuntimes) do
+      if runtime.optimizer then
+        bound = bound + (tonumber(runtime.optimizer.upperBound(
+          runtime.state, index, runtime.prepared, context)) or 0)
+      else
+        if not partial then
+          partial = {
+            assignments = chosen,
+            additions = additions,
+            score = score,
+            summaries = summarizeChosen(chosen),
+          }
+        end
+        bound = bound + (tonumber(runtime.policy.upperBound(
+          partial, remainingGroupsByIndex[index], context)) or 0)
+      end
+    end
+    return bound
+  end
+
+  local function pushPolicyStates(assignment, groupIndex)
+    if #policyStateRuntimes == 0 then return nil, nil end
+    if #policyStateRuntimes == 1 then
+      local runtime = policyStateRuntimes[1]
+      local undo = runtime.optimizer.push(runtime.state, assignment, groupIndex, runtime.prepared, context)
+      if perf then perf:Add("optimizer.policy_state_pushes", 1) end
+      return undo, runtime
+    end
+
+    local undos = {}
+    for i, runtime in ipairs(policyStateRuntimes) do
+      undos[i] = runtime.optimizer.push(runtime.state, assignment, groupIndex, runtime.prepared, context)
+      if perf then perf:Add("optimizer.policy_state_pushes", 1) end
+    end
+    return undos, nil
+  end
+
+  local function popPolicyStates(undos, singleRuntime, assignment, groupIndex)
+    if singleRuntime then
+      local pop = singleRuntime.optimizer.pop
+      if type(pop) == "function" then
+        pop(singleRuntime.state, undos, assignment, groupIndex, singleRuntime.prepared, context)
+        if perf then perf:Add("optimizer.policy_state_pops", 1) end
+      end
+      return
+    end
+    if not undos then return end
+    for i = #policyStateRuntimes, 1, -1 do
+      local runtime = policyStateRuntimes[i]
+      local pop = runtime.optimizer.pop
+      if type(pop) == "function" then
+        pop(runtime.state, undos[i], assignment, groupIndex, runtime.prepared, context)
+        if perf then perf:Add("optimizer.policy_state_pops", 1) end
+      end
+    end
   end
 
   for _, group in ipairs(ordered) do
@@ -435,8 +537,10 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
         appendAll(accumulatedAdditions, entry.additions)
 
         chosen[group.id] = assignment
+        local policyUndos, singlePolicyRuntime = pushPolicyStates(assignment, index)
         search(index + 1, accumulatedAdditions, accumulatedScore + assignment.score,
           accumulatedInvalid + entry.invalid, accumulatedFilled + entry.filled, chosen)
+        popPolicyStates(policyUndos, singlePolicyRuntime, assignment, index)
         chosen[group.id] = nil
         for i = #accumulatedAdditions, previousAdditionCount + 1, -1 do
           accumulatedAdditions[i] = nil

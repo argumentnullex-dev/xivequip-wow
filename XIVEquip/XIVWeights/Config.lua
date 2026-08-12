@@ -28,6 +28,11 @@ local function integrationsRegistry()
   return XIVEquip.Integrations and XIVEquip.Integrations.Registry
 end
 
+local function invalidatePreview()
+  local UI = XIVEquip.UI
+  if UI and type(UI.ClearPreviewCache) == "function" then UI.ClearPreviewCache() end
+end
+
 local function weightsSettings()
   local st = settings()
   st.XIVWeights = type(st.XIVWeights) == "table" and st.XIVWeights or {}
@@ -184,6 +189,7 @@ function Config.ResetSpecScale(specID)
   if not scale then return nil, reason end
   xw.Scales[scale.id] = scale
   xw.Specs[tonumber(specID)] = { provider = "manual", scale = scale.id }
+  invalidatePreview()
   return scale
 end
 
@@ -211,6 +217,7 @@ function Config.SetSpecSelection(specID, provider, scaleID)
     provider = normalizeProvider(provider),
     scale = scaleID,
   }
+  invalidatePreview()
 end
 
 function Config.GetScaleSpecID(scale)
@@ -289,7 +296,9 @@ function Config.SaveScale(scale)
     scale.meta.specID = specID
   end
   local repo = Config.Repository()
-  return repo:Save(normalizeScale(scale))
+  local saved, reason = repo:Save(normalizeScale(scale))
+  if saved then invalidatePreview() end
+  return saved, reason
 end
 
 function Config.DeleteScale(id)
@@ -298,6 +307,7 @@ function Config.DeleteScale(id)
       and XIVEquip.Profiles.Config.ClearCustomScaleReferences then
     XIVEquip.Profiles.Config.ClearCustomScaleReferences(id)
   end
+  if deleted then invalidatePreview() end
   return deleted
 end
 

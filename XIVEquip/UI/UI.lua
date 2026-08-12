@@ -192,19 +192,13 @@ local function nativeScaleHeader(result)
 end
 
 local PREVIEW_CACHE_SECONDS = 30
-local previewCache = { expires = 0, token = 0 }
-local previewRefreshPending = false
-local previewRefreshDirty = false
+local PREVIEW_PENDING_CACHE_SECONDS = 1
+local previewCache = { expires = 0 }
 
 local function nowSeconds()
   if type(GetTime) == "function" then return GetTime() end
   if type(time) == "function" then return time() end
   return 0
-end
-
-local function ownerStillHovered(owner)
-  if MouseIsOver and owner then return MouseIsOver(owner) == true end
-  return true
 end
 
 local function previewEnabled()
@@ -347,64 +341,33 @@ local function renderPreview(owner, anchor, payload)
   return false
 end
 
-local function renderColdPreview(owner, anchor)
-  GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
-  GameTooltip:ClearLines()
-  GameTooltip:AddLine(L.ButtonTooltip, 0.2, 0.8, 1.0)
-  if InCombatLockdown() then
-    GameTooltip:AddLine("|cffaaaaaa(Disabled in combat)|r")
-  elseif previewEnabled() then
-    GameTooltip:AddLine("|cffaaaaaaRecommendations are refreshing.|r")
-    GameTooltip:AddLine("|cffaaaaaaClick Equip Best to calculate now.|r")
-  end
-  GameTooltip:Show()
-end
-
 local function showEquipPreviewTooltip(owner, anchor)
+  -- Preview must never enter the native planner while protected actions are
+  -- locked or when the user has disabled preview messages.
+  if InCombatLockdown() or not previewEnabled() then
+    renderPreview(owner, anchor, nil)
+    return
+  end
+
   local now = nowSeconds()
   if previewCache.payload and (previewCache.expires or 0) > now then
     renderPreview(owner, anchor, previewCache.payload)
     return
   end
 
-  renderColdPreview(owner, anchor)
+  local payload = computePreview()
+  previewCache.payload = payload
+  -- Pending item data should be visible immediately, but it gets a much
+  -- shorter lifetime so the next hover can retry once the client resolves
+  -- the missing item information. No background planner pass is required.
+  previewCache.expires = nowSeconds()
+      + (payload.pending and PREVIEW_PENDING_CACHE_SECONDS or PREVIEW_CACHE_SECONDS)
+  renderPreview(owner, anchor, payload)
 end
 
 function XIVEquip.UI.ClearPreviewCache()
   previewCache.payload = nil
   previewCache.expires = 0
-  previewCache.token = (previewCache.token or 0) + 1
-  previewRefreshDirty = true
-  if XIVEquip.UI and XIVEquip.UI.SchedulePreviewCacheRefresh then
-    XIVEquip.UI.SchedulePreviewCacheRefresh(1.0)
-  end
-end
-
-function XIVEquip.UI.SchedulePreviewCacheRefresh(delay)
-  if previewRefreshPending then
-    previewRefreshDirty = true
-    return
-  end
-  if not (C_Timer and C_Timer.After) then return end
-  if InCombatLockdown() or not previewEnabled() then return end
-  previewRefreshPending = true
-  previewRefreshDirty = false
-  local token = previewCache.token or 0
-  C_Timer.After(delay or 1.0, function()
-    previewRefreshPending = false
-    if token ~= (previewCache.token or 0) or previewRefreshDirty then
-      XIVEquip.UI.SchedulePreviewCacheRefresh(delay or 1.0)
-      return
-    end
-    if InCombatLockdown() or not previewEnabled() then return end
-    local payload = computePreview()
-    if token ~= (previewCache.token or 0) or previewRefreshDirty then
-      XIVEquip.UI.SchedulePreviewCacheRefresh(delay or 1.0)
-      return
-    end
-    previewCache.payload = payload
-    previewCache.expires = nowSeconds() + PREVIEW_CACHE_SECONDS
-  end)
 end
 
 XIVEquip.UI.RenderEquipPreviewTooltip = showEquipPreviewTooltip
@@ -572,8 +535,5 @@ f:SetScript("OnEvent", function(_, event)
       CharacterFrame.__XIVEquipHook = true
     end
     if CharacterFrame:IsShown() then onPaperDollShow() end
-  end
-  if XIVEquip.UI and XIVEquip.UI.SchedulePreviewCacheRefresh then
-    XIVEquip.UI.SchedulePreviewCacheRefresh(1.0)
   end
 end)

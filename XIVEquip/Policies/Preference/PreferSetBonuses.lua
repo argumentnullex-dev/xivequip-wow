@@ -16,15 +16,202 @@ local function isEnabled(context)
   return preferences and preferences.preferSetBonuses == true
 end
 
-local function assignmentSetScore(assignment)
-  local total = 0
+local MAX_SET_PIECES = 4
+
+local function eachAssignmentSetPiece(assignment, visitor)
   for role, candidate in pairs((assignment and assignment.picks) or {}) do
     local setID = candidate and tonumber(candidate.setID)
     if setID and setID > 0 then
       local score = tonumber(assignment.scores and assignment.scores[role]) or 0
-      if score > 0 then total = total + score end
+      visitor("set:" .. tostring(setID), score)
     end
   end
+end
+
+local function insertTopScore(scores, value)
+  -- A negative policy adjustment can never improve a branch. Clamping it
+  -- to zero is deliberately optimistic, which keeps this a safe bound.
+  value = math.max(tonumber(value) or 0, 0)
+  local inserted = false
+  for i = 1, #scores do
+    if value > scores[i] then
+      table.insert(scores, i, value)
+      inserted = true
+      break
+    end
+  end
+  if not inserted then scores[#scores + 1] = value end
+  if #scores > MAX_SET_PIECES then scores[#scores] = nil end
+end
+
+local function copyScores(source)
+  local result = {}
+  for i = 1, math.min(#(source or {}), MAX_SET_PIECES) do result[i] = source[i] end
+  return result
+end
+
+local function mergeTopScores(left, right)
+  local result = copyScores(left)
+  for _, score in ipairs(right or {}) do insertTopScore(result, score) end
+  return result
+end
+
+local function assignmentPotentialBySet(assignment)
+  local bySet = {}
+  eachAssignmentSetPiece(assignment, function(key, score)
+    local entry = bySet[key]
+    if not entry then
+      entry = { count = 0, scores = {} }
+      bySet[key] = entry
+    end
+    entry.count = entry.count + 1
+    insertTopScore(entry.scores, score)
+  end)
+  return bySet
+end
+
+local function groupPotentialBySet(group)
+  local bySet = {}
+  for _, assignment in ipairs((group and group.frontier) or {}) do
+    for key, potential in pairs(assignmentPotentialBySet(assignment)) do
+      local entry = bySet[key]
+      if not entry then
+        entry = { count = 0, scores = {} }
+        bySet[key] = entry
+      end
+      entry.count = math.max(entry.count, potential.count)
+      -- Rank-wise maxima may combine mutually exclusive assignments from
+      -- this group. That can only overestimate, which is safe and much
+      -- tighter than treating every remaining set piece as a possible 4pc.
+      for i = 1, MAX_SET_PIECES do
+        entry.scores[i] = math.max(entry.scores[i] or 0, potential.scores[i] or 0)
+      end
+      while #entry.scores > entry.count do entry.scores[#entry.scores] = nil end
+    end
+  end
+  return bySet
+end
+
+local function copyPotentialMap(source)
+  local result = {}
+  for key, potential in pairs(source or {}) do
+    result[key] = { count = potential.count, scores = copyScores(potential.scores) }
+  end
+  return result
+end
+
+local function prepareSearch(orderedGroups)
+  local suffix = {}
+  suffix[#orderedGroups + 1] = {}
+  for index = #orderedGroups, 1, -1 do
+    local current = copyPotentialMap(suffix[index + 1])
+    for key, groupPotential in pairs(groupPotentialBySet(orderedGroups[index])) do
+      local entry = current[key]
+      if not entry then
+        entry = { count = 0, scores = {} }
+        current[key] = entry
+      end
+      entry.count = entry.count + groupPotential.count
+      entry.scores = mergeTopScores(entry.scores, groupPotential.scores)
+    end
+    suffix[index] = current
+  end
+  return { suffix = suffix }
+end
+
+local function createSearchState()
+  return { sets = {}, seen = {}, generation = 0 }
+end
+
+local function pushSearchState(state, assignment)
+  local undo, touched
+  for role, candidate in pairs((assignment and assignment.picks) or {}) do
+    local setID = candidate and tonumber(candidate.setID)
+    if setID and setID > 0 then
+      local key = "set:" .. tostring(setID)
+      local score = tonumber(assignment.scores and assignment.scores[role]) or 0
+      if not undo then undo, touched = {}, {} end
+      local entry = state.sets[key]
+      if not touched[key] then
+        undo[#undo + 1] = {
+          key = key,
+          existed = entry ~= nil,
+          count = entry and entry.count or 0,
+          top = entry and copyScores(entry.top) or {},
+        }
+        touched[key] = true
+      end
+      if not entry then
+        entry = { count = 0, top = {} }
+        state.sets[key] = entry
+      end
+      entry.count = entry.count + 1
+      insertTopScore(entry.top, score)
+    end
+  end
+  return undo
+end
+
+local function popSearchState(state, undo)
+  for i = #(undo or {}), 1, -1 do
+    local saved = undo[i]
+    if saved.existed then
+      local entry = state.sets[saved.key]
+      entry.count = saved.count
+      entry.top = saved.top
+    else
+      state.sets[saved.key] = nil
+    end
+  end
+end
+
+local function sumBestScores(selected, remaining, count)
+  local selectedScores = (selected and selected.top) or {}
+  local remainingScores = (remaining and remaining.scores) or {}
+  local selectedIndex, remainingIndex, total = 1, 1, 0
+  for _ = 1, count do
+    local selectedScore = selectedScores[selectedIndex]
+    local remainingScore = remainingScores[remainingIndex]
+    if selectedScore ~= nil and (remainingScore == nil or selectedScore >= remainingScore) then
+      total = total + selectedScore
+      selectedIndex = selectedIndex + 1
+    elseif remainingScore ~= nil then
+      total = total + remainingScore
+      remainingIndex = remainingIndex + 1
+    end
+  end
+  return total
+end
+
+local function boundForSet(selected, remaining)
+  local possibleCount = (selected and selected.count or 0) + (remaining and remaining.count or 0)
+  if possibleCount < 2 then return 0, "zero" end
+  if possibleCount < 4 then return sumBestScores(selected, remaining, 2) * 0.05, "2pc" end
+  return sumBestScores(selected, remaining, 4) * 0.10, "4pc"
+end
+
+local function upperBound(state, nextIndex, prepared, context)
+  local perf = context and context.perf
+  if perf then perf:Add("set_bonus.bound_calls", 1) end
+
+  local remainingBySet = (prepared and prepared.suffix and prepared.suffix[nextIndex]) or {}
+  state.generation = state.generation + 1
+  local generation = state.generation
+  local total, evaluated = 0, 0
+
+  local function addSet(key, selected, remaining)
+    local value, kind = boundForSet(selected, remaining)
+    total = total + value
+    evaluated = evaluated + 1
+    state.seen[key] = generation
+    if perf then perf:Add("set_bonus.bound_" .. kind, 1) end
+  end
+
+  for key, selected in pairs(state.sets) do addSet(key, selected, remainingBySet[key]) end
+  for key, remaining in pairs(remainingBySet) do
+    if state.seen[key] ~= generation then addSet(key, nil, remaining) end
+  end
+  if evaluated == 0 and perf then perf:Add("set_bonus.bound_zero", 1) end
   return total
 end
 
@@ -34,20 +221,13 @@ XIVEquip:RegisterPolicy({
   requires = { "profile.preferences" },
   summaryDimensions = { setCounts = { thresholds = { 2, 4 } } },
   isActive = isEnabled,
-  upperBound = function(partialLoadout, remainingGroups)
-    local possibleSetScore = 0
-    for _, assignment in pairs((partialLoadout and partialLoadout.assignments) or {}) do
-      possibleSetScore = possibleSetScore + assignmentSetScore(assignment)
-    end
-    for _, group in ipairs(remainingGroups or {}) do
-      local best = 0
-      for _, assignment in ipairs(group.frontier or {}) do
-        best = math.max(best, assignmentSetScore(assignment))
-      end
-      possibleSetScore = possibleSetScore + best
-    end
-    return possibleSetScore * 0.10
-  end,
+  optimizer = {
+    prepare = prepareSearch,
+    createState = createSearchState,
+    push = pushSearchState,
+    pop = popSearchState,
+    upperBound = upperBound,
+  },
   apply = function(loadout, context)
     local scoresBySet = {}
     for _, assignment in pairs((loadout and loadout.assignments) or {}) do
