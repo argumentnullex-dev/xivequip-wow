@@ -320,7 +320,7 @@ test("Avoidlist accepts Ctrl-clicked item links and removes existing entries", f
   A.falsy(updates[2].listed, "Remove should clear the Avoidlist entry")
 end)
 
-test("Wishlist/Avoidlist tabs name useful item-link sources for players who don't know the Ctrl-click workflow", function()
+test("Wishlist and Avoidlist tabs each explain the Ctrl-click workflow, link sources, and their own slash command", function()
   local addon, calls = harness()
   local profile = {
     id = "paladin-default", name = "Default", automatic = true,
@@ -341,15 +341,26 @@ test("Wishlist/Avoidlist tabs name useful item-link sources for players who don'
 
   local Window = loadWindow(addon, calls)
   Window.Open()
+
+  local function pageText()
+    local joined = {}
+    for _, item in ipairs(Window.Frame.content.page._xivEquipPool.items.font) do joined[#joined + 1] = item.text end
+    return table.concat(joined, "\n")
+  end
+
   Window.ShowTab(3)
-  local rows = Window.Frame.content.page._xivEquipFrames["settings-scroll"]._xivEquipScrollChild
-  local rowsText = {}
-  for _, item in ipairs(rows._xivEquipPool.items.font) do rowsText[#rowsText + 1] = item.text end
-  local joined = table.concat(rowsText, "\n")
-  A.truthy(joined:find("Ctrl-click", 1, true), "should still name the real capture-key workflow")
-  A.truthy(joined:find("Collections", 1, true), "should mention Collections as a source for gear players don't own yet")
-  A.truthy(joined:find("bags", 1, true), "should mention bags as an item-link source")
-  A.truthy(joined:find("chat", 1, true), "should mention chat as an item-link source")
+  local wishlistText = pageText()
+  A.truthy(wishlistText:find("Ctrl-click", 1, true), "should name the real capture-key workflow")
+  A.truthy(wishlistText:find("Collections", 1, true), "should mention Collections as a source for gear players don't own yet")
+  A.truthy(wishlistText:find("bags", 1, true), "should mention bags as an item-link source")
+  A.truthy(wishlistText:find("chat", 1, true), "should mention chat as an item-link source")
+  A.truthy(wishlistText:find("/xive wish add", 1, true), "Wishlist tab should mention its own slash command")
+  A.falsy(wishlistText:find("/xive avoid add", 1, true), "Wishlist tab should not mention the Avoidlist command")
+
+  Window.ShowTab(4)
+  local avoidlistText = pageText()
+  A.truthy(avoidlistText:find("/xive avoid add", 1, true), "Avoidlist tab should mention its own slash command")
+  A.falsy(avoidlistText:find("/xive wish add", 1, true), "Avoidlist tab should not mention the Wishlist command")
 end)
 
 test("Settings reads and displays the full add-on version", function()

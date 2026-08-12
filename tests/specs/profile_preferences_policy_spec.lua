@@ -74,22 +74,22 @@ test("profile preferences are spec-scoped, mutually exclusive, and profile-owned
   A.equal(Profiles.SetWishlistItem(profile, 73, 1, true), nil, "a Paladin Profile cannot own a Warrior spec list")
 end)
 
-test("prefer-spec-appropriate-trinkets is per-spec, defaults false, and is independent of Wishlist/Avoidlist", function()
+test("prefer-spec-appropriate-trinkets is per-spec, defaults enabled, and is independent of Wishlist/Avoidlist", function()
   local addon = newAddon()
   local Profiles = addon.Profiles.Config
   local profile = Profiles.GetDefault("PALADIN")
 
-  A.falsy(Profiles.GetSpecPreferences(profile, 70).preferSpecAppropriateTrinkets,
-    "default must be off")
+  A.truthy(Profiles.GetSpecPreferences(profile, 70).preferSpecAppropriateTrinkets,
+    "default must be on -- best onboarding default for the 2.0 planner")
 
-  A.truthy(Profiles.SetPreferSpecAppropriateTrinkets(profile, 70, true))
-  A.truthy(Profiles.GetSpecPreferences(profile, 70).preferSpecAppropriateTrinkets)
-  A.falsy(Profiles.GetSpecPreferences(profile, 66).preferSpecAppropriateTrinkets,
-    "must not leak between specializations")
+  A.truthy(Profiles.SetPreferSpecAppropriateTrinkets(profile, 70, false))
+  A.falsy(Profiles.GetSpecPreferences(profile, 70).preferSpecAppropriateTrinkets)
+  A.truthy(Profiles.GetSpecPreferences(profile, 66).preferSpecAppropriateTrinkets,
+    "disabling one specialization must not leak to another, which should still default on")
 
   A.truthy(Profiles.SetWishlistItem(profile, 70, 12345, true))
   local retribution = Profiles.GetSpecPreferences(profile, 70)
-  A.truthy(retribution.preferSpecAppropriateTrinkets, "wishlist changes must not disturb this preference")
+  A.falsy(retribution.preferSpecAppropriateTrinkets, "wishlist changes must not disturb this preference")
   A.truthy(retribution.wishlist[12345])
 
   A.equal(Profiles.SetPreferSpecAppropriateTrinkets(profile, 73, true), nil,
@@ -135,7 +135,7 @@ test("evaluation context snapshots the active Profile's specialization preferenc
   A.truthy(context.profilePreferences.preferSetBonuses)
   A.truthy(context.profilePreferences.wishlist[444])
   A.falsy(context.profilePreferences.avoidlist[444])
-  A.falsy(context.profilePreferences.preferSpecAppropriateTrinkets, "defaults off and is snapshotted like any other preference")
+  A.truthy(context.profilePreferences.preferSpecAppropriateTrinkets, "defaults on and is snapshotted like any other preference")
 end)
 
 test("profile list policy excludes avoided candidates and gives wished candidates a ten-percent score bonus", function()

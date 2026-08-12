@@ -74,7 +74,7 @@ local function defaultProfile(classFile)
       },
     },
     preferences = {
-      preferSetBonuses = false,
+      preferSetBonuses = true,
       bySpec = {},
     },
   }
@@ -316,7 +316,16 @@ end
 local function preferenceState(profile)
   if type(profile) ~= "table" then return nil end
   profile.preferences = type(profile.preferences) == "table" and profile.preferences or {}
-  profile.preferences.preferSetBonuses = profile.preferences.preferSetBonuses == true
+  -- Unset (nil) defaults to enabled, matching Profile.automatic's own
+  -- ~= false convention -- the best onboarding default for the 2.0
+  -- planner is Automatic scale selection plus both scoring preferences
+  -- on, so an existing Profile that predates this preference (or a
+  -- brand-new one, before defaultProfile's explicit `true` is ever
+  -- touched) still gets the improved behavior without a migration step.
+  -- SetPreferSetBonuses's `enabled == true` is intentionally different:
+  -- that's normalizing an explicit user action, where nil must never be
+  -- possible in the first place.
+  profile.preferences.preferSetBonuses = profile.preferences.preferSetBonuses ~= false
   profile.preferences.bySpec = type(profile.preferences.bySpec) == "table"
       and profile.preferences.bySpec or {}
   return profile.preferences
@@ -349,7 +358,8 @@ local function specPreferenceState(profile, specID)
   end
   state.wishlist = type(state.wishlist) == "table" and state.wishlist or {}
   state.avoidlist = type(state.avoidlist) == "table" and state.avoidlist or {}
-  state.preferSpecAppropriateTrinkets = state.preferSpecAppropriateTrinkets == true
+  -- Same unset-defaults-to-enabled convention as preferSetBonuses above.
+  state.preferSpecAppropriateTrinkets = state.preferSpecAppropriateTrinkets ~= false
   return state
 end
 
@@ -367,7 +377,7 @@ end
 function Profiles.GetSpecPreferences(profile, specID)
   local validated = validateProfileSpec(profile, specID)
   if not validated then
-    return { preferSetBonuses = false, wishlist = {}, avoidlist = {}, preferSpecAppropriateTrinkets = false }
+    return { preferSetBonuses = true, wishlist = {}, avoidlist = {}, preferSpecAppropriateTrinkets = true }
   end
   local preferences = preferenceState(profile)
   local state = specPreferenceState(profile, validated)

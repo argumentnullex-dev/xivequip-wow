@@ -841,7 +841,7 @@ local function showConfig(content)
   local resolved = C and specID and C.ResolveResultForSpec and C.ResolveResultForSpec(specID, runtime)
   local manual = profile and profile.manual or {}
   local preferences = Profiles and Profiles.GetSpecPreferences and profile and specID
-      and Profiles.GetSpecPreferences(profile, specID) or { preferSetBonuses = false, preferSpecAppropriateTrinkets = false }
+      and Profiles.GetSpecPreferences(profile, specID) or { preferSetBonuses = true, preferSpecAppropriateTrinkets = true }
   local viewKey = table.concat({
     "config", tostring(classFile), tostring(specID), tostring(profile and profile.id or ""),
     tostring(profile and profile.automatic), tostring(manual.mode),
@@ -1565,6 +1565,7 @@ local itemListDefinitions = {
     note = "Wishlisted gear receives a scoring preference when XIVEquip builds a recommendation.",
     empty = "No gear is wishlisted for this Profile and specialization.",
     setter = "SetWishlistItem",
+    slashVerb = "wish",
     tab = 3,
   },
   avoidlist = {
@@ -1572,6 +1573,7 @@ local itemListDefinitions = {
     note = "Avoidlisted gear is excluded from XIVEquip recommendations.",
     empty = "No gear is avoided for this Profile and specialization.",
     setter = "SetAvoidlistItem",
+    slashVerb = "avoid",
     tab = 4,
   },
 }
@@ -1617,15 +1619,24 @@ local function showItemList(content, kind)
   local note = font(page, "GameFontHighlightSmall", definition.note)
   note:SetPoint("TOPLEFT", 0, -30)
   note:SetWidth(CONTENT_WIDTH)
+  local breadcrumb1 = font(page, "GameFontDisableSmall",
+    "Ctrl-click any item link while this tab is open to drop it into the box below -- works with links from "
+    .. "Collections (even gear you don't own yet), your bags, or chat.")
+  breadcrumb1:SetPoint("TOPLEFT", 0, -52)
+  breadcrumb1:SetWidth(CONTENT_WIDTH)
+  local breadcrumb2 = font(page, "GameFontDisableSmall",
+    "Prefer the command line? /xive " .. definition.slashVerb .. " add <item link> does the same thing without opening Settings.")
+  breadcrumb2:SetPoint("TOPLEFT", 0, -70)
+  breadcrumb2:SetWidth(CONTENT_WIDTH)
   local contextLine = font(page, "GameFontDisableSmall",
     "Profile: " .. tostring(profileName) .. "  |  Specialization: " .. tostring(specName))
-  contextLine:SetPoint("TOPLEFT", 0, -52)
+  contextLine:SetPoint("TOPLEFT", 0, -92)
 
   local inputLabel = font(page, "GameFontNormal", "Add gear")
-  inputLabel:SetPoint("TOPLEFT", 0, -82)
+  inputLabel:SetPoint("TOPLEFT", 0, -122)
   local input = pooledFrame(page, "item-list-input", "EditBox", "InputBoxTemplate")
   input:SetSize(402, 22)
-  input:SetPoint("TOPLEFT", 0, -104)
+  input:SetPoint("TOPLEFT", 0, -144)
   input:SetAutoFocus(false)
   input:SetScript("OnTextChanged", nil)
   input:SetText("")
@@ -1633,15 +1644,15 @@ local function showItemList(content, kind)
   Window.ItemListKind = kind
 
   local feedback = font(page, "GameFontDisableSmall", "")
-  feedback:SetPoint("TOPLEFT", 0, -132)
+  feedback:SetPoint("TOPLEFT", 0, -172)
   feedback:SetWidth(CONTENT_WIDTH)
 
   local add = button(page, "Add Item", 78, 22)
-  add:SetPoint("TOPLEFT", 412, -104)
+  add:SetPoint("TOPLEFT", 412, -144)
   local refresh = button(page, "Refresh Gear", 94, 22)
   refresh:SetPoint("LEFT", add, "RIGHT", 6, 0)
 
-  local _, rows = createScroll(page, 0, -160, CONTENT_WIDTH, 568)
+  local _, rows = createScroll(page, 0, -200, CONTENT_WIDTH, 568)
   local function addListedItem(value)
     local itemID = parseItemID(value)
     if not itemID then
@@ -1707,11 +1718,10 @@ local function showItemList(content, kind)
     local query = string.lower(tostring(input:GetText() or ""):gsub("^%s+", ""):gsub("%s+$", ""))
     if query == "" then
       local guidance = font(rows, "GameFontDisableSmall",
-        "Type part of an item name above, paste an item link or ID, or Ctrl-click any item link while this tab "
-        .. "is open -- works from Collections (even gear you don't own yet), your bags, chat, or any other item link.")
+        "Type part of an item name above to search equipped and bag gear.")
       guidance:SetPoint("TOPLEFT", 10, y)
       guidance:SetWidth(530)
-      y = y - 46
+      y = y - 34
     else
       local matches = 0
       for _, item in ipairs(ownedItems) do
