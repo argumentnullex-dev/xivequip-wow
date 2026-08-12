@@ -30,9 +30,31 @@ local function msgLogin(text)
   end
 end
 
-local function msgLoaded(comparerText)
+local function currentWeightsLabel()
+  local Runtime = XIVEquip.Planning and XIVEquip.Planning.Runtime
+  local Config = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
+  if not (Runtime and Runtime.Live and Config and Config.ResolvedScaleDisplayLabel) then
+    return "Default | current specialization"
+  end
+
+  local runtime = Runtime.Live()
+  if not (runtime and runtime.ResolveWeights) then
+    return "Default | current specialization"
+  end
+
+  local ok, scale = pcall(runtime.ResolveWeights)
+  if runtime.Close then pcall(runtime.Close) end
+  if not ok or not scale then return "Default | current specialization" end
+
+  local labelOK, label = pcall(Config.ResolvedScaleDisplayLabel, scale)
+  if labelOK and label and label ~= "" then return tostring(label) end
+  return "Default | current specialization"
+end
+
+local function msgLoaded(weightsText)
   local version = addonVersion() or "unknown"
-  msgLogin(string.format(L.Loaded_Format or "Loaded v%s. Using %s.", version, tostring(comparerText or "unknown comparer")))
+  msgLogin(string.format(L.Loaded_Format or "Loaded v%s. Using %s.", version,
+    tostring(weightsText or "Default | current specialization")))
 end
 
 -- msgError: msg error.
@@ -73,7 +95,7 @@ f:SetScript("OnEvent", function(_, event, arg1)
       registry:Lock()
     end
 
-    msgLoaded("native XIVWeights")
+    msgLoaded(currentWeightsLabel())
   end
 end)
 

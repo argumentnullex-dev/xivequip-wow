@@ -102,4 +102,44 @@ test("live runtimes share the Pawn provider conversion cache for the addon sessi
   _G.IsAddOnLoaded = oldLoaded
 end)
 
+test("login message shows the resolved provider and current scale", function()
+  local addon = newAddon()
+  local oldCreateFrame, oldCAddOns, oldPrint = _G.CreateFrame, _G.C_AddOns, _G.print
+  local eventFrame, printed, closed = nil, {}, false
+
+  _G.CreateFrame = function()
+    eventFrame = {
+      RegisterEvent = function() end,
+      SetScript = function(self, _, handler) self.handler = handler end,
+    }
+    return eventFrame
+  end
+  _G.C_AddOns = {
+    GetAddOnMetadata = function(_, field)
+      if field == "Version" then return "2.0.0-dev.test" end
+    end,
+  }
+  _G.print = function(text) printed[#printed + 1] = tostring(text) end
+
+  addon.L.Loaded_Format = "Loaded v%s. Using %s."
+  addon.Settings = { GetMessage = function(_, key) return key == "Login" end }
+  addon.Profiles.Config.EnsureCurrent = function() end
+  addon.Planning.Runtime.Live = function()
+    return {
+      ResolveWeights = function()
+        return { resolution = { sourceLabel = "Pawn", scaleLabel = "Retribution" } }
+      end,
+      Close = function() closed = true end,
+    }
+  end
+
+  loadAddonFile("XIVEquip.lua", addon)
+  eventFrame.handler(eventFrame, "PLAYER_LOGIN")
+
+  A.equal(printed[1], "XIVEquip: Loaded v2.0.0-dev.test. Using Pawn | Retribution.")
+  A.truthy(closed, "startup scale resolution should close its live runtime")
+
+  _G.CreateFrame, _G.C_AddOns, _G.print = oldCreateFrame, oldCAddOns, oldPrint
+end)
+
 return tests
