@@ -875,7 +875,15 @@ test("Scale editor shows specialization binding and refreshes the active selecto
   A.truthy(editorText:find("Specialization: Retribution", 1, true), "editor should make the scale specialization clear")
   A.falsy(editorText:find("Based on: Default", 1, true), "editor should not show routine provenance noise")
   local scroll = page._xivEquipFrames["settings-scroll"]
-  local nameEdit = scroll._xivEquipScrollChild._xivEquipFrames["scale-name"]
+  local editor = scroll._xivEquipScrollChild
+  local nameEdit = editor._xivEquipFrames["scale-name"]
+  local nameLabel
+  for _, item in ipairs(editor._xivEquipPool.items.font) do
+    if item.text == "Scale name" then nameLabel = item end
+  end
+  A.truthy(nameLabel, "scale editor should show the Scale name label")
+  A.equal(nameEdit.points[1][2], nameLabel.points[1][2], "scale name input should align with its label")
+  A.truthy(nameEdit.points[1][3] < nameLabel.points[1][3], "scale name input should sit below its label")
   nameEdit:SetText("Retribution Mythic")
   nameEdit.scripts.OnEnterPressed(nameEdit)
 

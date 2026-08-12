@@ -1476,7 +1476,7 @@ local function showScales(content)
   nameLabel:SetPoint("TOPLEFT", 190, -10)
   local nameEdit = pooledFrame(editor, "scale-name", "EditBox", "InputBoxTemplate")
   nameEdit:SetSize(260, 22)
-  nameEdit:SetPoint("TOPLEFT", 238, -6)
+  nameEdit:SetPoint("TOPLEFT", 190, -34)
   nameEdit:SetAutoFocus(false)
   nameEdit:SetText(selectedScale.name or "Custom Scale")
   local function commitName()
@@ -1499,7 +1499,7 @@ local function showScales(content)
   nameEdit:SetScript("OnEnterPressed", function(self) commitName(); self:ClearFocus() end)
   nameEdit:SetScript("OnEditFocusLost", commitName)
 
-  local y = -48
+  local y = -72
   local function addWeightRow(feature, label)
     local rowLabel = font(editor, "GameFontHighlightSmall", label)
     rowLabel:SetPoint("TOPLEFT", 190, y)
