@@ -1165,7 +1165,7 @@ local function showTextDialog(titleText, bodyText)
   local frame = Window.TextDialog
   if not frame then
     frame = CreateFrame("Frame", "XIVEquipTextDialog", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(620, 470)
+    frame:SetSize(620, 500)
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
     frame:EnableMouse(true)
@@ -1176,11 +1176,17 @@ local function showTextDialog(titleText, bodyText)
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("LEFT", frame.TitleBg, "LEFT", 6, 0)
     frame.title = title
-    local note = font(frame, "GameFontHighlightSmall", "Select the text and press Ctrl+C. WoW cannot write arbitrary text to the system clipboard directly.")
+    -- Anchored to the note's own BOTTOMLEFT, not a fixed offset from the
+    -- frame -- this note wraps to more than one line at this width, and a
+    -- fixed offset here is exactly what let the Wishlist/Avoidlist
+    -- breadcrumb text overlap the content below it previously.
+    local note = font(frame, "GameFontHighlightSmall",
+      "Select the text and press Ctrl+C. WoW cannot write arbitrary text to the system clipboard directly. "
+      .. "This is base64-encoded scale data -- paste the whole block back into Import to restore it.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 18, -76)
+    scroll:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
     scroll:SetSize(570, 330)
     local edit = CreateFrame("EditBox", nil, scroll)
     edit:SetMultiLine(true)
@@ -1217,11 +1223,12 @@ local function showImportDialog(specID, C)
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("LEFT", frame.TitleBg, "LEFT", 6, 0)
     title:SetText("Import Scale")
-    local note = font(frame, "GameFontHighlightSmall", "Paste Pawn or stat-weight text, or XIVEquip JSON, then detect and import it as a Custom scale.")
+    local note = font(frame, "GameFontHighlightSmall",
+      "Paste Pawn or stat-weight text, or XIVEquip JSON (raw or base64-encoded, as produced by Export), then detect and import it as a Custom scale.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
     local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 18, -78)
+    scroll:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
     scroll:SetSize(570, 260)
     local edit = CreateFrame("EditBox", nil, scroll)
     edit:SetMultiLine(true)
@@ -1232,15 +1239,20 @@ local function showImportDialog(specID, C)
     edit:SetTextInsets(6, 6, 6, 6)
     scroll:SetScrollChild(edit)
     frame.edit = edit
+    -- Chained off the scroll's own BOTTOMLEFT (itself chained off the
+    -- note above), not fixed frame offsets, for the same reason as the
+    -- note -> scroll anchor: nameLabel/nameEdit are short, fixed-text
+    -- labels that never wrap, so anchoring safely absorbs any growth in
+    -- the note text above without needing to recompute pixel offsets.
     local nameLabel = font(frame, "GameFontHighlightSmall", "Name")
-    nameLabel:SetPoint("TOPLEFT", 18, -350)
+    nameLabel:SetPoint("TOPLEFT", scroll, "BOTTOMLEFT", 0, -12)
     local nameEdit = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     nameEdit:SetSize(300, 22)
-    nameEdit:SetPoint("TOPLEFT", 70, -346)
+    nameEdit:SetPoint("TOPLEFT", nameLabel, "TOPLEFT", 52, -4)
     nameEdit:SetAutoFocus(false)
     frame.nameEdit = nameEdit
     local detected = font(frame, "GameFontHighlightSmall", "Format: paste data and press Detect.")
-    detected:SetPoint("TOPLEFT", 18, -382)
+    detected:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 0, -18)
     detected:SetWidth(570)
     frame.detected = detected
     local detect = button(frame, "Detect", 76, 22)
@@ -1414,13 +1426,23 @@ local function showScales(content)
   local export = button(page, "Export", 64, 22)
   export:SetPoint("LEFT", import, "RIGHT", 4, 0)
   export:SetScript("OnClick", function()
-    if not selectedScale then return end
+    if not selectedScale then
+      print(PREFIX .. "Select or create a Custom scale before exporting.")
+      return
+    end
     local meta = selectedScale.meta or {}
-    showTextDialog("Export Scale", encodeJSON({
+    local json = encodeJSON({
       format = "xivequip-scale", version = 1, id = selectedScale.id,
       name = selectedScale.name, specID = meta.specID, classFile = meta.classFile,
       specName = meta.specName, weights = selectedScale.weights,
-    }))
+    })
+    local importer = XIVEquip.XIVWeights.Import and XIVEquip.XIVWeights.Import.Serialized
+    local encoded = importer and importer.EncodeBase64 and importer.EncodeBase64(json)
+    if not encoded then
+      print(PREFIX .. "Export failed: base64 encoder not available.")
+      return
+    end
+    showTextDialog("Export Scale", encoded)
   end)
   local duplicate = button(page, "Duplicate", 78, 22)
   duplicate:SetPoint("LEFT", export, "RIGHT", 4, 0)

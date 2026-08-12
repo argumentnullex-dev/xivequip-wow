@@ -150,6 +150,86 @@ local function jsonDecode(text)
   return value
 end
 
+-- Base64 (RFC 4648, standard alphabet with '=' padding). Pure Lua, no
+-- WoW-specific dependency, kept local to this module for the same reason
+-- the JSON reader above is -- one small self-contained implementation
+-- beats a general-purpose dependency for a single round-trip use case.
+-- This is a pragmatic decoder, not a hardened general-purpose validator:
+-- malformed padding placed anywhere but the final 4-byte group isn't
+-- specifically rejected. That's an acceptable tradeoff here because the
+-- only real producer of this addon's base64 text is Serialized.EncodeBase64
+-- itself (always correctly padded), and Detect/Parse below only ever treat
+-- a decode result as meaningful when the decoded bytes also look like the
+-- addon's own scale JSON -- garbage input either fails to decode at all or
+-- decodes to bytes that don't look like JSON, either way falling through
+-- safely rather than silently misinterpreting unrelated pasted text.
+local B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local B64_LOOKUP
+
+local function base64Lookup()
+  if B64_LOOKUP then return B64_LOOKUP end
+  B64_LOOKUP = {}
+  for i = 1, #B64_CHARS do B64_LOOKUP[B64_CHARS:byte(i)] = i - 1 end
+  return B64_LOOKUP
+end
+
+local function base64Encode(data)
+  data = tostring(data or "")
+  local length = #data
+  local out = {}
+  for i = 1, length, 3 do
+    local b1, b2, b3 = data:byte(i, i + 2)
+    local n = (b1 << 16) | ((b2 or 0) << 8) | (b3 or 0)
+    local chunkLen = math.min(3, length - i + 1)
+    out[#out + 1] = B64_CHARS:sub((n >> 18 & 0x3F) + 1, (n >> 18 & 0x3F) + 1)
+    out[#out + 1] = B64_CHARS:sub((n >> 12 & 0x3F) + 1, (n >> 12 & 0x3F) + 1)
+    out[#out + 1] = chunkLen >= 2 and B64_CHARS:sub((n >> 6 & 0x3F) + 1, (n >> 6 & 0x3F) + 1) or "="
+    out[#out + 1] = chunkLen >= 3 and B64_CHARS:sub((n & 0x3F) + 1, (n & 0x3F) + 1) or "="
+  end
+  return table.concat(out)
+end
+
+local function base64Decode(data)
+  data = tostring(data or ""):gsub("%s+", "")
+  if data == "" then return "" end
+  if #data % 4 ~= 0 then return nil end
+  local lookup = base64Lookup()
+  local out = {}
+  for i = 1, #data, 4 do
+    local c1, c2, c3, c4 = data:byte(i), data:byte(i + 1), data:byte(i + 2), data:byte(i + 3)
+    local v1, v2 = lookup[c1], lookup[c2]
+    if not v1 or not v2 then return nil end
+    local pad = 0
+    local v3, v4 = 0, 0
+    if c3 == 61 then -- '=' -- only valid when c4 is '=' too (2 bytes of padding)
+      pad = 2
+      if c4 ~= 61 then return nil end
+    else
+      v3 = lookup[c3]
+      if not v3 then return nil end
+      if c4 == 61 then
+        pad = 1
+      else
+        v4 = lookup[c4]
+        if not v4 then return nil end
+      end
+    end
+    local n = (v1 << 18) | (v2 << 12) | (v3 << 6) | v4
+    out[#out + 1] = string.char((n >> 16) & 0xFF)
+    if pad < 2 then out[#out + 1] = string.char((n >> 8) & 0xFF) end
+    if pad < 1 then out[#out + 1] = string.char(n & 0xFF) end
+  end
+  return table.concat(out)
+end
+
+Serialized.EncodeBase64 = base64Encode
+Serialized.DecodeBase64 = base64Decode
+
+local function looksLikeJSON(text)
+  text = trim(text)
+  return text:sub(1, 1) == "{" or text:find('"format"', 1, true) or text:find('"weights"', 1, true)
+end
+
 local function normalizeWeights(raw)
   local weights = {}
   local highest = 0
@@ -191,10 +271,23 @@ local function fromText(text, requestedSpecID, format)
   return { format = format or "text", name = name, specID = tonumber(requestedSpecID), weights = weights }
 end
 
+-- resolveJSONText(text) -> jsonText | nil
+-- text is already JSON, or is a base64 encoding of JSON (accepted per the
+-- addon's own Export dialog and any base64 blob a player pastes back in) --
+-- either way, returns the actual JSON text to feed into jsonDecode, or nil
+-- if neither interpretation looks like this addon's scale JSON.
+local function resolveJSONText(text)
+  text = trim(text)
+  if looksLikeJSON(text) then return text end
+  local decoded = base64Decode(text)
+  if decoded and looksLikeJSON(decoded) then return trim(decoded) end
+  return nil
+end
+
 function Serialized.Detect(text)
   text = trim(text)
   if text == "" then return nil, "empty" end
-  if text:sub(1, 1) == "{" or text:find('"format"', 1, true) then return "native-json" end
+  if resolveJSONText(text) then return "native-json" end
   local lower = text:lower()
   if lower:find("pawn", 1, true) then return "pawn" end
   if lower:find("simcraft", 1, true) or lower:find("simc", 1, true) then return "simc" end
@@ -207,7 +300,7 @@ end
 function Serialized.Parse(text, requestedSpecID)
   local format, reason = Serialized.Detect(text)
   if not format then return nil, reason end
-  if format == "native-json" then return fromJSON(text, requestedSpecID) end
+  if format == "native-json" then return fromJSON(resolveJSONText(text), requestedSpecID) end
   return fromText(text, requestedSpecID, format)
 end
 
