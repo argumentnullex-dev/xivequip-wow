@@ -581,22 +581,24 @@ local function setDropdown(menu, items, selected, onSelect)
   end
 
   local function refreshSelection(rows)
+    local selectedValue = type(selected) == "function" and selected(rows) or selected
     local selectedLabel
     for _, item in ipairs(rows) do
-      if item.value == selected then selectedLabel = item.label end
+      if item.value == selectedValue then selectedLabel = item.label end
     end
-    UIDropDownMenu_SetSelectedValue(menu, selected)
+    UIDropDownMenu_SetSelectedValue(menu, selectedValue)
     UIDropDownMenu_SetText(menu, selectedLabel or "Select")
+    return selectedValue
   end
 
   UIDropDownMenu_Initialize(menu, function()
     local rows = currentItems()
-    refreshSelection(rows)
+    local selectedValue = refreshSelection(rows)
     for _, item in ipairs(rows) do
       local info = UIDropDownMenu_CreateInfo()
       info.text = item.menuLabel or item.label
       info.value = item.value
-      info.checked = item.value == selected
+      info.checked = item.value == selectedValue
       info.disabled = item.disabled == true
       info.func = function()
         if not item.disabled and onSelect then onSelect(item.value) end
@@ -937,8 +939,15 @@ local function showConfig(content)
       if entry.id == provider then providerLabel = entry.label or entry.id end
     end
     local reason = resolved.fallbackReason and (" (" .. tostring(resolved.fallbackReason) .. ")") or ""
-    local warning = font(page, "GameFontDisableSmall", "Fallback: " .. providerLabel
-      .. " has no suitable " .. tostring(specName) .. " scale. Using Default" .. reason .. ".")
+    local warningText
+    if resolution and resolution.sourceKind == "integration" then
+      warningText = "Fallback: configured " .. tostring(providerLabel) .. " scale is unavailable. Using Recommended ("
+        .. tostring(resolution.scaleLabel or specName) .. ")" .. reason .. "."
+    else
+      warningText = "Fallback: " .. providerLabel .. " has no suitable " .. tostring(specName)
+        .. " scale. Using Default" .. reason .. "."
+    end
+    local warning = font(page, "GameFontDisableSmall", warningText)
     warning:SetPoint("TOPLEFT", effective, "BOTTOMLEFT", 0, -4)
     warning:SetWidth(CONTENT_WIDTH)
     textColor(warning, 1, 0.65, 0.25)
@@ -1103,27 +1112,23 @@ local function showConfig(content)
       local overrides = profile.manual.integration.overrides or {}
       local configuredOverride = overrides[spec.id]
       local function liveIntegrationItems()
-        local items = integrationItems(C, integrationProvider, runtime, spec.id)
-        local availableOverride = not configuredOverride
-        for _, item in ipairs(items) do
-          if item.value == configuredOverride then availableOverride = true; break end
-        end
-        if configuredOverride and not availableOverride then
-          table.insert(items, 2, {
-            value = configuredOverride,
-            label = "Missing: " .. tostring(configuredOverride) .. " [Unavailable]",
-          })
-        end
-        return items, availableOverride
+        return integrationItems(C, integrationProvider, runtime, spec.id)
       end
-      local _, availableOverride = liveIntegrationItems()
-      if configuredOverride and not availableOverride then
-        label:SetText(tostring(spec.name) .. " (Default fallback)")
+      local function effectiveSelection(items)
+        if not configuredOverride then return "" end
+        for _, item in ipairs(items or {}) do
+          if item.value == configuredOverride then return configuredOverride end
+        end
+        return ""
+      end
+      local initialItems = liveIntegrationItems()
+      if configuredOverride and effectiveSelection(initialItems) == "" then
+        label:SetText(tostring(spec.name) .. " (Recommended fallback)")
         textColor(label, 1, 0.65, 0.25)
       end
       local menu = dropdown(mapPanel, 190)
       menu:SetPoint("TOPLEFT", 128, mapY + 8)
-      setDropdown(menu, liveIntegrationItems, configuredOverride or "", function(value)
+      setDropdown(menu, liveIntegrationItems, effectiveSelection, function(value)
         if value == "" then Profiles.ClearIntegrationOverride(profile, spec.id) else Profiles.SetIntegrationOverride(profile, spec.id, value) end
         Window.ShowTab(1)
       end)

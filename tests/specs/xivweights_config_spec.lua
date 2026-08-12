@@ -327,6 +327,46 @@ test("failed Pawn Integration falls back to Default without resolving a manual s
   A.equal(profile.manual.integration.overrides[66], manual.id)
 end)
 
+test("missing pinned Integration scale falls back through the provider recommendation before Default", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+  local Profiles = addon.Profiles.Config
+  local registry = addon.Integrations.Registry
+  local recommended = addon.XIVWeights.NewScale({
+    id = "hypothetical:recommended",
+    name = "Recommended Protection",
+    source = { kind = "hypothetical" },
+    weights = { strength = 1, haste = 0.8 },
+  })
+  registry:Register({
+    id = "hypothetical-fallback",
+    label = "Hypothetical",
+    IsAvailable = function() return true end,
+    Resolve = function(_, selection)
+      if selection == nil then return recommended end
+      return nil, "integration-scale-missing"
+    end,
+  })
+  local profile = Profiles.GetDefault("PALADIN")
+  A.truthy(Profiles.SetAutomatic(profile, false))
+  A.truthy(Profiles.SetManualMode(profile, "integration"))
+  A.truthy(Profiles.SetIntegrationProvider(profile, "hypothetical-fallback"))
+  A.truthy(Profiles.SetIntegrationOverride(profile, 66, "removed:pinned-scale"))
+
+  local result = Config.ResolveResultForSpec(66, {
+    UnitClass = function() return "Paladin", "PALADIN" end,
+    UnitName = function() return "Daedric", "Area 52" end,
+  })
+
+  A.equal(result.scale.id, recommended.id)
+  A.equal(result.scale.resolution.sourceLabel, "Hypothetical")
+  A.equal(result.scale.resolution.scaleLabel, "Recommended Protection")
+  A.equal(result.selection.scale, nil, "effective selection should follow the provider recommendation")
+  A.equal(result.configuredSelection.scale, "removed:pinned-scale", "missing pin should remain diagnostic context")
+  A.equal(result.fallback, true)
+  A.equal(result.fallbackReason, "integration-scale-missing")
+end)
+
 test("failed generic Integration falls back to Default and never resolves a manual key", function()
   local addon = newAddon({})
   local Config = addon.XIVWeights.Config

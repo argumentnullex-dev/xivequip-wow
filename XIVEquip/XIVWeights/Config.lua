@@ -423,13 +423,33 @@ function Config.ResolveResultForSpec(specID, runtime)
   if sel.mode == "integration" and not scale then
     local registry = integrationsRegistry()
     if registry then
+      local requestedScale = sel.scale
       local resolved, reason, entry = registry:Resolve(sel.provider, {
         specID = specID,
         runtime = runtime,
-      }, sel.scale)
+      }, requestedScale)
       scale = resolved
       fallbackReason = reason
       integrationEntry = scale and entry or nil
+      if not scale and requestedScale then
+        local recommended, recommendedReason, recommendedEntry = registry:Resolve(sel.provider, {
+          specID = specID,
+          runtime = runtime,
+        }, nil)
+        if recommended then
+          scale = recommended
+          integrationEntry = recommendedEntry
+          fallback = true
+          sel = {
+            provider = sel.provider,
+            scale = nil,
+            mode = "integration",
+            profile = sel.profile,
+          }
+        else
+          fallbackReason = recommendedReason or fallbackReason
+        end
+      end
     end
     if not scale then
       fallback = true

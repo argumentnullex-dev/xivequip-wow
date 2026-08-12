@@ -705,7 +705,7 @@ test("Profile Management reuses its name field and refreshes profile usage", fun
   A.equal(detail._xivEquipPool.items.font[3].text, "Used by 2 characters", "Profile Management should refresh usage when reopened")
 end)
 
-test("Config identifies missing per-spec Integration overrides and their Default fallback", function()
+test("Config identifies missing per-spec Integration overrides and their Recommended fallback", function()
   local addon, calls = harness()
   local profile = {
     id = "paladin-integration",
@@ -729,7 +729,17 @@ test("Config identifies missing per-spec Integration overrides and their Default
     },
     Config = {
       ResolveResultForSpec = function()
-        return { scale = { resolution = { sourceLabel = "Pawn", scaleLabel = "Retribution" } } }
+        return {
+          scale = { resolution = {
+            sourceKind = "integration",
+            sourceLabel = "Pawn",
+            scaleLabel = "Recommended Holy",
+            fallback = true,
+          } },
+          configuredSelection = { provider = "pawn", scale = "My Holy Scale" },
+          fallback = true,
+          fallbackReason = "integration-scale-missing",
+        }
       end,
       ListIntegrations = function()
         return { { id = "pawn", label = "Pawn", ListScales = function() return {} end } }
@@ -750,7 +760,12 @@ test("Config identifies missing per-spec Integration overrides and their Default
   local Window = loadWindow(addon, calls)
   Window.Open()
   local text = table.concat(calls.fontText, "\n")
-  A.truthy(text:find("Holy %(Default fallback%)"), "missing Integration mappings should identify their effective Default fallback")
+  A.truthy(text:find("Holy %(Recommended fallback%)"),
+    "missing Integration mappings should identify their effective Recommended fallback")
+  A.truthy(text:find("Using Recommended %(Recommended Holy%)"),
+    "fallback warning should name the effective recommended provider scale")
+  A.falsy(text:find("Using Default", 1, true),
+    "recommended provider fallback should not claim that Default is active")
 end)
 
 test("unavailable Integrations do not list scales and show Default fallback for automatic mapping", function()
