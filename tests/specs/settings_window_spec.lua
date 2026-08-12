@@ -354,7 +354,11 @@ test("Config page uses spec names and display labels instead of raw ids", functi
   local text = table.concat(calls.fontText, "\n")
   A.truthy(text:find("Retribution", 1, true), "Config should show the spec name")
   A.truthy(text:find("Built%-in default", 1, true) or text:find("Built-in default", 1, true), "Config should show the source label")
-  A.truthy(calls.buttons["Manage"], "Config should expose Profile management")
+  local profilePanel = Window.Frame.content.page._xivEquipPool.items.panel[1]
+  A.truthy(profilePanel._xivEquipFrames["new-profile-name"], "Config should expose inline Profile creation")
+  A.equal(profilePanel._xivEquipPool.items.button[1].text, "Create")
+  A.equal(profilePanel._xivEquipPool.items.button[2].text, "Delete")
+  A.falsy(calls.buttons["Manage"], "Config should not expose the obsolete Profile management dialog")
   A.truthy(calls.buttons["Create Macro"], "Config should preserve macro creation")
   A.falsy(text:find("spec:70", 1, true), "Config should not leak generated scale ids")
   A.falsy(text:find("| 70", 1, true), "Config should not show raw spec ids")
@@ -665,18 +669,21 @@ test("Integration dropdown refreshes live scales when opened and distinguishes t
     "opening the existing dropdown should read newly enabled provider scales")
 end)
 
-test("Profile Management reuses its name field and refreshes profile usage", function()
+test("Config creates and selects Profiles inline and protects the class Default from deletion", function()
   local addon, calls = harness()
-  local usageCount = 1
-  local profile = {
+  local defaultProfile = {
     id = "paladin-default",
-    name = "Paladin Default",
+    name = "Default - Paladin",
     automatic = true,
     manual = { mode = "default", customOverrides = {}, integration = { overrides = {} } },
   }
+  local activeProfile = defaultProfile
+  local profiles = { defaultProfile }
   _G.GetSpecialization = function() return 1 end
   _G.GetSpecializationInfo = function() return 70, "Retribution" end
   _G.UnitClass = function() return "Paladin", "PALADIN" end
+  _G.StaticPopupDialogs = nil
+  _G.StaticPopup_Show = nil
   addon.XIVWeights = {
     Builtin = { Defaults = { SpecsForClass = function() return { { id = 70, name = "Retribution" } } end } },
     Config = {
@@ -688,26 +695,52 @@ test("Profile Management reuses its name field and refreshes profile usage", fun
   addon.Profiles = {
     Config = {
       CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
-      GetForCharacter = function() return profile end,
-      List = function() return { profile } end,
-      Usage = function() return { count = usageCount } end,
-      DefaultProfileID = function() return profile.id end,
+      GetForCharacter = function() return activeProfile end,
+      List = function() return profiles end,
+      Usage = function() return { count = 1 } end,
+      DefaultProfileID = function() return defaultProfile.id end,
+      AssignCharacter = function(_, _, profileID)
+        for _, item in ipairs(profiles) do
+          if item.id == profileID then activeProfile = item; return item end
+        end
+      end,
+      Create = function(_, name)
+        if name == "" then return nil end
+        local created = {
+          id = "paladin:raid",
+          name = name,
+          automatic = true,
+          manual = { mode = "default", customOverrides = {}, integration = { overrides = {} } },
+        }
+        profiles[#profiles + 1] = created
+        return created
+      end,
+      Delete = function(_, profileID)
+        if profileID == defaultProfile.id then return nil, "default-profile" end
+        for index, item in ipairs(profiles) do
+          if item.id == profileID then table.remove(profiles, index); activeProfile = defaultProfile; return true end
+        end
+        return nil, "unknown-profile"
+      end,
     },
   }
 
   local Window = loadWindow(addon, calls)
   Window.Open()
-  calls.buttons["Manage"].scripts.OnClick(calls.buttons["Manage"])
-  A.truthy(Window.ProfileDialog:IsShown(), "Manage should open the Profile dialog")
-  A.equal(Window.ProfileDialog.frameStrata, "DIALOG", "Profile dialog should render above the settings window")
-  A.truthy(Window.ProfileDialog.raised, "Profile dialog should be raised above the settings window")
-  local detail = Window.ProfileDialog.body._xivEquipPool.items.panel[1]
-  local nameBox = detail._xivEquipFrames["profile-name"]
-  usageCount = 2
-  calls.buttons["Manage"].scripts.OnClick(calls.buttons["Manage"])
+  local profilePanel = Window.Frame.content.page._xivEquipPool.items.panel[1]
+  local nameBox = profilePanel._xivEquipFrames["new-profile-name"]
+  local create = profilePanel._xivEquipPool.items.button[1]
+  local delete = profilePanel._xivEquipPool.items.button[2]
+  A.falsy(delete.enabled, "Default - Paladin should not be deletable")
 
-  A.equal(detail._xivEquipFrames["profile-name"], nameBox, "Profile Management should reuse the keyed name field")
-  A.equal(detail._xivEquipPool.items.font[3].text, "Used by 2 characters", "Profile Management should refresh usage when reopened")
+  nameBox:SetText("Raid")
+  create.scripts.OnClick(create)
+  A.equal(activeProfile.name, "Raid", "Create should select the new Profile for this character")
+  A.truthy(delete.enabled, "a non-default active Profile should be deletable")
+
+  delete.scripts.OnClick(delete)
+  A.equal(activeProfile, defaultProfile, "deleting the active Profile should return the character to Default")
+  A.falsy(delete.enabled, "Delete should become disabled again on the Default Profile")
 end)
 
 test("Config identifies missing per-spec Integration overrides and their Recommended fallback", function()

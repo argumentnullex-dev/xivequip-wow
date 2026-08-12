@@ -773,117 +773,6 @@ local function mapStateKey(values)
   return table.concat(out, ",")
 end
 
-local function showProfileDialog()
-  local C, Profiles, runtime, context, _, classFile, selected = currentState()
-  if not Profiles or not classFile then return end
-  local frame = Window.ProfileDialog
-  if not frame then
-    frame = CreateFrame("Frame", "XIVEquipProfileDialog", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(570, 390)
-    frame:SetFrameStrata("DIALOG")
-    frame:Hide()
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    registerEscapeClose("XIVEquipProfileDialog")
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    title:SetPoint("LEFT", frame.TitleBg, "LEFT", 6, 0)
-    title:SetText("Manage Profiles")
-    Window.ProfileDialog = frame
-  end
-  local profiles = Profiles.List(classFile)
-  local body = frame.body
-  if not body then
-    body = CreateFrame("Frame", nil, frame)
-    body:SetAllPoints(frame)
-    frame.body = body
-  end
-  beginRender(body)
-  hidePooledFrames(body)
-  if body.GetChildren then
-    local children = { body:GetChildren() }
-    for _, child in ipairs(children) do child:Hide() end
-  end
-  selected = selected or profiles[1]
-  local listTitle = sectionTitle(body, "Profiles for " .. tostring(classFile), 18, -42)
-  local list = pooledFrame(body, "profile-list", "Frame")
-  list:SetPoint("TOPLEFT", 16, -66)
-  list:SetSize(230, 255)
-  for index, profile in ipairs(profiles) do
-    local pick = button(list, tostring(profile.name), 215, 24)
-    pick:SetPoint("TOPLEFT", 0, -((index - 1) * 29))
-    if selected and selected.id == profile.id then pick:Disable() end
-    pick:SetScript("OnClick", function()
-      Window.SelectedProfileID = profile.id
-      showProfileDialog()
-    end)
-  end
-  local detail = panel(body, 260, -36, 290, 285)
-  sectionTitle(detail, "Profile Details", 14, -16)
-  local selectedProfile
-  for _, profile in ipairs(profiles) do if profile.id == Window.SelectedProfileID then selectedProfile = profile end end
-  selectedProfile = selectedProfile or selected or profiles[1]
-  local name = font(detail, "GameFontHighlight", selectedProfile and selectedProfile.name or "Default")
-  name:SetPoint("TOPLEFT", 16, -48)
-  local usage = Profiles.Usage(classFile, selectedProfile and selectedProfile.id)
-  local used = font(detail, "GameFontHighlightSmall", "Used by " .. tostring(usage and usage.count or 0) .. " characters")
-  used:SetPoint("TOPLEFT", 16, -72)
-  local use = button(detail, "Use for this character", 160, 22)
-  use:SetPoint("TOPLEFT", 16, -102)
-  use:SetScript("OnClick", function()
-    if selectedProfile and context.characterKey then
-      Profiles.AssignCharacter(context.characterKey, classFile, selectedProfile.id)
-      frame:Hide()
-      Window.ShowTab(1)
-    end
-  end)
-  local nameBox = pooledFrame(detail, "profile-name", "EditBox", "InputBoxTemplate")
-  nameBox:SetSize(190, 22)
-  nameBox:SetPoint("TOPLEFT", 16, -148)
-  nameBox:SetAutoFocus(false)
-  nameBox:SetText("")
-  local new = button(detail, "New", 70, 22)
-  new:SetPoint("TOPLEFT", 16, -184)
-  new:SetScript("OnClick", function()
-    local created = Profiles.Create(classFile, nameBox:GetText())
-    if created then Window.SelectedProfileID = created.id; showProfileDialog() else print(PREFIX .. "Profile name is required and must be unique.") end
-  end)
-  local duplicate = button(detail, "Duplicate", 82, 22)
-  duplicate:SetPoint("LEFT", new, "RIGHT", 8, 0)
-  duplicate:SetScript("OnClick", function()
-    if selectedProfile then
-      local created = Profiles.Duplicate(classFile, selectedProfile.id, nameBox:GetText())
-      if created then Window.SelectedProfileID = created.id; showProfileDialog() else print(PREFIX .. "Profile name is required and must be unique.") end
-    end
-  end)
-  local rename = button(detail, "Rename", 70, 22)
-  rename:SetPoint("TOPLEFT", 16, -220)
-  rename:SetScript("OnClick", function()
-    if selectedProfile and Profiles.Rename(classFile, selectedProfile.id, nameBox:GetText()) then showProfileDialog() end
-  end)
-  local delete = button(detail, "Delete", 70, 22)
-  delete:SetPoint("LEFT", rename, "RIGHT", 8, 0)
-  if selectedProfile and selectedProfile.id == Profiles.DefaultProfileID(classFile) and delete.Disable then
-    delete:Disable()
-  end
-  delete:SetScript("OnClick", function()
-    if selectedProfile then
-      confirmDeleteProfile(selectedProfile, usage, function()
-        local ok, reason = Profiles.Delete(classFile, selectedProfile.id)
-        if not ok then print(PREFIX .. "Cannot delete profile: " .. tostring(reason)) end
-        Window.SelectedProfileID = nil
-        showProfileDialog()
-      end)
-    end
-  end)
-  local close = button(body, "Close", 80, 22)
-  close:SetPoint("BOTTOMRIGHT", -18, 16)
-  close:SetScript("OnClick", function() frame:Hide() end)
-  revealDialog(frame)
-end
-
 local function showConfig(content)
   local C, Profiles, runtime, context, specID, classFile, profile = currentState()
   local resolved = C and specID and C.ResolveResultForSpec and C.ResolveResultForSpec(specID, runtime)
@@ -965,9 +854,38 @@ local function showConfig(content)
     if context and context.characterKey then Profiles.AssignCharacter(context.characterKey, classFile, value) end
     Window.ShowTab(1)
   end)
-  local manage = button(profilePanel, "Manage", 78, 22)
-  manage:SetPoint("LEFT", profileMenu, "RIGHT", 4, 0)
-  manage:SetScript("OnClick", showProfileDialog)
+  local profileName = pooledFrame(profilePanel, "new-profile-name", "EditBox", "InputBoxTemplate")
+  profileName:SetSize(150, 22)
+  profileName:SetPoint("TOPLEFT", 224, -38)
+  profileName:SetAutoFocus(false)
+  profileName:SetText("")
+  local createProfile = button(profilePanel, "Create", 72, 22)
+  createProfile:SetPoint("TOPLEFT", 384, -38)
+  if not Profiles or not classFile then createProfile:Disable() end
+  createProfile:SetScript("OnClick", function()
+    if not Profiles or not classFile then return end
+    local created = Profiles.Create(classFile, profileName:GetText())
+    if created then
+      if context and context.characterKey then Profiles.AssignCharacter(context.characterKey, classFile, created.id) end
+      Window.ShowTab(1)
+    else
+      print(PREFIX .. "Profile name is required and must be unique.")
+    end
+  end)
+  local deleteProfile = button(profilePanel, "Delete", 72, 22)
+  deleteProfile:SetPoint("TOPLEFT", 466, -38)
+  local defaultProfileID = Profiles and Profiles.DefaultProfileID and classFile and Profiles.DefaultProfileID(classFile)
+  local canDeleteProfile = profile and defaultProfileID and profile.id ~= defaultProfileID
+  if not canDeleteProfile then deleteProfile:Disable() end
+  deleteProfile:SetScript("OnClick", function()
+    if not canDeleteProfile then return end
+    local usage = Profiles.Usage(classFile, profile.id)
+    confirmDeleteProfile(profile, usage, function()
+      local ok, reason = Profiles.Delete(classFile, profile.id)
+      if not ok then print(PREFIX .. "Cannot delete profile: " .. tostring(reason)) end
+      Window.ShowTab(1)
+    end)
+  end)
 
   local modePanel = panel(page, 0, -152, CONTENT_WIDTH, 228)
   sectionTitle(modePanel, "Scoring Configuration", 14, -14)
