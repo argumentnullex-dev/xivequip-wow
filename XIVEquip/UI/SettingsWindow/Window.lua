@@ -1500,17 +1500,20 @@ local function showScales(content)
   nameEdit:SetScript("OnEditFocusLost", commitName)
 
   local y = -72
+  local weightInputX = 360
+  local weightSliderX = 426
+  local weightSliderWidth = 146
   local function addWeightRow(feature, label)
     local rowLabel = font(editor, "GameFontHighlightSmall", label)
     rowLabel:SetPoint("TOPLEFT", 190, y)
     local edit = pooledFrame(editor, "weight-edit:" .. feature, "EditBox", "InputBoxTemplate")
     edit:SetSize(54, 20)
-    edit:SetPoint("TOPLEFT", 308, y + 2)
+    edit:SetPoint("TOPLEFT", weightInputX, y + 2)
     edit:SetAutoFocus(false)
     edit:SetText(string.format("%.2f", tonumber(work[feature]) or 0))
     local slider = pooledFrame(editor, "weight-slider:" .. feature, "Slider", "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", 374, y + 1)
-    slider:SetWidth(164)
+    slider:SetPoint("TOPLEFT", weightSliderX, y + 1)
+    slider:SetWidth(weightSliderWidth)
     slider:SetMinMaxValues(0, 1)
     slider:SetValueStep(0.1)
     if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
@@ -1518,7 +1521,7 @@ local function showScales(content)
     if slider.High then slider.High:Hide() end
     for index = 0, 10 do
       local tick = font(editor, "GameFontDisableSmall", "|")
-      tick:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", math.floor((index * 164) / 10) - 1, 4)
+      tick:SetPoint("TOPLEFT", slider, "BOTTOMLEFT", math.floor((index * weightSliderWidth) / 10) - 1, 4)
     end
     local suppress = true
     local initial = tonumber(work[feature]) or 0

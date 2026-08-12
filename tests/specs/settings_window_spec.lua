@@ -884,6 +884,14 @@ test("Scale editor shows specialization binding and refreshes the active selecto
   A.truthy(nameLabel, "scale editor should show the Scale name label")
   A.equal(nameEdit.points[1][2], nameLabel.points[1][2], "scale name input should align with its label")
   A.truthy(nameEdit.points[1][3] < nameLabel.points[1][3], "scale name input should sit below its label")
+  local swingLabel
+  for _, item in ipairs(editor._xivEquipPool.items.font) do
+    if item.text == "Weapon Swing Interval / Speed" then swingLabel = item end
+  end
+  local swingEdit = editor._xivEquipFrames["weight-edit:weaponSwingIntervalSeconds"]
+  A.truthy(swingLabel, "scale editor should show the weapon swing interval label")
+  A.truthy(swingEdit.points[1][2] >= swingLabel.points[1][2] + 170,
+    "the longest weight label should not overlap its numeric input")
   nameEdit:SetText("Retribution Mythic")
   nameEdit.scripts.OnEnterPressed(nameEdit)
 
