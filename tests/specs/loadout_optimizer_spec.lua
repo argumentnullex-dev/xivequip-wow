@@ -1672,4 +1672,62 @@ test("optimizer-aware policy hooks prepare once and restore branch state after e
   A.equal(counters["optimizer.policy_state_pops"], calls.pop)
 end)
 
+test("optimizer-aware policies reject push without pop before DFS", function()
+  local addon = newAddon()
+  local context = {
+    policies = {
+      loadout = {},
+      preference = {
+        {
+          id = "Test.missing_pop",
+          apply = function() return nil end,
+          optimizer = {
+            push = function() end,
+            upperBound = function() return 0 end,
+          },
+        },
+      },
+    },
+  }
+
+  local ok, err = pcall(function()
+    addon.Optimization.LoadoutOptimizer.FindBest({
+      { id = "A", slots = { 1 }, frontier = { assignment(100, {}) } },
+    }, addon.Assignments.LoadoutState.New(), context)
+  end)
+
+  A.falsy(ok)
+  A.truthy(tostring(err):find("Test.missing_pop", 1, true))
+  A.truthy(tostring(err):find("push and pop together", 1, true))
+end)
+
+test("optimizer-aware policies reject pop without push before DFS", function()
+  local addon = newAddon()
+  local context = {
+    policies = {
+      loadout = {},
+      preference = {
+        {
+          id = "Test.missing_push",
+          apply = function() return nil end,
+          optimizer = {
+            pop = function() end,
+            upperBound = function() return 0 end,
+          },
+        },
+      },
+    },
+  }
+
+  local ok, err = pcall(function()
+    addon.Optimization.LoadoutOptimizer.FindBest({
+      { id = "A", slots = { 1 }, frontier = { assignment(100, {}) } },
+    }, addon.Assignments.LoadoutState.New(), context)
+  end)
+
+  A.falsy(ok)
+  A.truthy(tostring(err):find("Test.missing_push", 1, true))
+  A.truthy(tostring(err):find("push and pop together", 1, true))
+end)
+
 return tests

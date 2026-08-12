@@ -113,6 +113,20 @@ local function activePolicies(context, phase)
   return (context and context.policies and context.policies[phase]) or {}
 end
 
+local function validateOptimizerHooks(policy, optimizer)
+  if type(optimizer) ~= "table" then return end
+  local pushDeclared = optimizer.push ~= nil
+  local popDeclared = optimizer.pop ~= nil
+  if pushDeclared ~= popDeclared then
+    error("optimizer policy '" .. tostring(policy and policy.id or "<unknown>")
+      .. "' must declare push and pop together", 0)
+  end
+  if pushDeclared and (type(optimizer.push) ~= "function" or type(optimizer.pop) ~= "function") then
+    error("optimizer policy '" .. tostring(policy and policy.id or "<unknown>")
+      .. "' push and pop hooks must both be functions", 0)
+  end
+end
+
 local function accumulate(counts, limits, key, limit)
   counts[key] = (counts[key] or 0) + 1
   limit = tonumber(limit) or 1
@@ -213,6 +227,11 @@ end
 -- optimizer-aware prepare/state/push/pop/upperBound hooks. Legacy
 -- upperBound policies remain supported; an active policy with neither
 -- bound disables score pruning while legality/validity pruning remains.
+-- push and pop are an inseparable pair: shared branch state must be restored
+-- before a sibling is visited. optimizer.upperBound must return a safe bound
+-- on the policy's TOTAL eventual adjustment for any completed descendant,
+-- including value already implied by selected assignments; accumulatedScore
+-- contains assignment scores only and does not yet include policy adjustments.
 -- Returns combination = {groupId -> assignmentRecord} and the total score
 -- of the chosen combination including loadout policy score adjustments
 -- (but NOT any combined lexicographic value -- invalid-count only ever
@@ -266,6 +285,7 @@ function LoadoutOptimizer.FindBest(groups, loadoutState, context)
   local hasLegacyPolicyBound = false
   for _, policy in ipairs(allPolicies) do
     local optimizer = type(policy.optimizer) == "table" and policy.optimizer or nil
+    validateOptimizerHooks(policy, optimizer)
     if optimizer and type(optimizer.upperBound) == "function" then
       -- The reusable optimizer-aware path is prepared below once the DFS
       -- group order is final.

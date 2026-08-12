@@ -1,6 +1,7 @@
 local root = ...
 local sep = package.config:sub(1, 1)
 local A = dofile(root .. sep .. "tests" .. sep .. "assertions.lua")
+local Bootstrap = dofile(root .. sep .. "tests" .. sep .. "harness" .. sep .. "addon_bootstrap.lua")
 
 local tests = {}
 local function test(name, fn) tests[#tests + 1] = { name = name, fn = fn } end
@@ -66,6 +67,7 @@ local function newHarness(overrides)
   _G.UIParent = frame()
   _G.CharacterFramePortrait = nil
   _G.C_Item = {}
+  _G.XIVEquip_Settings = {}
   _G.GetItemInfo = function() return nil end
   _G.C_Timer = { After = overrides.timerAfter or function(_, fn) fn() end }
   _G.InCombatLockdown = function()
@@ -119,15 +121,20 @@ local function newHarness(overrides)
         return 999
       end,
     },
-    XIVWeights = {
+  }
+
+  if overrides.realWeights then
+    Bootstrap.LoadWeights(root, addon)
+  else
+    addon.XIVWeights = {
       Config = {
         ResolvedScaleDisplayLabel = function(scale)
           local resolution = scale.resolution
           return resolution.sourceLabel .. " | " .. resolution.scaleLabel
         end,
       },
-    },
-  }
+    }
+  end
 
   loadUI(addon)
   eventFrame.scripts.OnEvent(eventFrame, "PLAYER_LOGIN")
@@ -198,6 +205,25 @@ test("hover preview reuses a short-lived native plan cache", function()
   button.scripts.OnEnter(button)
 
   A.equal(#calls.plan, 1)
+end)
+
+test("saving the active XIVWeights scale invalidates a warmed preview", function()
+  local addon, calls, button = newHarness({ realWeights = true })
+  local Config = addon.XIVWeights.Config
+  local scale = assert(Config.CreateManualScale(
+    "manual:preview-active", "Preview Active", { strength = 1, haste = 0.5 }, 70))
+  Config.SetSpecSelection(70, "manual", scale.id)
+
+  button.scripts.OnEnter(button)
+  button.scripts.OnEnter(button)
+  A.equal(#calls.plan, 1, "the second hover should use the warm cache")
+
+  local edited = Config.Repository():Get(scale.id)
+  edited.weights.haste = 0.8
+  Config.SaveScale(edited)
+  button.scripts.OnEnter(button)
+
+  A.equal(#calls.plan, 2, "saving the selected scale must make the next hover replan")
 end)
 
 test("expired preview cache recalculates once on the next hover", function()

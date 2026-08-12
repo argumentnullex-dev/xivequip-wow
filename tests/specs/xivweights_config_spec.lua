@@ -534,4 +534,40 @@ test("imported Pawn scale becomes independent manual XIVWeights scale", function
   A.equal(saved.source.importedFrom, "pawn")
 end)
 
+test("central XIVWeights mutations invalidate preview state", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+  local invalidations = 0
+  addon.UI = { ClearPreviewCache = function() invalidations = invalidations + 1 end }
+
+  local before = invalidations
+  Config.ResetSpecScale(70)
+  A.truthy(invalidations > before, "resetting a spec scale should invalidate preview")
+
+  before = invalidations
+  Config.SetSpecSelection(70, "manual", "spec:70")
+  A.truthy(invalidations > before, "changing the selected scale should invalidate preview")
+
+  local scale = Config.Repository():Get("spec:70")
+  scale.weights.haste = 0.8
+  before = invalidations
+  Config.SaveScale(scale)
+  A.truthy(invalidations > before, "saving weights should invalidate preview")
+
+  Config.CreateManualScale("manual:delete-me", "Delete Me", { strength = 1 }, 70)
+  before = invalidations
+  Config.DeleteScale("manual:delete-me")
+  A.truthy(invalidations > before, "deleting a scale should invalidate preview")
+
+  local adapter = {
+    ResolveValues = function()
+      return { Strength = 10, HasteRating = 5 }, { key = "pawn-preview", name = "Pawn Preview" }
+    end,
+  }
+  before = invalidations
+  addon.XIVWeights.Import.Pawn.Import(
+    adapter, "pawn-preview", "manual:import-preview", "Import Preview", 70)
+  A.truthy(invalidations > before, "importing through SaveScale should invalidate preview")
+end)
+
 return tests
