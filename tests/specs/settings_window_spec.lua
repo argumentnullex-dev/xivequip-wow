@@ -483,11 +483,14 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   A.truthy(table.concat(modeText, "\n"):find("Favor loadouts that complete 2-piece and 4-piece set bonuses.", 1, true),
     "set preference should explain its optimization effect")
   local generalPanel = page._xivEquipPool.items.panel[4]
+  local debugBox = generalPanel._xivEquipPool.items.checkbox[3]
   local minimapBox = generalPanel._xivEquipPool.items.checkbox[6]
   local macroButton = generalPanel._xivEquipPool.items.button[1]
   A.equal(generalPanel._xivEquipPool.items.checkbox[5].checkboxText, "Save Equipment set after auto-equip",
     "automation setting should use the established label")
-  A.equal(generalPanel.height, 198, "Addon Settings should contain its bottom controls with padding")
+  A.equal(generalPanel.height, 216, "Addon Settings should contain its lower row with generous bottom padding")
+  A.truthy(minimapBox.points[1][3] <= debugBox.points[1][3] - 62,
+    "Minimap Button should have breathing room below the message checkboxes")
   A.equal(macroButton.points[1][3], minimapBox.points[1][3], "Minimap and Macro controls should share a baseline")
 
   profile.automatic = true

@@ -693,7 +693,7 @@ end
 
 local function addGeneralSettings(parent, x, y, width)
   local S = XIVEquip.Settings
-  local box = panel(parent, x, y, width, 198)
+  local box = panel(parent, x, y, width, 216)
   sectionTitle(box, "Addon Settings", 14, -14)
   sectionTitle(box, "Messages", 14, -42)
   sectionTitle(box, "Automation", 302, -42)
@@ -714,16 +714,16 @@ local function addGeneralSettings(parent, x, y, width)
     local cb = checkbox(box, row[1], row[2](), row[3])
     cb:SetPoint("TOPLEFT", 302, -66 - ((i - 1) * 26))
   end
-  sectionTitle(box, "Minimap Button", 14, -142)
+  sectionTitle(box, "Minimap Button", 14, -156)
   local minimap = { "Show minimap button", function() return not S:GetMinimapHidden() end, function(v)
       S:SetMinimapHidden(v ~= true)
       if XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Refresh then XIVEquip.UI.MinimapButton.Refresh() end
     end }
   local minimapBox = checkbox(box, minimap[1], minimap[2](), minimap[3])
-  minimapBox:SetPoint("TOPLEFT", 14, -164)
-  sectionTitle(box, "Macro", 302, -142)
+  minimapBox:SetPoint("TOPLEFT", 14, -180)
+  sectionTitle(box, "Macro", 302, -156)
   local macro = button(box, "Create Macro", 150, 22)
-  macro:SetPoint("TOPLEFT", 302, -164)
+  macro:SetPoint("TOPLEFT", 302, -180)
   macro:SetScript("OnClick", createEquipMacro)
   return box
 end
