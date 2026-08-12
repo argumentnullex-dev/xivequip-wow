@@ -593,6 +593,39 @@ test("Config page uses spec names and display labels instead of raw ids", functi
   A.falsy(text:find("| 70", 1, true), "Config should not show raw spec ids")
 end)
 
+test("Config page's own Import button opens the Import dialog instead of erroring", function()
+  local addon, calls = harness()
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+
+  addon.XIVWeights = {
+    Config = {
+      GetSpecSelection = function() return { provider = "default", scale = nil } end,
+      SelectionDisplay = function() return "Built-in default", "Retribution" end,
+      ListManualScales = function() return {} end,
+      SetSpecSelection = function() end,
+      EnsureSpecScale = function() end,
+      GeneratedScaleID = function() return "spec:70" end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Pawn = { GetActiveScales = function() return {} end }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(1)
+
+  -- This is a distinct "Import" button from the Scale editor tab's (both
+  -- share the label, so calls.buttons["Import"] only reflects whichever tab
+  -- rendered last) -- showConfig references showImportDialog before its own
+  -- declaration later in the file, which must resolve through a forward
+  -- declaration rather than silently falling through to an absent global.
+  A.truthy(calls.buttons["Import"], "Config tab should render its own Import button")
+  calls.buttons["Import"].scripts.OnClick(calls.buttons["Import"])
+  A.truthy(Window.ImportDialog and Window.ImportDialog:IsShown(), "Import should open its dialog from the Config tab")
+end)
+
 test("Config page explains Integration fallback and reason", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 0 end

@@ -844,6 +844,11 @@ local function mapStateKey(values)
   return table.concat(out, ",")
 end
 
+-- Forward-declared: showConfig's own Import button (below) calls this before
+-- its definition later in the file, so it must resolve to this upvalue
+-- rather than an absent global.
+local showImportDialog
+
 local function showConfig(content)
   local C, Profiles, runtime, context, specID, classFile, profile = currentState()
   local resolved = C and specID and C.ResolveResultForSpec and C.ResolveResultForSpec(specID, runtime)
@@ -1206,7 +1211,7 @@ local function showTextDialog(titleText, bodyText)
   revealDialog(frame)
 end
 
-local function showImportDialog(specID, C)
+function showImportDialog(specID, C)
   local frame = Window.ImportDialog
   if not frame then
     frame = CreateFrame("Frame", "XIVEquipImportDialog", UIParent, "BasicFrameTemplateWithInset")
