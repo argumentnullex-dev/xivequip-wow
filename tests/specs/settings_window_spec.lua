@@ -500,6 +500,28 @@ test("state changes and tab switches reset nested Config pools before rebinding"
     "set preference should explain its optimization effect")
   A.truthy(table.concat(modeText, "\n"):find("Wishlisted trinkets are always shown.", 1, true),
     "spec-appropriate-trinkets preference should explain the Wishlist override")
+
+  -- Every SetPoint offset below is relative to modePanel's OWN top-left,
+  -- not the page's -- so a control's absolute page position is
+  -- modePanel's own top (modePanel.points[1][3]) PLUS the control's
+  -- offset, not the offset alone. Comparing an unconverted relative
+  -- offset against another panel's absolute page position is exactly the
+  -- coordinate-frame mistake that let the scoring panel's last control
+  -- silently overlap the Wishlist & Avoidlist panel below it.
+  local itemPrefsPanel = page._xivEquipPool.items.panel[3]
+  local specTrinketNote
+  for _, item in ipairs(modePanel._xivEquipPool.items.font) do
+    if item.text:find("Wishlisted trinkets are always shown.", 1, true) then specTrinketNote = item end
+  end
+  local modePanelTop = modePanel.points[1][3]
+  local modePanelBottom = modePanelTop - modePanel.height
+  local itemPrefsPanelTop = itemPrefsPanel.points[1][3]
+  local specTrinketNoteAbsoluteY = modePanelTop + specTrinketNote.points[1][3]
+  A.truthy(modePanelBottom >= itemPrefsPanelTop,
+    "the scoring panel's own declared height must not extend past where the Wishlist panel begins")
+  A.truthy(specTrinketNoteAbsoluteY >= itemPrefsPanelTop,
+    "the last scoring control must end above the Wishlist & Avoidlist panel, not inside it")
+
   local customMapPanel = page._xivEquipPool.items.panel[4]
   local customMenu = customMapPanel._xivEquipPool.items.dropdown[1]
   local customEdit = customMapPanel._xivEquipPool.items.button[1]
