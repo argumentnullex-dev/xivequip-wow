@@ -72,6 +72,7 @@ Policies/Candidate/Equippable.lua
 Policies/Candidate/ArmorProficiency.lua
 Policies/Candidate/JewelryIlvlFloor.lua
 Policies/Candidate/ProfileLists.lua
+Policies/Candidate/SpecAppropriateTrinkets.lua
 Policies/Candidate/SetMembership.lua
 
 # EvaluationContext + candidate normalization

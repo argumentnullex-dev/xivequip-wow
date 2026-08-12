@@ -349,6 +349,7 @@ local function specPreferenceState(profile, specID)
   end
   state.wishlist = type(state.wishlist) == "table" and state.wishlist or {}
   state.avoidlist = type(state.avoidlist) == "table" and state.avoidlist or {}
+  state.preferSpecAppropriateTrinkets = state.preferSpecAppropriateTrinkets == true
   return state
 end
 
@@ -366,7 +367,7 @@ end
 function Profiles.GetSpecPreferences(profile, specID)
   local validated = validateProfileSpec(profile, specID)
   if not validated then
-    return { preferSetBonuses = false, wishlist = {}, avoidlist = {} }
+    return { preferSetBonuses = false, wishlist = {}, avoidlist = {}, preferSpecAppropriateTrinkets = false }
   end
   local preferences = preferenceState(profile)
   local state = specPreferenceState(profile, validated)
@@ -374,6 +375,7 @@ function Profiles.GetSpecPreferences(profile, specID)
     preferSetBonuses = preferences.preferSetBonuses == true,
     wishlist = copy(state.wishlist),
     avoidlist = copy(state.avoidlist),
+    preferSpecAppropriateTrinkets = state.preferSpecAppropriateTrinkets == true,
   }
 end
 
@@ -399,6 +401,19 @@ end
 
 function Profiles.SetAvoidlistItem(profile, specID, itemID, listed)
   return setListedItem(profile, specID, itemID, listed, "avoidlist", "wishlist")
+end
+
+-- Unlike SetPreferSetBonuses (a profile-wide preference), this affects only
+-- how one specialization's trinkets are filtered -- it belongs beside
+-- Wishlist/Avoidlist in the per-spec preference state, not the profile-wide
+-- preferences table.
+function Profiles.SetPreferSpecAppropriateTrinkets(profile, specID, enabled)
+  local validated = validateProfileSpec(profile, specID)
+  if not validated then return nil, "invalid-profile-spec" end
+  local state = specPreferenceState(profile, validated)
+  state.preferSpecAppropriateTrinkets = enabled == true
+  invalidatePreview()
+  return profile
 end
 
 function Profiles.SetAutomatic(profile, enabled)
