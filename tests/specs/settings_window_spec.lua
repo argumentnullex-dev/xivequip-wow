@@ -590,8 +590,8 @@ test("clicking Automatic highlights Pawn integration when Pawn is the effective 
   A.falsy(refreshedModePanel._xivEquipPool.items.button[1].locked, "Default should no longer be highlighted when Pawn wins Automatic")
   A.truthy(refreshedModePanel._xivEquipPool.items.button[3].locked, "Addon Integration should be highlighted when Pawn wins Automatic")
   local refreshedMapPanel = page._xivEquipPool.items.panel[3]
-  A.equal(refreshedMapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Retribution",
-    "automatic integration rows should show the resolved Pawn scale name without a redundant prefix")
+  A.equal(refreshedMapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Recommended (Retribution)",
+    "automatic integration rows should show that the resolved Pawn scale remains provider-recommended")
   local text = table.concat(calls.fontText, "\n")
   A.truthy(text:find("Active weights: Pawn | Retribution", 1, true), "Active source should show Pawn after enabling Automatic")
   A.truthy(text:find("Selection disabled while Automatic mode is engaged.", 1, true),
@@ -645,7 +645,8 @@ test("Integration dropdown refreshes live scales when opened and distinguishes t
   Window.Open()
   local mapPanel = Window.Frame.content.page._xivEquipPool.items.panel[3]
   local menu = mapPanel._xivEquipPool.items.dropdown[1]
-  A.equal(menu.dropdownText, "Retribution", "collapsed automatic selection should remain compact")
+  A.equal(menu.dropdownText, "Recommended (Retribution)",
+    "collapsed automatic selection should distinguish a recommendation from a pinned scale")
 
   calls.dropdownButtons = {}
   menu.dropdownInitializer()
@@ -796,7 +797,8 @@ test("unavailable Integrations do not list scales and show Default fallback for 
   Window.Open()
   local mapPanel = Window.Frame.content.page._xivEquipPool.items.panel[3]
   A.falsy(listed, "unavailable Integration must not receive ListScales calls")
-  A.equal(mapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Default - Pawn unavailable", "automatic Integration mapping should show its effective Default fallback")
+  A.equal(mapPanel._xivEquipPool.items.dropdown[1].dropdownText, "Recommended (Default - Pawn unavailable)",
+    "automatic Integration mapping should show its effective Default fallback")
 end)
 
 test("Scale editor shows specialization binding and refreshes the active selector label", function()

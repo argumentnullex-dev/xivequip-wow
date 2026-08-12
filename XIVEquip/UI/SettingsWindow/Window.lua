@@ -689,12 +689,11 @@ local function integrationItems(C, providerID, runtime, specID)
   end
   local providerLabel = entry and (entry.label or entry.id) or tostring(providerID or "provider")
   if guessed then
-    out[1].label = tostring(guessed)
-    out[1].menuLabel = "Recommended (" .. tostring(guessed) .. ")"
+    out[1].label = "Recommended (" .. tostring(guessed) .. ")"
   elseif available then
-    out[1].label = "Default - no suitable " .. tostring(providerLabel) .. " scale"
+    out[1].label = "Recommended (Default - no suitable " .. tostring(providerLabel) .. " scale)"
   else
-    out[1].label = "Default - " .. tostring(providerLabel) .. " unavailable"
+    out[1].label = "Recommended (Default - " .. tostring(providerLabel) .. " unavailable)"
   end
   local rows = {}
   if available and entry and entry.ListScales then
