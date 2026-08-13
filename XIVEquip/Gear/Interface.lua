@@ -14,6 +14,67 @@ local equipByBasics       = Core.equipByBasics
 -- Upvalue to coalesce multiple save requests
 local _pendingSpecSaveToken
 
+-- =========================
+-- BOE bind-confirmation waiting
+-- =========================
+-- Only one Blizzard bind-confirmation popup can ever be pending at a time
+-- (single player, and _runEquipPlan only moves to the next plan step once
+-- the current one fully resolves), so a single module-level slot -- not one
+-- per _runEquipPlan call -- correctly models "the confirmation currently
+-- being waited on, if any".
+local _boeConfirmFrame = (type(CreateFrame) == "function") and CreateFrame("Frame") or nil
+local _activeBindWait
+local _bindGeneration = 0
+
+local BIND_WAIT_EVENTS = {
+  "EQUIP_BIND_CONFIRM", "EQUIP_BIND_REFUNDABLE_CONFIRM", "EQUIP_BIND_TRADEABLE_CONFIRM",
+  "PLAYER_EQUIPMENT_CHANGED",
+}
+local BIND_CONFIRM_EVENT_SET = {
+  EQUIP_BIND_CONFIRM = true, EQUIP_BIND_REFUNDABLE_CONFIRM = true, EQUIP_BIND_TRADEABLE_CONFIRM = true,
+}
+-- StaticPopupDialogs keys for the three bind-confirm dialog skins (retail
+-- Blizzard_StaticPopup_Game/GameDialogDefs.lua): EQUIP_BIND, EQUIP_BIND_REFUNDABLE,
+-- EQUIP_BIND_TRADEABLE. All three share identical OnAccept (EquipPendingItem)
+-- and OnCancel/OnHide (CancelPendingEquip) semantics.
+local BIND_DIALOG_WHICH = {
+  EQUIP_BIND = true, EQUIP_BIND_REFUNDABLE = true, EQUIP_BIND_TRADEABLE = true,
+}
+
+if _boeConfirmFrame then
+  _boeConfirmFrame:SetScript("OnEvent", function(_, event, arg1)
+    if not _activeBindWait then return end
+    if event == "PLAYER_EQUIPMENT_CHANGED" then
+      _activeBindWait.onEquipmentChanged(arg1)
+    elseif BIND_CONFIRM_EVENT_SET[event] then
+      -- Confirms Blizzard really did enter a pending-equip state for our
+      -- slot (and, if the dialog skin changes mid-flight -- e.g. Blizzard
+      -- switching from EQUIP_BIND_REFUNDABLE to EQUIP_BIND for the same
+      -- item -- lets onDialogHidden below tell that apart from a real
+      -- close). Not itself required for success detection: that's
+      -- PLAYER_EQUIPMENT_CHANGED's job.
+      _activeBindWait.confirmSeen = (_activeBindWait.confirmSeen or 0) + 1
+    end
+  end)
+end
+
+-- Never touches StaticPopupDialogs["EQUIP_BIND"/"EQUIP_BIND_REFUNDABLE"/
+-- "EQUIP_BIND_TRADEABLE"] -- OnAccept/OnCancel/OnHide stay exactly
+-- Blizzard's own, and only Blizzard's popup ever calls the protected
+-- EquipPendingItem/CancelPendingEquip. hooksecurefunc is a pure post-call
+-- observer: it cannot run before, replace, or block the original, and
+-- cannot feed insecure execution back into it, so this does not taint the
+-- protected click path -- it only ever tells us a matching dialog closed,
+-- never why, which is why success is still decided solely by
+-- PLAYER_EQUIPMENT_CHANGED above, not by this hook.
+if type(hooksecurefunc) == "function" then
+  hooksecurefunc("StaticPopup_Hide", function(which)
+    if _activeBindWait and BIND_DIALOG_WHICH[which] then
+      _activeBindWait.onDialogHidden()
+    end
+  end)
+end
+
 local SET_EXCLUDED_SLOTS  = { 4, 19 } -- Shirt, Tabard
 local VALIDATION_SLOTS    = { 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 }
 local NAKED_SET_NAME      = "Birthday Suit"
@@ -203,6 +264,7 @@ local function newEquipRunResult(plan, pending)
     manual_required = 0,
     skipped = 0,
     timed_out = 0,
+    bind_declined = 0,
     pending_data = pending == true,
     set_saved = false,
     save_scheduled = false,
@@ -282,7 +344,7 @@ function C:_completeEquipRun(result, showEquip, opts)
       printResult(result, opts.pendingMessage or "Item data is still loading; try again shortly.")
     elseif result.planned_count == 0 then
       printResult(result, L.NoUpgrades or "No upgrades found.")
-    elseif result.succeeded == 0 and (result.failed + result.manual_required + result.timed_out + result.skipped) > 0 then
+    elseif result.succeeded == 0 and (result.failed + result.manual_required + result.timed_out + result.skipped + result.bind_declined) > 0 then
       printResult(result, "Upgrade plan did not complete.")
     end
   end
@@ -373,16 +435,105 @@ function C:_runEquipPlan(plan, opts)
         return
       end
 
+      -- An unbound BOE that didn't equip synchronously almost certainly
+      -- just triggered Blizzard's own EQUIP_BIND confirmation popup. Let
+      -- that popup obtain the user's confirmation click (it alone may call
+      -- the protected EquipPendingItem/CancelPendingEquip) and pause this
+      -- plan step until PLAYER_EQUIPMENT_CHANGED tells us it resolved --
+      -- rather than assuming failure and skipping straight to manual_required.
+      local function awaitBindConfirmation()
+        local intendedID = itemID(pickLink)
+        local generation = _bindGeneration + 1
+        _bindGeneration = generation
+
+        local resolved = false
+        local wait
+
+        local function finish(status, reason)
+          if resolved then return end
+          resolved = true
+          if _boeConfirmFrame then
+            for _, evt in ipairs(BIND_WAIT_EVENTS) do _boeConfirmFrame:UnregisterEvent(evt) end
+          end
+          if _activeBindWait == wait then _activeBindWait = nil end
+          result.awaiting = nil
+          if ClearCursor then ClearCursor() end
+
+          if status == "success" then
+            result.succeeded = result.succeeded + 1
+            table.insert(result.steps, { index = index, status = "success", slot = slotID })
+            if showEquip then
+              local oldText = oldLink or "|cff888888(None)|r"
+              local newText = pickLink or "|cff888888(None)|r"
+              printResult(result, string.format(L.ReplacedWith or "Replaced %s with %s.", oldText, newText))
+            end
+          elseif status == "bind_declined" then
+            result.bind_declined = result.bind_declined + 1
+            table.insert(result.steps, { index = index, status = "bind_declined", slot = slotID, reason = reason or "user_cancelled" })
+            if showEquip then
+              printResult(result, string.format("Declined binding %s; leaving it unequipped.", tostring(pickLink or "(item)")))
+            end
+          else
+            result.timed_out = result.timed_out + 1
+            table.insert(result.steps, { index = index, status = "timed_out", slot = slotID, reason = reason or "bind_confirmation_timeout" })
+          end
+
+          C_Timer.After(stepDelay, function() step(index + 1) end)
+        end
+
+        wait = {
+          generation = generation,
+          slot = slotID,
+          confirmSeen = 0,
+          -- PLAYER_EQUIPMENT_CHANGED(equipSlot, hasCurrent): the only
+          -- authoritative success signal -- EquipPendingItem's actual equip
+          -- is a server round-trip, so it lands after the dialog has
+          -- already closed, not synchronously with the accept click.
+          onEquipmentChanged = function(changedSlot)
+            if changedSlot ~= slotID then return end
+            local newLink = GetInventoryItemLink("player", slotID)
+            if (not intendedID) or itemID(newLink) == intendedID then
+              finish("success")
+            end
+          end,
+          -- The dialog's OnHide fires on BOTH accept and cancel (Blizzard's
+          -- own defensive "cancel anything still pending" cleanup), so a
+          -- hide alone can't distinguish them. Give a short grace window for
+          -- an in-flight accept's PLAYER_EQUIPMENT_CHANGED to land first;
+          -- only conclude "declined" if nothing arrived by then. If a fresh
+          -- confirm event arrived after this hide (confirmSeen advanced),
+          -- Blizzard just switched dialog skins for the same still-pending
+          -- item -- not a real close -- so skip resolving.
+          onDialogHidden = function()
+            local seenAtHide = wait.confirmSeen
+            C_Timer.After(opts.bindCancelGraceDelay or 1.5, function()
+              if resolved then return end
+              if wait.confirmSeen ~= seenAtHide then return end
+              finish("bind_declined")
+            end)
+          end,
+        }
+        _activeBindWait = wait
+        result.awaiting = { slot = slotID, link = pickLink, status = "awaiting_bind_confirmation" }
+
+        if _boeConfirmFrame then
+          for _, evt in ipairs(BIND_WAIT_EVENTS) do _boeConfirmFrame:RegisterEvent(evt) end
+        end
+
+        if showEquip then
+          printResult(result, string.format("Confirm the bind-on-equip popup for %s to continue equipping.", tostring(pickLink or "(item)")))
+        end
+
+        -- Conservative fallback: Blizzard's dialogs never auto-timeout
+        -- (timeout = 0), so this exists purely so a missing event or an
+        -- unusual UI condition can't leave the executor stuck forever.
+        C_Timer.After(opts.bindConfirmTimeout or 45, function() finish("timed_out") end)
+      end
+
       if wasBoEUnbound then
         local nowLink = slotID and GetInventoryItemLink("player", slotID) or nil
         if itemID(nowLink) ~= itemID(pickLink) then
-          result.manual_required = result.manual_required + 1
-          table.insert(result.steps, { index = index, status = "manual_required", slot = slotID, reason = "bind_on_equip" })
-          if showEquip then
-            printResult(result, string.format("%s is Bind on Equip and must be equipped manually.", tostring(pickLink or "(item)")))
-          end
-          if ClearCursor then ClearCursor() end
-          C_Timer.After(stepDelay, function() step(index + 1) end)
+          awaitBindConfirmation()
           return
         end
       end
