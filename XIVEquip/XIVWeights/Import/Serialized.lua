@@ -150,6 +150,46 @@ local function jsonDecode(text)
   return value
 end
 
+-- Wowhead-style pasted priority list ("Strength > Crit > Haste > Mastery >
+-- Versatility", or the same stat names one per line): every token is a bare
+-- stat name with no operator or digit, which is a strict, narrow shape that
+-- real Pawn/SimC/JSON text -- always containing "=", ":", or a digit
+-- somewhere -- can never accidentally satisfy.
+local function tokenizePriorityList(text)
+  local tokens = {}
+  for token in tostring(text):gmatch("[^\n>]+") do
+    local trimmed = trim(token)
+    if trimmed ~= "" then tokens[#tokens + 1] = trimmed end
+  end
+  if #tokens < 2 then return nil end
+  for _, token in ipairs(tokens) do
+    if token:find("[:=%d]") or not featureKey(token) then return nil end
+  end
+  return tokens
+end
+
+-- A priority list only encodes ORDER, not magnitude. The top-ranked stat
+-- (almost always the primary stat) gets a full 1.0, then the remaining
+-- ranks step down linearly starting from 0.5 rather than continuing the
+-- same descent from 1.0 -- in modern WoW the primary stat dominates via
+-- item level, and secondaries mainly matter for comparing items of similar
+-- item level, so the big first drop reflects that split instead of
+-- implying rank 2 is only marginally behind rank 1.
+local function fromPriorityList(tokens, requestedSpecID)
+  local weights = {}
+  local remaining = #tokens - 1
+  for i, token in ipairs(tokens) do
+    local feature = featureKey(token)
+    if i == 1 then
+      weights[feature] = 1.0
+    else
+      local rankAmongRest = i - 1
+      weights[feature] = 0.5 * (remaining - rankAmongRest + 1) / remaining
+    end
+  end
+  return { format = "priority-list", name = nil, specID = tonumber(requestedSpecID), weights = weights }
+end
+
 local function normalizeWeights(raw)
   local weights = {}
   local highest = 0
@@ -195,6 +235,7 @@ function Serialized.Detect(text)
   text = trim(text)
   if text == "" then return nil, "empty" end
   if text:sub(1, 1) == "{" or text:find('"format"', 1, true) then return "native-json" end
+  if tokenizePriorityList(text) then return "priority-list" end
   local lower = text:lower()
   if lower:find("pawn", 1, true) then return "pawn" end
   if lower:find("simcraft", 1, true) or lower:find("simc", 1, true) then return "simc" end
@@ -208,6 +249,7 @@ function Serialized.Parse(text, requestedSpecID)
   local format, reason = Serialized.Detect(text)
   if not format then return nil, reason end
   if format == "native-json" then return fromJSON(text, requestedSpecID) end
+  if format == "priority-list" then return fromPriorityList(tokenizePriorityList(text), requestedSpecID) end
   return fromText(text, requestedSpecID, format)
 end
 
