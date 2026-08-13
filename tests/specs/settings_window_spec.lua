@@ -593,6 +593,41 @@ test("Config page uses spec names and display labels instead of raw ids", functi
   A.falsy(text:find("| 70", 1, true), "Config should not show raw spec ids")
 end)
 
+test("Config page's own Import button opens the Import dialog instead of erroring", function()
+  local addon, calls = harness()
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+
+  addon.XIVWeights = {
+    Config = {
+      GetSpecSelection = function() return { provider = "default", scale = nil } end,
+      SelectionDisplay = function() return "Built-in default", "Retribution" end,
+      ListManualScales = function() return {} end,
+      SetSpecSelection = function() end,
+      EnsureSpecScale = function() end,
+      GeneratedScaleID = function() return "spec:70" end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+  addon.Pawn = { GetActiveScales = function() return {} end }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(1)
+
+  -- This is a distinct "Import" button from the Scale editor tab's (both
+  -- share the label, so calls.buttons["Import"] only reflects whichever tab
+  -- rendered last) -- showConfig references showImportDialog before its own
+  -- declaration later in the file, which must resolve through a forward
+  -- declaration rather than silently falling through to an absent global.
+  A.truthy(calls.buttons["Import"], "Config tab should render its own Import button")
+  calls.buttons["Import"].scripts.OnClick(calls.buttons["Import"])
+  A.truthy(Window.ImportDialog and Window.ImportDialog:IsShown(), "Import should open its dialog from the Config tab")
+  A.truthy(Window.ImportDialog.points and #Window.ImportDialog.points > 0,
+    "Import dialog frame must anchor itself to the screen -- an unanchored WoW frame is never actually drawn, even when Shown")
+end)
+
 test("Config page explains Integration fallback and reason", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 0 end
@@ -1213,9 +1248,93 @@ test("Scale editor uses its full width and refreshes the active selector label",
   calls.buttons["Import"].scripts.OnClick(calls.buttons["Import"])
   A.truthy(Window.ImportDialog:IsShown(), "Import should open its dialog")
   A.equal(Window.ImportDialog.frameStrata, "DIALOG", "Import dialog should render above the settings window")
+  A.truthy(Window.ImportDialog.points and #Window.ImportDialog.points > 0,
+    "Import dialog frame must anchor itself to the screen -- an unanchored WoW frame is never actually drawn, even when Shown")
+  A.truthy(Window.ImportDialog.height and Window.ImportDialog.height >= 560,
+    "Import dialog should be tall enough for a large, easily readable paste box")
   calls.buttons["Export"].scripts.OnClick(calls.buttons["Export"])
   A.truthy(Window.TextDialog:IsShown(), "Export should open its dialog")
   A.equal(Window.TextDialog.frameStrata, "DIALOG", "Export dialog should render above the settings window")
+  A.truthy(Window.TextDialog.points and #Window.TextDialog.points > 0,
+    "Export dialog frame must anchor itself to the screen -- an unanchored WoW frame is never actually drawn, even when Shown")
+end)
+
+test("Export reports instead of silently doing nothing when no Custom scale exists yet", function()
+  local addon, calls = harness()
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = { Defaults = { SpecsForClass = function() return { { id = 70, name = "Retribution" } } end } },
+    Config = {
+      ListManualScales = function() return {} end,
+      GetScaleSpecID = function() return nil end,
+      Repository = function() return { Get = function() return nil end } end,
+      SpecName = function() return "Retribution" end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(2)
+
+  local printed = {}
+  _G.print = function(...)
+    local parts = {}
+    for i = 1, select("#", ...) do parts[#parts + 1] = tostring(select(i, ...)) end
+    printed[#printed + 1] = table.concat(parts, " ")
+  end
+
+  calls.buttons["Export"].scripts.OnClick(calls.buttons["Export"])
+
+  A.falsy(Window.TextDialog, "no dialog should open when there is nothing to export")
+  A.truthy(#printed > 0, "Export must say something rather than silently doing nothing")
+  local joined = table.concat(printed, "\n")
+  A.truthy(joined:find("Select or create a Custom scale", 1, true))
+end)
+
+test("Export produces single-line JSON with no base64 wrapping, and Import accepts it back", function()
+  local Bootstrap = dofile(root .. sep .. "tests" .. sep .. "harness" .. sep .. "addon_bootstrap.lua")
+  local weightsAddon = {}
+  Bootstrap.LoadWeights(root, weightsAddon)
+  local Serialized = weightsAddon.XIVWeights.Import.Serialized
+
+  local addon, calls = harness()
+  local scale = {
+    id = "manual:retribution", name = "Retribution Raid",
+    weights = { strength = 1, haste = 0.5 },
+    source = { kind = "manual" },
+    meta = { specID = 70 },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.XIVWeights = {
+    Builtin = { Defaults = { SpecsForClass = function() return { { id = 70, name = "Retribution" } } end } },
+    Config = {
+      ListManualScales = function() return { scale } end,
+      GetScaleSpecID = function(item) return item.meta.specID end,
+      Repository = function() return { Get = function(_, id) return id == scale.id and scale or nil end } end,
+      SpecName = function() return "Retribution" end,
+    },
+    Import = { Serialized = Serialized },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(2)
+
+  calls.buttons["Export"].scripts.OnClick(calls.buttons["Export"])
+  A.truthy(Window.TextDialog:IsShown())
+  local exported = Window.TextDialog.edit:GetText()
+
+  A.equal(exported:sub(1, 1), "{", "the displayed export text should be raw JSON, not base64")
+  A.falsy(exported:find("\n", 1, true), "exported JSON should be a single line with no linebreaks")
+  A.equal(Serialized.Detect(exported), "native-json", "the real importer should detect its own export as scale JSON")
+  local parsed = assert(Serialized.Parse(exported, 70))
+  A.equal(parsed.name, "Retribution Raid")
+  A.equal(parsed.weights.strength, 1)
+  A.equal(parsed.weights.haste, 0.5)
 end)
 
 return tests
