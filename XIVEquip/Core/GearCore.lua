@@ -353,7 +353,18 @@ end
 
 -- Equip a bag item into a specific slot (unchanged logic)
 -- [XIVEquip-AUTO] Core.equipByBasics: Applies equipment changes (gear/weapons) for the addon.
-function Core.equipByBasics(pick)
+-- skipFinalClear (optional): an unbound BOE/Warbound-Until-Equipped item
+-- doesn't resolve synchronously -- the client parks it on the cursor and
+-- fires EQUIP_BIND_CONFIRM (or the _REFUNDABLE/_TRADEABLE variant) while it
+-- waits for the user to accept or cancel Blizzard's own popup. Clearing the
+-- cursor immediately afterward -- as this function always used to,
+-- unconditionally -- discards that pending state before the popup logic
+-- ever gets a chance to establish itself, so the confirmation is silently
+-- lost and no dialog appears at all. Callers that already know (via
+-- whatever bind-type check they use) that the item might need confirmation
+-- should pass true here, and clear the cursor themselves once the wait
+-- actually resolves.
+function Core.equipByBasics(pick, skipFinalClear)
   if not pick then return nil end
 
   local loc = pick.loc or pick.itemLoc
@@ -366,7 +377,7 @@ function Core.equipByBasics(pick)
         ClearCursor()
         PickupInventoryItem(inv)
         EquipCursorItem(pick.targetSlot)
-        ClearCursor()
+        if not skipFinalClear then ClearCursor() end
         return GetInventoryItemLink("player", pick.targetSlot) or pick.link
       end
       return GetInventoryItemLink("player", inv) or pick.link
@@ -392,7 +403,7 @@ function Core.equipByBasics(pick)
   else
     EquipCursorItem()
   end
-  ClearCursor()
+  if not skipFinalClear then ClearCursor() end
 
   return (invSlot and GetInventoryItemLink("player", invSlot)) or pick.link
 end

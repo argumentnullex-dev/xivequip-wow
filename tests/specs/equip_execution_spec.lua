@@ -799,6 +799,39 @@ test("Warbound-Until-Equipped item (bindType 9) also triggers a pending bind-con
   A.equal(result.awaiting.slot, 1)
 end)
 
+test("equipByBasics is told to skip its final ClearCursor for a possibly-unbound BoE, but not for a normal item", function()
+  local boe = itemLink(201)
+  local normalLink = itemLink(301)
+  local calls = {}
+  local equipped = { [1] = itemLink(101), [3] = itemLink(103) }
+  local addon, raw = newHarness({
+    equipped = equipped,
+    bindTypes = { [boe] = 2 },
+    plan = {
+      { targetSlot = 1, link = boe, loc = { bound = false } },
+      { targetSlot = 3, link = normalLink },
+    },
+    equipByBasics = function(pick, skipFinalClear)
+      calls[#calls + 1] = { targetSlot = pick.targetSlot, skipFinalClear = skipFinalClear }
+      if pick.targetSlot == 3 then equipped[pick.targetSlot] = pick.link end
+    end,
+  })
+
+  addon.Gear:EquipBest()
+  raw.runUntil(function() return #calls >= 1 end)
+
+  A.equal(calls[1].targetSlot, 1)
+  A.truthy(calls[1].skipFinalClear, "a possibly-unbound BoE must not have its cursor cleared before a popup can appear")
+
+  -- Resolve the BoE wait so the plan continues to the normal item.
+  equipped[1] = boe
+  raw.fireEvent("PLAYER_EQUIPMENT_CHANGED", 1, true)
+  raw.runUntil(function() return #calls >= 2 end)
+
+  A.equal(calls[2].targetSlot, 3)
+  A.falsy(calls[2].skipFinalClear, "a normal item should keep the existing ClearCursor behavior")
+end)
+
 test("BoE acceptance equips the item, marks the step successful, and resumes the plan", function()
   local boe = itemLink(201)
   local nextLink = itemLink(301)

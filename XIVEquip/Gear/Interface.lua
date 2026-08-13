@@ -436,7 +436,14 @@ function C:_runEquipPlan(plan, opts)
         if pick.action == "unequip" then
           unequipSlot(slotID)
         else
-          equipByBasics(pick)
+          -- Don't clear the cursor right after attempting to equip a
+          -- possibly-unbound item: if it needs a bind confirmation, the
+          -- item is parked on the cursor while Blizzard's popup is
+          -- pending, and clearing it now would silently discard that
+          -- state before the popup ever gets a chance to appear. finish()
+          -- below (in awaitBindConfirmation) clears it once the wait
+          -- actually resolves, whichever way.
+          equipByBasics(pick, wasBoEUnbound)
         end
       end)
       if not ok then
