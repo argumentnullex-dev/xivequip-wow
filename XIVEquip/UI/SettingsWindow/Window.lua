@@ -625,6 +625,49 @@ local function panel(parent, x, y, width, height)
   return frame
 end
 
+-- A visibly-bordered multi-line paste/view box. Without a backdrop behind
+-- it, a bare ScrollFrame+EditBox has no visible boundary at all -- it
+-- blends into the dialog's own background, so an empty EditBox (Import,
+-- before anything is pasted) looks like there's no input there to click.
+local function scrollEditor(parent, width, height)
+  local box = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+  box:SetSize(width, height)
+  if box.SetBackdrop then
+    box:SetBackdrop({
+      bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 16, edgeSize = 12,
+      insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    box:SetBackdropColor(0.04, 0.06, 0.08, 0.94)
+    box:SetBackdropBorderColor(0.25, 0.31, 0.36, 0.9)
+  end
+  local scroll = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", 8, -8)
+  local scrollWidth, scrollHeight = width - 36, height - 16
+  scroll:SetSize(scrollWidth, scrollHeight)
+  local edit = CreateFrame("EditBox", nil, scroll)
+  edit:SetMultiLine(true)
+  edit:SetAutoFocus(false)
+  edit:SetFontObject(ChatFontNormal)
+  edit:SetWidth(scrollWidth)
+  edit:SetHeight(scrollHeight)
+  edit:SetTextInsets(6, 6, 6, 6)
+  -- Unlike every other EditBox in this file, this one can't use
+  -- InputBoxTemplate (it needs SetMultiLine, which the template doesn't
+  -- support), so the template's built-in click-to-focus wiring has to be
+  -- reproduced by hand -- without it the box never gains mouse focus and
+  -- silently ignores clicks, typing, and paste. The visible border above
+  -- fixes *finding* the box; this fixes actually being able to use it.
+  edit:EnableMouse(true)
+  edit:SetScript("OnMouseDown", function(self) self:SetFocus() end)
+  edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+  scroll:EnableMouse(true)
+  scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
+  scroll:SetScrollChild(edit)
+  return box, edit
+end
+
 local function sectionTitle(parent, text, x, y)
   local title = font(parent, "GameFontNormal", text)
   textColor(title, 1, 0.82, 0.1)
@@ -843,6 +886,11 @@ local function mapStateKey(values)
   for _, key in ipairs(keys) do out[#out + 1] = tostring(key) .. "=" .. tostring(values[key]) end
   return table.concat(out, ",")
 end
+
+-- Forward-declared: showConfig's own Import button (below) calls this before
+-- its definition later in the file, so it must resolve to this upvalue
+-- rather than an absent global.
+local showImportDialog
 
 local function showConfig(content)
   local C, Profiles, runtime, context, specID, classFile, profile = currentState()
@@ -1165,7 +1213,8 @@ local function showTextDialog(titleText, bodyText)
   local frame = Window.TextDialog
   if not frame then
     frame = CreateFrame("Frame", "XIVEquipTextDialog", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(620, 470)
+    frame:SetSize(620, 500)
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
     frame:EnableMouse(true)
@@ -1176,30 +1225,15 @@ local function showTextDialog(titleText, bodyText)
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("LEFT", frame.TitleBg, "LEFT", 6, 0)
     frame.title = title
+    -- Anchored to the note's own BOTTOMLEFT, not a fixed offset from the
+    -- frame -- this note wraps to more than one line at this width, and a
+    -- fixed offset here is exactly what let the Wishlist/Avoidlist
+    -- breadcrumb text overlap the content below it previously.
     local note = font(frame, "GameFontHighlightSmall", "Select the text and press Ctrl+C. WoW cannot write arbitrary text to the system clipboard directly.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
-    local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 18, -76)
-    scroll:SetSize(570, 330)
-    local edit = CreateFrame("EditBox", nil, scroll)
-    edit:SetMultiLine(true)
-    edit:SetAutoFocus(false)
-    edit:SetFontObject(ChatFontNormal)
-    edit:SetWidth(548)
-    edit:SetHeight(320)
-    edit:SetTextInsets(6, 6, 6, 6)
-    -- Unlike every other EditBox in this file, this one can't use
-    -- InputBoxTemplate (it needs SetMultiLine, which the template doesn't
-    -- support), so the template's built-in click-to-focus wiring has to be
-    -- reproduced by hand -- without it the box never gains mouse focus and
-    -- silently ignores clicks, typing, and paste.
-    edit:EnableMouse(true)
-    edit:SetScript("OnMouseDown", function(self) self:SetFocus() end)
-    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    scroll:EnableMouse(true)
-    scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
-    scroll:SetScrollChild(edit)
+    local box, edit = scrollEditor(frame, 584, 340)
+    box:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
     frame.edit = edit
     local close = button(frame, "Close", 80, 22)
     close:SetPoint("BOTTOMRIGHT", -18, 16)
@@ -1212,11 +1246,12 @@ local function showTextDialog(titleText, bodyText)
   revealDialog(frame)
 end
 
-local function showImportDialog(specID, C)
+function showImportDialog(specID, C)
   local frame = Window.ImportDialog
   if not frame then
     frame = CreateFrame("Frame", "XIVEquipImportDialog", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(620, 500)
+    frame:SetSize(620, 580)
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
     frame:EnableMouse(true)
@@ -1230,36 +1265,23 @@ local function showImportDialog(specID, C)
     local note = font(frame, "GameFontHighlightSmall", "Paste Pawn or stat-weight text, or XIVEquip JSON, then detect and import it as a Custom scale.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
-    local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 18, -78)
-    scroll:SetSize(570, 260)
-    local edit = CreateFrame("EditBox", nil, scroll)
-    edit:SetMultiLine(true)
-    edit:SetAutoFocus(false)
-    edit:SetFontObject(ChatFontNormal)
-    edit:SetWidth(548)
-    edit:SetHeight(250)
-    edit:SetTextInsets(6, 6, 6, 6)
-    -- Same manual click-to-focus wiring as the export TextDialog above --
-    -- InputBoxTemplate can't be used here because it doesn't support
-    -- SetMultiLine, so without this the paste box never gains focus and
-    -- clicks/typing/paste all silently do nothing.
-    edit:EnableMouse(true)
-    edit:SetScript("OnMouseDown", function(self) self:SetFocus() end)
-    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    scroll:EnableMouse(true)
-    scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
-    scroll:SetScrollChild(edit)
+    local box, edit = scrollEditor(frame, 584, 340)
+    box:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
     frame.edit = edit
+    -- Chained off the input box's own BOTTOMLEFT (itself chained off the
+    -- note above), not fixed frame offsets, for the same reason as the
+    -- note -> box anchor: nameLabel/nameEdit are short, fixed-text
+    -- labels that never wrap, so anchoring safely absorbs any growth in
+    -- the note text above without needing to recompute pixel offsets.
     local nameLabel = font(frame, "GameFontHighlightSmall", "Name")
-    nameLabel:SetPoint("TOPLEFT", 18, -350)
+    nameLabel:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 0, -12)
     local nameEdit = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     nameEdit:SetSize(300, 22)
-    nameEdit:SetPoint("TOPLEFT", 70, -346)
+    nameEdit:SetPoint("TOPLEFT", nameLabel, "TOPLEFT", 52, -4)
     nameEdit:SetAutoFocus(false)
     frame.nameEdit = nameEdit
     local detected = font(frame, "GameFontHighlightSmall", "Format: paste data and press Detect.")
-    detected:SetPoint("TOPLEFT", 18, -382)
+    detected:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 0, -18)
     detected:SetWidth(570)
     frame.detected = detected
     local detect = button(frame, "Detect", 76, 22)
@@ -1433,13 +1455,17 @@ local function showScales(content)
   local export = button(page, "Export", 64, 22)
   export:SetPoint("LEFT", import, "RIGHT", 4, 0)
   export:SetScript("OnClick", function()
-    if not selectedScale then return end
+    if not selectedScale then
+      print(PREFIX .. "Select or create a Custom scale before exporting.")
+      return
+    end
     local meta = selectedScale.meta or {}
-    showTextDialog("Export Scale", encodeJSON({
+    local json = encodeJSON({
       format = "xivequip-scale", version = 1, id = selectedScale.id,
       name = selectedScale.name, specID = meta.specID, classFile = meta.classFile,
       specName = meta.specName, weights = selectedScale.weights,
-    }))
+    })
+    showTextDialog("Export Scale", json)
   end)
   local duplicate = button(page, "Duplicate", 78, 22)
   duplicate:SetPoint("LEFT", export, "RIGHT", 4, 0)
