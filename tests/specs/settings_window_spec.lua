@@ -354,13 +354,62 @@ test("Wishlist and Avoidlist tabs each explain the Ctrl-click workflow, link sou
   A.truthy(wishlistText:find("Collections", 1, true), "should mention Collections as a source for gear players don't own yet")
   A.truthy(wishlistText:find("bags", 1, true), "should mention bags as an item-link source")
   A.truthy(wishlistText:find("chat", 1, true), "should mention chat as an item-link source")
-  A.truthy(wishlistText:find("/xive wish add", 1, true), "Wishlist tab should mention its own slash command")
-  A.falsy(wishlistText:find("/xive avoid add", 1, true), "Wishlist tab should not mention the Avoidlist command")
+  A.truthy(wishlistText:find("/xive wish <item link>", 1, true), "Wishlist tab should mention its own slash command")
+  A.falsy(wishlistText:find("/xive avoid <item link>", 1, true), "Wishlist tab should not mention the Avoidlist command")
 
   Window.ShowTab(4)
   local avoidlistText = pageText()
-  A.truthy(avoidlistText:find("/xive avoid add", 1, true), "Avoidlist tab should mention its own slash command")
-  A.falsy(avoidlistText:find("/xive wish add", 1, true), "Avoidlist tab should not mention the Wishlist command")
+  A.truthy(avoidlistText:find("/xive avoid <item link>", 1, true), "Avoidlist tab should mention its own slash command")
+  A.falsy(avoidlistText:find("/xive wish <item link>", 1, true), "Avoidlist tab should not mention the Wishlist command")
+end)
+
+test("Wishlist/Avoidlist breadcrumb text anchors relative to each other's actual rendered height, and the context line is styled prominently", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default", name = "Default", automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  addon.Evaluation = { CandidateCollector = { Collect = function() return { candidates = {} } end } }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Test-Realm" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      GetSpecPreferences = function() return { wishlist = {}, avoidlist = {} } end,
+    },
+  }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  Window.ShowTab(3)
+
+  local function findByText(needle)
+    for _, item in ipairs(Window.Frame.content.page._xivEquipPool.items.font) do
+      if item.text:find(needle, 1, true) then return item end
+    end
+    error("no font element found containing: " .. needle)
+  end
+
+  local note = findByText("Wishlisted gear receives a scoring preference")
+  local breadcrumb1 = findByText("Ctrl-click any item link")
+  local breadcrumb2 = findByText("Prefer the command line?")
+  local contextLine = findByText("Profile: Default")
+
+  -- A fixed absolute Y offset from the page (the previous bug) can never
+  -- account for how many lines the text above it actually wraps to. Anchoring
+  -- each block to the BOTTOMLEFT of the one before it is what makes the gap
+  -- correct regardless of real rendered height -- so asserting the anchor's
+  -- relativeTo is the actual previous element (not a raw number) is what
+  -- structurally rules out the overlap, not a specific pixel count.
+  A.equal(breadcrumb1.points[1][2], note, "breadcrumb1 should anchor below the note's actual bottom edge")
+  A.equal(breadcrumb2.points[1][2], breadcrumb1, "breadcrumb2 should anchor below breadcrumb1's actual bottom edge, not a fixed offset")
+  A.equal(contextLine.points[1][2], breadcrumb2, "the context line should anchor below breadcrumb2's actual bottom edge")
+
+  A.equal(contextLine.fontObject, GameFontHighlight, "the context line should use a larger font than the small breadcrumb text")
+  A.same(contextLine.textColor, { 0.4, 1, 0.4 }, "the context line should be green, matching the same convention as the Config tab's active-weights line")
 end)
 
 test("Settings reads and displays the full add-on version", function()

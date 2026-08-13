@@ -110,7 +110,7 @@ end)
 -- they only check settings/slash-command plumbing. That makes /xive smoke
 -- a poor smoke test for the addon's actual core feature: producing a
 -- legal equipment plan against the player's real gear/bags/spec. This case
--- runs the real native planner (Gear:PlanBest, which internally wraps
+-- runs the real planner (Gear:PlanBest, which internally wraps
 -- Planning.Coordinator/PlanBuilder in xpcall and already never raises to
 -- its caller) and fails loudly with the planner's own failure detail if it
 -- can't produce a well-formed result, so /xive smoke actually validates

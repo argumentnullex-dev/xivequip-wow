@@ -213,14 +213,14 @@ local function computePreview()
   local changes, pending, weaponPlan, tooltipHeader
 
   withLoginSilenced(function()
-    local result, nativeFailure
+    local result, planFailure
     if XIVEquip.Gear and XIVEquip.Gear.PlanBest then
-      changes, pending, _, result, nativeFailure = XIVEquip.Gear:PlanBest()
+      changes, pending, _, result, planFailure = XIVEquip.Gear:PlanBest()
     else
       changes, pending = {}, false
     end
-    if nativeFailure then
-      tooltipHeader = "Native planner failed"
+    if planFailure then
+      tooltipHeader = "Planner failed"
       changes, pending = {}, false
     else
       tooltipHeader = nativeScaleHeader(result)
@@ -342,7 +342,7 @@ local function renderPreview(owner, anchor, payload)
 end
 
 local function showEquipPreviewTooltip(owner, anchor)
-  -- Preview must never enter the native planner while protected actions are
+  -- Preview must never enter the planner while protected actions are
   -- locked or when the user has disabled preview messages.
   if InCombatLockdown() or not previewEnabled() then
     renderPreview(owner, anchor, nil)

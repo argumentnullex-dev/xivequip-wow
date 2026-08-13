@@ -2,7 +2,7 @@
 ## Title: XIVEquip
 ## Notes: FFXIV-style 'Equip Recommended Gear' button using Pawn when available.
 ## Author: argument.null.ex@gmail.com (aka Code Ninja)
-## Version: 2.0.0-dev.101
+## Version: 2.0.0-rc.2
 ## SavedVariables: XIVEquip_Settings
 ## IconTexture: Interface\AddOns\XIVEquip\Assets\icon_blue_128
 # Third-party addons reach XIVEquip:RegisterPolicy (PublicAPI/Policies.lua)
@@ -57,7 +57,7 @@ XIVWeights/Providers/Pawn.lua
 XIVWeights/Import/Pawn.lua
 XIVWeights/Import/Serialized.lua
 
-# Policy registry (native evaluation architecture -- see Policies/*.lua doc comments)
+# Policy registry (see Policies/*.lua doc comments)
 Policies/Registry.lua
 PublicAPI/Policies.lua
 Policies/Resolver.lua
@@ -82,7 +82,7 @@ Evaluation/CandidateNormalizer.lua
 Evaluation/CandidateCollector.lua
 Evaluation/CandidateEvaluator.lua
 
-# Generic paired-assignment solver (native evaluation architecture)
+# Generic paired-assignment solver
 Assignments/LoadoutState.lua
 Assignments/Paired.lua
 Assignments/Frontier.lua
@@ -90,11 +90,11 @@ Assignments/Singleton.lua
 Assignments/Groups.lua
 Policies/Assignment/WeaponHandLegality.lua
 
-# Whole-loadout optimizer (native evaluation architecture)
+# Whole-loadout optimizer
 Optimization/LoadoutOptimizer.lua
 Policies/Preference/PreferSetBonuses.lua
 
-# Native recommendation planner
+# Recommendation planner
 Planning/Runtime.lua
 Planning/Coordinator.lua
 Planning/PlanBuilder.lua

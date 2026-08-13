@@ -103,13 +103,8 @@ end)
 -- [XIVEquip-AUTO] XIVEquip:EquipBestGear: Applies equipment changes (gear/weapons) for the addon.
 function XIVEquip:EquipBestGear()
   if not XIVEquip.Gear or not XIVEquip.Gear.EquipBest then
-    msgError("Native gear planner is not available.")
+    msgError("Gear planner is not available.")
     return
-  end
-  -- Debug helper: native planning owns scale resolution.
-  local debugEnabled = XIVEquip.Settings and XIVEquip.Settings.GetDebugEnabled and XIVEquip.Settings:GetDebugEnabled()
-  if debugEnabled then
-    print((L.AddonPrefix or "XIVEquip: ") .. "Debug: planner=native")
   end
   XIVEquip.Gear:EquipBest()
 end

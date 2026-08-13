@@ -209,7 +209,7 @@ local function newHarness(config)
   }
 end
 
-test("empty native plan completes without saving", function()
+test("empty plan completes without saving", function()
   local addon, raw = newHarness({ plan = {}, autoSave = true })
 
   local result = addon.Gear:EquipBest()
@@ -256,44 +256,15 @@ test("verified equip success updates result and saves when enabled", function()
   A.equal(raw.unignores[2], 19)
 end)
 
-test("explicit native planner path executes through the existing equip runner without a legacy comparer pass", function()
-  local newLink = itemLink(301)
-  local addon, raw = newHarness({
-    keepPlanBest = true,
-    equipped = { [1] = itemLink(101) },
-    plan = {},
-  })
-  local nativeCalled = false
-  addon.Gear.PlanBestNative = function()
-    nativeCalled = true
-    return {
-      {
-        slot = 1,
-        oldLink = itemLink(101),
-        newLink = newLink,
-      },
-    }, false, {
-      { targetSlot = 1, link = newLink },
-    }, { score = 1 }
-  end
-
-  local result = addon.Gear:EquipBest({ planner = "native" })
-  raw.runTimers()
-
-  A.truthy(nativeCalled, "explicit native planner path should call PlanBestNative")
-  A.equal(result.succeeded, 1)
-  A.equal(raw.equipped[1], newLink)
-end)
-
-test("normal equip routes through the native planner", function()
+test("equip routes through the planner", function()
   local newLink = itemLink(303)
   local addon, raw = newHarness({
     keepPlanBest = true,
     equipped = { [1] = itemLink(101) },
   })
-  local nativeCalled = false
-  addon.Gear.PlanBestNative = function()
-    nativeCalled = true
+  local implCalled = false
+  addon.Gear.PlanBestImpl = function()
+    implCalled = true
     return {
       { slot = 1, oldLink = itemLink(101), newLink = newLink },
     }, false, {
@@ -304,7 +275,7 @@ test("normal equip routes through the native planner", function()
   local result = addon.Gear:EquipBest()
   raw.runTimers()
 
-  A.truthy(nativeCalled, "normal equip should call PlanBestNative")
+  A.truthy(implCalled, "normal equip should call PlanBestImpl")
   A.equal(result.succeeded, 1)
   A.equal(raw.equipped[1], newLink)
 end)
@@ -326,7 +297,7 @@ test("explicit unequip plan step clears the target slot through the verified exe
   A.equal(raw.equipped[17], nil)
 end)
 
-test("native planner failure aborts without equipping or invoking legacy planners", function()
+test("a planner failure aborts without equipping or invoking legacy planners", function()
   local newLink = itemLink(302)
   local oldLink = itemLink(101)
   local legacyCalled = false
@@ -344,41 +315,41 @@ test("native planner failure aborts without equipping or invoking legacy planner
   }
   addon.Jewelry = { PlanBest = function() return {}, false, {} end }
   addon.Weapons = { PlanBest = function() return {}, false, {} end }
-  addon.Gear.PlanBestNative = function()
-    error("native planner failed")
+  addon.Gear.PlanBestImpl = function()
+    error("planner failed")
   end
 
-  local result = addon.Gear:EquipBest({ planner = "native" })
+  local result = addon.Gear:EquipBest()
   raw.runTimers()
 
-  A.equal(legacyCalled, false, "native failure must not invoke legacy planners")
+  A.equal(legacyCalled, false, "a planner failure must not invoke legacy planners")
   A.equal(result.completed, true)
   A.equal(result.succeeded, 0)
   A.equal(result.failed, 1)
   A.equal(raw.equipped[1], oldLink)
-  A.truthy(containsMessage(raw.printed, "Native 2.0 planner failed; no gear was equipped."))
-  A.truthy(containsMessage(raw.logs, "native planner failed"))
+  A.truthy(containsMessage(raw.printed, "Planner failed; no gear was equipped."))
+  A.truthy(containsMessage(raw.logs, "planner failed"))
 end)
 
-test("native planner failure prints even when normal equip messages are disabled", function()
+test("a planner failure prints even when normal equip messages are disabled", function()
   local addon, raw = newHarness({
     keepPlanBest = true,
     showEquip = false,
     equipped = { [1] = itemLink(101) },
   })
-  addon.Gear.PlanBestNative = function()
-    error("native planner failed")
+  addon.Gear.PlanBestImpl = function()
+    error("planner failed")
   end
 
-  local result = addon.Gear:EquipBest({ planner = "native" })
+  local result = addon.Gear:EquipBest()
   raw.runTimers()
 
   A.equal(result.completed, true)
   A.equal(result.failed, 1)
-  A.truthy(containsMessage(raw.printed, "Native 2.0 planner failed; no gear was equipped."))
+  A.truthy(containsMessage(raw.printed, "Planner failed; no gear was equipped."))
 end)
 
-test("native planner failure logs a concise visible error and keeps traceback in debug detail", function()
+test("a planner failure logs a concise visible error and keeps traceback in debug detail", function()
   local addon, raw = newHarness({
     keepPlanBest = true,
     equipped = { [1] = itemLink(101) },
@@ -390,15 +361,15 @@ test("native planner failure logs a concise visible error and keeps traceback in
       debugDetails[#debugDetails + 1] = tostring(detail or fmt or "")
     end,
   }
-  addon.Gear.PlanBestNative = function()
-    error("native planner failed")
+  addon.Gear.PlanBestImpl = function()
+    error("planner failed")
   end
 
-  addon.Gear:EquipBest({ planner = "native" })
+  addon.Gear:EquipBest()
   raw.runTimers()
 
   A.equal(#errors, 1)
-  A.truthy(errors[1]:find("native planner failed", 1, true))
+  A.truthy(errors[1]:find("planner failed", 1, true))
   A.falsy(errors[1]:find("\n", 1, true), "visible error log should not contain a traceback")
   A.truthy(#debugDetails >= 1)
   A.truthy(debugDetails[1]:find("\n", 1, true), "full traceback belongs in debug detail")
@@ -570,7 +541,7 @@ test("validation fails and does not save when the post-equip re-plan is still pe
   A.falsy(containsMessage(raw.printed, "Validation passed"))
 end)
 
-test("native validation failure is not treated as fully optimal and does not save", function()
+test("a validation failure is not treated as fully optimal and does not save", function()
   local plan = {}
   local equipped = {
     [4] = itemLink(104),
@@ -583,14 +554,13 @@ test("native validation failure is not treated as fully optimal and does not sav
   local calls = 0
   local addon, raw = newHarness({
     keepPlanBest = true,
-    plannerMode = "native",
     existingSets = { ["Birthday Suit"] = 42 },
     equipped = equipped,
   })
-  addon.Gear.PlanBestNative = function()
+  addon.Gear.PlanBestImpl = function()
     calls = calls + 1
     if calls == 1 then return {}, false, plan, { score = 1 } end
-    error("native validation failed")
+    error("validation failed")
   end
 
   addon.Gear:ValidateNakedEquip({ nakedDelay = 0, validationDelay = 0 })
@@ -598,7 +568,7 @@ test("native validation failure is not treated as fully optimal and does not sav
 
   A.equal(calls, 2)
   A.equal(raw.creates[1], "backup.xive")
-  A.falsy(raw.creates[2], "spec set should not be created when native validation fails")
+  A.falsy(raw.creates[2], "spec set should not be created when validation fails")
   A.equal(#raw.saves, 1, "only backup.xive should be saved")
   A.truthy(containsMessage(raw.printed, "Validation failed: planner failed during post-equip verification"))
   A.falsy(containsMessage(raw.printed, "Validation passed"))

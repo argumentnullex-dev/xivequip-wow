@@ -75,7 +75,7 @@ local function buildResult(world, before, scenario, pending)
   }
 end
 
-local function loadNativePlanner(root, addon, world)
+local function loadPlanner(root, addon, world)
   local Bootstrap = loadHarnessModule(root, "addon_bootstrap.lua")
   _G.XIVEquip_Settings = {}
   Bootstrap.LoadCore(root, addon)
@@ -112,10 +112,10 @@ function ScenarioRunner.Plan(root, scenario)
   local before = snapshotItemIDs(world.equippedSlot)
 
   local addon = newAddon()
-  local Bootstrap, runtime, resolved = loadNativePlanner(root, addon, world)
+  local Bootstrap, runtime, resolved = loadPlanner(root, addon, world)
   Bootstrap.LoadInterface(root, addon)
 
-  local _, pending, plan = addon.Gear:PlanBest({ native = { runtime = runtime, resolved = resolved } })
+  local _, pending, plan = addon.Gear:PlanBest({ planner = { runtime = runtime, resolved = resolved } })
   for _, pick in ipairs(plan or {}) do
     addon.Gear_Core.equipByBasics(pick)
   end
@@ -137,7 +137,7 @@ function ScenarioRunner.Run(root, scenario)
   local settle = FakeTimer.Install()
 
   local addon = newAddon()
-  local Bootstrap, runtime, resolved = loadNativePlanner(root, addon, world)
+  local Bootstrap, runtime, resolved = loadPlanner(root, addon, world)
 
   -- Gear/Interface.lua captures these as upvalues at load time -- must be
   -- set before Bootstrap.LoadInterface runs. Core.equipByBasics is left as
@@ -160,7 +160,7 @@ function ScenarioRunner.Run(root, scenario)
   local originalPrint = _G.print
   _G.print = function() end
   local ok, err = pcall(function()
-    addon.Gear:EquipBest({ autoSave = false, native = { runtime = runtime, resolved = resolved } })
+    addon.Gear:EquipBest({ autoSave = false, planner = { runtime = runtime, resolved = resolved } })
     settle()
   end)
   _G.print = originalPrint

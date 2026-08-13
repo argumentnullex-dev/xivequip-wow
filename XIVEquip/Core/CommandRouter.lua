@@ -51,12 +51,12 @@ local helplines = {}
 -- C.Help: Core addon plumbing: help.
 function C.Help(line) helplines[#helplines + 1] = line end
 
-C.Help(" /xive plan – print the current native equip plan without equipping anything")
+C.Help(" /xive plan – print the current equip plan without equipping anything")
 C.Help(" /xive equip – equip recommended gear")
 C.Help(" /xive validate – save backup.xive, unequip gear, equip recommendations, confirm slots are filled with the top-recommended item")
 C.Help(" /xive smoke – run /xive test, then /xive validate if tests pass")
-C.Help(" /xive status – print selected settings and active native scale")
-C.Help(" /xive perf – run a native planning pass and print timing/counter diagnostics")
+C.Help(" /xive status – print selected settings and active scale")
+C.Help(" /xive perf – run a planning pass and print timing/counter diagnostics")
 
 -- print_help: Core addon plumbing: print help.
 local function print_help()
@@ -73,9 +73,9 @@ local function print_help()
   print("  /xive gear preview on|off        – toggle hover preview on ERG button")
   print("  /xive auto spec on|off           – auto-equip on spec change")
   print("  /xive auto sets on|off           – auto-save set on equip")
-  print("  /xive status                     – print settings and active native scale")
+  print("  /xive status                     – print settings and active scale")
   print("  /xive plan                       – print recommended equip plan")
-  print("  /xive perf                       – print native planner performance diagnostics")
+  print("  /xive perf                       – print planner performance diagnostics")
   print("  /xive validate                   – backup, unequip, equip recommended gear, confirm it's the top recommendation")
   print("  /xive smoke                      – run test, then validation if tests pass")
   for _, line in ipairs(helplines) do print("  " .. line) end
@@ -214,7 +214,6 @@ C.RegisterRoot("status", function(_)
   local st = (S and S.Get and S:Get()) or _G.XIVEquip_Settings or {}
   print(PREFIX .. "Status")
   print(PREFIX .. "Settings schema: " .. tostring(st.SchemaVersion or "unknown"))
-  print(PREFIX .. "Planner: native")
   print(PREFIX .. "Auto spec: " .. (((S and S.GetAutomation and S:GetAutomation("SpecEquip")) or false) and "ON" or "OFF"))
   print(PREFIX .. "Auto sets: " .. (((S and S.GetAutomation and S:GetAutomation("SaveSpecSet")) or false) and "ON" or "OFF"))
 end)
@@ -234,18 +233,17 @@ C.RegisterRoot("plan", function(rest)
     return
   end
 
-  local _, pending, plan, result, nativeFailure = Gear:PlanBest()
-  if nativeFailure then
-    print(PREFIX .. "Native planner failed; no plan available. Check the debug log for details.")
+  local _, pending, plan, result, planFailure = Gear:PlanBest()
+  if planFailure then
+    print(PREFIX .. "Planner failed; no plan available. Check the debug log for details.")
     return
   end
 
-  print(PREFIX .. "Planner: native")
   printPlan(plan, pending)
 end)
 
 -- /xive perf
--- Performs a native planning pass and prints compact timing/work counters.
+-- Performs a planning pass and prints compact timing/work counters.
 C.RegisterRoot("perf", function(rest)
   if trim(rest) ~= "" then
     print(PREFIX .. "Usage: /xive perf")
@@ -260,13 +258,13 @@ C.RegisterRoot("perf", function(rest)
   end
 
   local recorder = Perf.New(true)
-  local _, pending, plan, result, nativeFailure = Gear:PlanBest({ native = { perf = recorder } })
-  if nativeFailure then
-    print(PREFIX .. "Native planner failed; no performance report available. Check the debug log for details.")
+  local _, pending, plan, result, planFailure = Gear:PlanBest({ planner = { perf = recorder } })
+  if planFailure then
+    print(PREFIX .. "Planner failed; no performance report available. Check the debug log for details.")
     return
   end
 
-  print(PREFIX .. string.format("Perf: native plan produced %d item%s%s.",
+  print(PREFIX .. string.format("Perf: plan produced %d item%s%s.",
     #(plan or {}),
     #(plan or {}) == 1 and "" or "s",
     pending and " (item data pending)" or ""))

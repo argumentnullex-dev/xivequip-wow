@@ -351,9 +351,17 @@ local function selectedScaleID()
   return list[1] and list[1].id or nil
 end
 
-local function createScroll(parent, x, y, width, height)
+-- anchorFrame (optional): when given, the scroll anchors below that frame's
+-- own BOTTOMLEFT (x, y become the offset from it) instead of `parent`'s
+-- TOPLEFT -- lets a scroll frame safely follow content whose height varies
+-- with text wrapping, rather than guessing a fixed absolute position.
+local function createScroll(parent, x, y, width, height, anchorFrame)
   local scroll = pooledFrame(parent, "settings-scroll", "ScrollFrame", "UIPanelScrollFrameTemplate")
-  scroll:SetPoint("TOPLEFT", x, y)
+  if anchorFrame then
+    scroll:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", x, y)
+  else
+    scroll:SetPoint("TOPLEFT", x, y)
+  end
   scroll:SetSize(width, height)
   local child = scroll._xivEquipScrollChild
   if not child then
@@ -1633,29 +1641,40 @@ local function showItemList(content, kind)
   local listed = preferences[kind] or {}
   local ownedItems = ownedGearItems()
 
+  -- Every wrapped text block below anchors to the BOTTOMLEFT of the one
+  -- before it, with a fixed gap -- not a fixed absolute Y offset from the
+  -- page. Wrapped line count varies by text length/width and can't be
+  -- predicted from source without actually rendering it, so a fixed
+  -- absolute Y guess is exactly what let breadcrumb2 overlap breadcrumb1
+  -- here previously. Relative anchoring makes each block's real rendered
+  -- height (however many lines it wraps to) push the next one down
+  -- automatically, the same pattern the mode-description notes above
+  -- already use (see `note:SetPoint("TOPLEFT", choice, "BOTTOMLEFT", ...)`
+  -- a few hundred lines up in showConfig).
   local title = font(page, "GameFontNormalLarge", definition.title)
   title:SetPoint("TOPLEFT", 0, 0)
   local note = font(page, "GameFontHighlightSmall", definition.note)
-  note:SetPoint("TOPLEFT", 0, -30)
+  note:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
   note:SetWidth(CONTENT_WIDTH)
   local breadcrumb1 = font(page, "GameFontDisableSmall",
     "Ctrl-click any item link while this tab is open to drop it into the box below -- works with links from "
     .. "Collections (even gear you don't own yet), your bags, or chat.")
-  breadcrumb1:SetPoint("TOPLEFT", 0, -52)
+  breadcrumb1:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
   breadcrumb1:SetWidth(CONTENT_WIDTH)
   local breadcrumb2 = font(page, "GameFontDisableSmall",
-    "Prefer the command line? /xive " .. definition.slashVerb .. " add <item link> does the same thing without opening Settings.")
-  breadcrumb2:SetPoint("TOPLEFT", 0, -70)
+    "Prefer the command line? /xive " .. definition.slashVerb .. " <item link> does the same thing without opening Settings.")
+  breadcrumb2:SetPoint("TOPLEFT", breadcrumb1, "BOTTOMLEFT", 0, -8)
   breadcrumb2:SetWidth(CONTENT_WIDTH)
-  local contextLine = font(page, "GameFontDisableSmall",
+  local contextLine = font(page, "GameFontHighlight",
     "Profile: " .. tostring(profileName) .. "  |  Specialization: " .. tostring(specName))
-  contextLine:SetPoint("TOPLEFT", 0, -92)
+  contextLine:SetPoint("TOPLEFT", breadcrumb2, "BOTTOMLEFT", 0, -16)
+  textColor(contextLine, 0.4, 1, 0.4)
 
   local inputLabel = font(page, "GameFontNormal", "Add gear")
-  inputLabel:SetPoint("TOPLEFT", 0, -122)
+  inputLabel:SetPoint("TOPLEFT", contextLine, "BOTTOMLEFT", 0, -18)
   local input = pooledFrame(page, "item-list-input", "EditBox", "InputBoxTemplate")
   input:SetSize(402, 22)
-  input:SetPoint("TOPLEFT", 0, -144)
+  input:SetPoint("TOPLEFT", inputLabel, "BOTTOMLEFT", 0, -6)
   input:SetAutoFocus(false)
   input:SetScript("OnTextChanged", nil)
   input:SetText("")
@@ -1663,15 +1682,15 @@ local function showItemList(content, kind)
   Window.ItemListKind = kind
 
   local feedback = font(page, "GameFontDisableSmall", "")
-  feedback:SetPoint("TOPLEFT", 0, -172)
+  feedback:SetPoint("TOPLEFT", input, "BOTTOMLEFT", 0, -6)
   feedback:SetWidth(CONTENT_WIDTH)
 
   local add = button(page, "Add Item", 78, 22)
-  add:SetPoint("TOPLEFT", 412, -144)
+  add:SetPoint("TOPLEFT", input, "TOPLEFT", 412, 0)
   local refresh = button(page, "Refresh Gear", 94, 22)
   refresh:SetPoint("LEFT", add, "RIGHT", 6, 0)
 
-  local _, rows = createScroll(page, 0, -200, CONTENT_WIDTH, 568)
+  local _, rows = createScroll(page, 0, -10, CONTENT_WIDTH, 568, feedback)
   local function addListedItem(value)
     local itemID = parseItemID(value)
     if not itemID then
@@ -1829,14 +1848,17 @@ function Window.Create()
   if Window.Frame then return Window.Frame end
 
   local frame = CreateFrame("Frame", WINDOW_NAME, UIParent, "BasicFrameTemplateWithInset")
-  -- 860 = the Config tab's tallest branch (Automatic/Custom/Integration
-  -- mapping visible): addGeneralSettings's panel bottom edge at
-  -- generalY(-578) - height(216) = -794, plus the same 48/18 top/bottom
-  -- content margins makeContent already uses elsewhere in this file. Tab 1
-  -- has no scrollframe of its own (unlike the per-scale weight editor,
-  -- which scrolls internally), so the window itself must be tall enough
-  -- for its tallest branch or the bottom content silently clips.
-  frame:SetSize(760, 860)
+  -- 940 = the Config tab's tallest branch (Automatic/Custom/Integration
+  -- mapping visible, needing exactly 860 -- see generalY/addGeneralSettings
+  -- in showConfig) plus ~80px of headroom for the Wishlist/Avoidlist tabs'
+  -- relatively-anchored breadcrumb text block, whose real rendered height
+  -- depends on how many lines it wraps to and can't be computed exactly
+  -- without the real WoW font metrics this offline environment doesn't
+  -- have. Tab content here has no scrollframe of its own (unlike the
+  -- per-scale weight editor or the Wishlist/Avoidlist item rows, which
+  -- both scroll internally), so the window itself must stay tall enough
+  -- for the tallest real branch or content silently clips/overlaps.
+  frame:SetSize(760, 940)
   frame:SetFrameStrata("MEDIUM")
   frame:SetMovable(true)
   frame:EnableMouse(true)
