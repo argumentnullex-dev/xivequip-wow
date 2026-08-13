@@ -1189,6 +1189,16 @@ local function showTextDialog(titleText, bodyText)
     edit:SetWidth(548)
     edit:SetHeight(320)
     edit:SetTextInsets(6, 6, 6, 6)
+    -- Unlike every other EditBox in this file, this one can't use
+    -- InputBoxTemplate (it needs SetMultiLine, which the template doesn't
+    -- support), so the template's built-in click-to-focus wiring has to be
+    -- reproduced by hand -- without it the box never gains mouse focus and
+    -- silently ignores clicks, typing, and paste.
+    edit:EnableMouse(true)
+    edit:SetScript("OnMouseDown", function(self) self:SetFocus() end)
+    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    scroll:EnableMouse(true)
+    scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
     scroll:SetScrollChild(edit)
     frame.edit = edit
     local close = button(frame, "Close", 80, 22)
@@ -1230,6 +1240,15 @@ local function showImportDialog(specID, C)
     edit:SetWidth(548)
     edit:SetHeight(250)
     edit:SetTextInsets(6, 6, 6, 6)
+    -- Same manual click-to-focus wiring as the export TextDialog above --
+    -- InputBoxTemplate can't be used here because it doesn't support
+    -- SetMultiLine, so without this the paste box never gains focus and
+    -- clicks/typing/paste all silently do nothing.
+    edit:EnableMouse(true)
+    edit:SetScript("OnMouseDown", function(self) self:SetFocus() end)
+    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    scroll:EnableMouse(true)
+    scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
     scroll:SetScrollChild(edit)
     frame.edit = edit
     local nameLabel = font(frame, "GameFontHighlightSmall", "Name")
