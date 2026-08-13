@@ -653,6 +653,17 @@ local function scrollEditor(parent, width, height)
   edit:SetWidth(scrollWidth)
   edit:SetHeight(scrollHeight)
   edit:SetTextInsets(6, 6, 6, 6)
+  -- Unlike every other EditBox in this file, this one can't use
+  -- InputBoxTemplate (it needs SetMultiLine, which the template doesn't
+  -- support), so the template's built-in click-to-focus wiring has to be
+  -- reproduced by hand -- without it the box never gains mouse focus and
+  -- silently ignores clicks, typing, and paste. The visible border above
+  -- fixes *finding* the box; this fixes actually being able to use it.
+  edit:EnableMouse(true)
+  edit:SetScript("OnMouseDown", function(self) self:SetFocus() end)
+  edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+  scroll:EnableMouse(true)
+  scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
   scroll:SetScrollChild(edit)
   return box, edit
 end
