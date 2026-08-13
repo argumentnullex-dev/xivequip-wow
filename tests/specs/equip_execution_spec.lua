@@ -782,6 +782,23 @@ test("unbound BoE triggers a pending bind-confirmation instead of manual_require
   A.truthy(containsMessage(raw.printed, "Confirm the bind-on-equip popup"))
 end)
 
+test("Warbound-Until-Equipped item (bindType 9) also triggers a pending bind-confirmation", function()
+  local warbound = itemLink(205)
+  local addon, raw = newHarness({
+    equipped = { [1] = itemLink(101) },
+    bindTypes = { [warbound] = 9 },
+    plan = { { targetSlot = 1, link = warbound, loc = { bound = false } } },
+    equipByBasics = function() end,
+  })
+
+  local result = addon.Gear:EquipBest()
+
+  A.equal(result.manual_required, 0)
+  A.equal(result.failed, 0)
+  A.truthy(result.awaiting, "Warbound-Until-Equipped items must wait for confirmation just like classic BoE")
+  A.equal(result.awaiting.slot, 1)
+end)
+
 test("BoE acceptance equips the item, marks the step successful, and resumes the plan", function()
   local boe = itemLink(201)
   local nextLink = itemLink(301)

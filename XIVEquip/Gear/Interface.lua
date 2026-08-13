@@ -317,10 +317,21 @@ local function isSlotLocked(slotID)
   return slotID and IsInventoryItemLocked and IsInventoryItemLocked(slotID)
 end
 
+-- Enum.ItemBind.OnEquip = 2 is classic Bind-on-Equip. Enum.ItemBind.
+-- ToBnetAccountUntilEquipped = 9 is "Warbound Until Equipped" -- extremely
+-- common on current-tier crafted gear and drops -- which is tradeable/
+-- sendable across the Warband right up until the moment it's equipped, at
+-- which point it commits (soulbinds) exactly like a classic BoE does, and
+-- triggers the same EQUIP_BIND_TRADEABLE_CONFIRM popup gate. Both need the
+-- same await-confirmation treatment; only 9 was missing here, which meant
+-- a Warbound-Until-Equipped item was silently treated as an ordinary item
+-- with no wait at all.
+local NEEDS_BIND_CONFIRM = { [2] = true, [9] = true }
+
 local function isUnboundBoE(pick, link)
   if not (link and link ~= "" and GetItemInfo) then return false end
   local bindType = select(14, GetItemInfo(link))
-  if bindType ~= 2 then return false end
+  if not NEEDS_BIND_CONFIRM[bindType] then return false end
   if pick and pick.loc and C_Item and type(C_Item.IsBound) == "function" then
     local ok, bound = pcall(C_Item.IsBound, pick.loc)
     if ok and bound then return false end
