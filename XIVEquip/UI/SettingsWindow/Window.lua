@@ -625,6 +625,38 @@ local function panel(parent, x, y, width, height)
   return frame
 end
 
+-- A visibly-bordered multi-line paste/view box. Without a backdrop behind
+-- it, a bare ScrollFrame+EditBox has no visible boundary at all -- it
+-- blends into the dialog's own background, so an empty EditBox (Import,
+-- before anything is pasted) looks like there's no input there to click.
+local function scrollEditor(parent, width, height)
+  local box = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+  box:SetSize(width, height)
+  if box.SetBackdrop then
+    box:SetBackdrop({
+      bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 16, edgeSize = 12,
+      insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    box:SetBackdropColor(0.04, 0.06, 0.08, 0.94)
+    box:SetBackdropBorderColor(0.25, 0.31, 0.36, 0.9)
+  end
+  local scroll = CreateFrame("ScrollFrame", nil, box, "UIPanelScrollFrameTemplate")
+  scroll:SetPoint("TOPLEFT", 8, -8)
+  local scrollWidth, scrollHeight = width - 36, height - 16
+  scroll:SetSize(scrollWidth, scrollHeight)
+  local edit = CreateFrame("EditBox", nil, scroll)
+  edit:SetMultiLine(true)
+  edit:SetAutoFocus(false)
+  edit:SetFontObject(ChatFontNormal)
+  edit:SetWidth(scrollWidth)
+  edit:SetHeight(scrollHeight)
+  edit:SetTextInsets(6, 6, 6, 6)
+  scroll:SetScrollChild(edit)
+  return box, edit
+end
+
 local function sectionTitle(parent, text, x, y)
   local title = font(parent, "GameFontNormal", text)
   textColor(title, 1, 0.82, 0.1)
@@ -1189,17 +1221,8 @@ local function showTextDialog(titleText, bodyText)
     local note = font(frame, "GameFontHighlightSmall", "Select the text and press Ctrl+C. WoW cannot write arbitrary text to the system clipboard directly.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
-    local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
-    scroll:SetSize(570, 330)
-    local edit = CreateFrame("EditBox", nil, scroll)
-    edit:SetMultiLine(true)
-    edit:SetAutoFocus(false)
-    edit:SetFontObject(ChatFontNormal)
-    edit:SetWidth(548)
-    edit:SetHeight(320)
-    edit:SetTextInsets(6, 6, 6, 6)
-    scroll:SetScrollChild(edit)
+    local box, edit = scrollEditor(frame, 584, 340)
+    box:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
     frame.edit = edit
     local close = button(frame, "Close", 80, 22)
     close:SetPoint("BOTTOMRIGHT", -18, 16)
@@ -1216,7 +1239,7 @@ function showImportDialog(specID, C)
   local frame = Window.ImportDialog
   if not frame then
     frame = CreateFrame("Frame", "XIVEquipImportDialog", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(620, 500)
+    frame:SetSize(620, 580)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
@@ -1231,25 +1254,16 @@ function showImportDialog(specID, C)
     local note = font(frame, "GameFontHighlightSmall", "Paste Pawn or stat-weight text, or XIVEquip JSON, then detect and import it as a Custom scale.")
     note:SetPoint("TOPLEFT", 18, -42)
     note:SetWidth(580)
-    local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
-    scroll:SetSize(570, 260)
-    local edit = CreateFrame("EditBox", nil, scroll)
-    edit:SetMultiLine(true)
-    edit:SetAutoFocus(false)
-    edit:SetFontObject(ChatFontNormal)
-    edit:SetWidth(548)
-    edit:SetHeight(250)
-    edit:SetTextInsets(6, 6, 6, 6)
-    scroll:SetScrollChild(edit)
+    local box, edit = scrollEditor(frame, 584, 340)
+    box:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -14)
     frame.edit = edit
-    -- Chained off the scroll's own BOTTOMLEFT (itself chained off the
+    -- Chained off the input box's own BOTTOMLEFT (itself chained off the
     -- note above), not fixed frame offsets, for the same reason as the
-    -- note -> scroll anchor: nameLabel/nameEdit are short, fixed-text
+    -- note -> box anchor: nameLabel/nameEdit are short, fixed-text
     -- labels that never wrap, so anchoring safely absorbs any growth in
     -- the note text above without needing to recompute pixel offsets.
     local nameLabel = font(frame, "GameFontHighlightSmall", "Name")
-    nameLabel:SetPoint("TOPLEFT", scroll, "BOTTOMLEFT", 0, -12)
+    nameLabel:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 0, -12)
     local nameEdit = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     nameEdit:SetSize(300, 22)
     nameEdit:SetPoint("TOPLEFT", nameLabel, "TOPLEFT", 52, -4)

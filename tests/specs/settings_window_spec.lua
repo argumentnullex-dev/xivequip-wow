@@ -1250,6 +1250,8 @@ test("Scale editor uses its full width and refreshes the active selector label",
   A.equal(Window.ImportDialog.frameStrata, "DIALOG", "Import dialog should render above the settings window")
   A.truthy(Window.ImportDialog.points and #Window.ImportDialog.points > 0,
     "Import dialog frame must anchor itself to the screen -- an unanchored WoW frame is never actually drawn, even when Shown")
+  A.truthy(Window.ImportDialog.height and Window.ImportDialog.height >= 560,
+    "Import dialog should be tall enough for a large, easily readable paste box")
   calls.buttons["Export"].scripts.OnClick(calls.buttons["Export"])
   A.truthy(Window.TextDialog:IsShown(), "Export should open its dialog")
   A.equal(Window.TextDialog.frameStrata, "DIALOG", "Export dialog should render above the settings window")
