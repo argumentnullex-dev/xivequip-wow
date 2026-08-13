@@ -194,7 +194,7 @@ test("PlanBuilder treats nil recommendation for an ordinary occupied slot as no 
   A.equal(#plan, 0)
 end)
 
-test("PlanBuilder uses native evaluated slot scores when present", function()
+test("PlanBuilder uses evaluated slot scores when present", function()
   local addon = newAddon()
   local current = equipped(101, 11)
   local upgrade = bag(201, 0, 3)

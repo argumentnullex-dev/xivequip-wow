@@ -344,7 +344,7 @@ test("planning coordinator closes live runtime when planning throws", function()
   end)
 
   A.equal(ok, false)
-  A.truthy(tostring(err):find("collector exploded", 1, true), "original native planner error should be preserved")
+  A.truthy(tostring(err):find("collector exploded", 1, true), "original planner error should be preserved")
   A.equal(passStarts, 0)
   A.equal(passEnds, 0)
   A.equal(runtimeCloses, 1)

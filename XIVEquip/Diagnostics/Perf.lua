@@ -1,5 +1,5 @@
 -- Diagnostics/Perf.lua
--- Lightweight opt-in timing/counter recorder for native planner diagnostics.
+-- Lightweight opt-in timing/counter recorder for planner diagnostics.
 local addonName, XIVEquip = ...
 XIVEquip.Diagnostics = XIVEquip.Diagnostics or {}
 local Diagnostics = XIVEquip.Diagnostics

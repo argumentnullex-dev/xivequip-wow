@@ -47,7 +47,7 @@ local function commandHarness(settings)
   addon.Gear = {
     PlanBest = function(_, opts)
       calls.plan[#calls.plan + 1] = opts or {}
-      local perf = opts and opts.native and opts.native.perf
+      local perf = opts and opts.planner and opts.planner.perf
       if perf and perf.Add then perf:Add("optimizer.nodes_visited", 3) end
       return {}, false, {}, { diagnostics = { scoreSource = "Default | Retribution" } }
     end,
@@ -215,7 +215,7 @@ test("/xive help prints the command list", function()
   A.contains(_G.printed, "/xive status")
 end)
 
-test("plan and equip commands use the native-only entry points", function()
+test("plan and equip commands use the planner entry points", function()
   local addon, calls = commandHarness({})
   SlashCmdList.XIVE("plan")
   SlashCmdList.XIVE("equip")
@@ -223,14 +223,14 @@ test("plan and equip commands use the native-only entry points", function()
   A.equal(#calls.equip, 1)
 end)
 
-test("/xive perf runs a native plan with a performance recorder", function()
+test("/xive perf runs a plan with a performance recorder", function()
   local addon, calls = commandHarness({})
   SlashCmdList.XIVE("perf")
 
   A.equal(#calls.plan, 1)
-  A.truthy(calls.plan[1].native)
-  A.truthy(calls.plan[1].native.perf)
-  A.contains(_G.printed, "Perf: native plan produced")
+  A.truthy(calls.plan[1].planner)
+  A.truthy(calls.plan[1].planner.perf)
+  A.contains(_G.printed, "Perf: plan produced")
   A.contains(_G.printed, "Score source: Default | Retribution")
   A.contains(_G.printed, "Performance:")
   A.contains(_G.printed, "optimizer.nodes_visited: 3")
