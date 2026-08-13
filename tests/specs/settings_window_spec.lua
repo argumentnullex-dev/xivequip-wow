@@ -624,6 +624,8 @@ test("Config page's own Import button opens the Import dialog instead of errorin
   A.truthy(calls.buttons["Import"], "Config tab should render its own Import button")
   calls.buttons["Import"].scripts.OnClick(calls.buttons["Import"])
   A.truthy(Window.ImportDialog and Window.ImportDialog:IsShown(), "Import should open its dialog from the Config tab")
+  A.truthy(Window.ImportDialog.points and #Window.ImportDialog.points > 0,
+    "Import dialog frame must anchor itself to the screen -- an unanchored WoW frame is never actually drawn, even when Shown")
 end)
 
 test("Config page explains Integration fallback and reason", function()
@@ -1246,9 +1248,13 @@ test("Scale editor uses its full width and refreshes the active selector label",
   calls.buttons["Import"].scripts.OnClick(calls.buttons["Import"])
   A.truthy(Window.ImportDialog:IsShown(), "Import should open its dialog")
   A.equal(Window.ImportDialog.frameStrata, "DIALOG", "Import dialog should render above the settings window")
+  A.truthy(Window.ImportDialog.points and #Window.ImportDialog.points > 0,
+    "Import dialog frame must anchor itself to the screen -- an unanchored WoW frame is never actually drawn, even when Shown")
   calls.buttons["Export"].scripts.OnClick(calls.buttons["Export"])
   A.truthy(Window.TextDialog:IsShown(), "Export should open its dialog")
   A.equal(Window.TextDialog.frameStrata, "DIALOG", "Export dialog should render above the settings window")
+  A.truthy(Window.TextDialog.points and #Window.TextDialog.points > 0,
+    "Export dialog frame must anchor itself to the screen -- an unanchored WoW frame is never actually drawn, even when Shown")
 end)
 
 test("Export reports instead of silently doing nothing when no Custom scale exists yet", function()
