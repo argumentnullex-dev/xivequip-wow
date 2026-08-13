@@ -120,6 +120,15 @@ local function divider(parent, x, y, height)
   return line
 end
 
+local function horizontalDivider(parent, x, y, width)
+  local line = texture(parent)
+  line:SetTexture("Interface\\ChatFrame\\ChatFrameBackground")
+  line:SetSize(width, 1)
+  line:SetPoint("TOPLEFT", x, y)
+  if line.SetVertexColor then line:SetVertexColor(0.35, 0.4, 0.45, 0.65) end
+  return line
+end
+
 local function button(parent, text, width, height)
   local b = pooled(parent, "button", function()
     return CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
@@ -824,37 +833,38 @@ end
 
 local function addGeneralSettings(parent, x, y, width)
   local S = XIVEquip.Settings
-  local box = panel(parent, x, y, width, 216)
+  local box = panel(parent, x, y, width, 224)
   sectionTitle(box, "Addon Settings", 14, -14)
-  sectionTitle(box, "Messages", 14, -42)
-  sectionTitle(box, "Automation", 302, -42)
+  horizontalDivider(box, 14, -34, width - 28)
+  sectionTitle(box, "Messages", 14, -48)
+  sectionTitle(box, "Automation", 302, -48)
   local messages = {
     { "Show login message", function() return S:GetMessage("Login") end, function(v) S:SetMessage("Login", v) end },
     { "Show equip messages", function() return S:GetMessage("Equip") end, function(v) S:SetMessage("Equip", v) end },
     { "Debug logging", function() return S:GetDebugEnabled() end, function(v) S:SetDebugEnabled(v) end },
   }
   local automation = {
-    { "Auto-equip on spec change", function() return S:GetAutomation("SpecEquip") end, function(v) S:SetAutomation("SpecEquip", v) end },
-    { "Save Equipment set after auto-equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
+    { "Auto-equip on Spec change", function() return S:GetAutomation("SpecEquip") end, function(v) S:SetAutomation("SpecEquip", v) end },
+    { "Save Equipment sets after auto-equip", function() return S:GetAutomation("SaveSpecSet") end, function(v) S:SetAutomation("SaveSpecSet", v) end },
   }
   for i, row in ipairs(messages) do
     local cb = checkbox(box, row[1], row[2](), row[3])
-    cb:SetPoint("TOPLEFT", 14, -66 - ((i - 1) * 26))
+    cb:SetPoint("TOPLEFT", 14, -72 - ((i - 1) * 26))
   end
   for i, row in ipairs(automation) do
     local cb = checkbox(box, row[1], row[2](), row[3])
-    cb:SetPoint("TOPLEFT", 302, -66 - ((i - 1) * 26))
+    cb:SetPoint("TOPLEFT", 302, -72 - ((i - 1) * 26))
   end
-  sectionTitle(box, "Minimap Button", 14, -156)
+  sectionTitle(box, "Minimap Button", 14, -164)
   local minimap = { "Show minimap button", function() return not S:GetMinimapHidden() end, function(v)
       S:SetMinimapHidden(v ~= true)
       if XIVEquip.UI.MinimapButton and XIVEquip.UI.MinimapButton.Refresh then XIVEquip.UI.MinimapButton.Refresh() end
     end }
   local minimapBox = checkbox(box, minimap[1], minimap[2](), minimap[3])
-  minimapBox:SetPoint("TOPLEFT", 14, -180)
-  sectionTitle(box, "Macro", 302, -156)
+  minimapBox:SetPoint("TOPLEFT", 14, -188)
+  sectionTitle(box, "Macro", 302, -164)
   local macro = button(box, "Create Macro", 150, 22)
-  macro:SetPoint("TOPLEFT", 302, -180)
+  macro:SetPoint("TOPLEFT", 302, -188)
   macro:SetScript("OnClick", createEquipMacro)
   return box
 end
@@ -916,12 +926,20 @@ local function showConfig(content)
   page._viewKey = viewKey
   local defaults = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Builtin and XIVEquip.XIVWeights.Builtin.Defaults
   local className = UnitClass and UnitClass("player") or classFile or "Unknown class"
-  local characterName = context and context.characterKey or (UnitName and UnitName("player")) or "Current character"
+  local playerName, realmName
+  if UnitName then playerName, realmName = UnitName("player") end
+  if (not realmName or realmName == "") and GetRealmName then realmName = GetRealmName() end
+  local characterName = context and context.characterKey or playerName or "Current character"
+  if playerName and realmName and realmName ~= "" then
+    characterName = tostring(playerName) .. " - " .. tostring(realmName)
+  else
+    characterName = tostring(characterName):gsub("^([^%-]+)%-(.+)$", "%1 - %2")
+  end
   local specName = (C and C.SpecName and C.SpecName(specID)) or currentSpecName() or "Unknown specialization"
-  local header = font(page, "GameFontNormalLarge", tostring(className) .. " - " .. tostring(specName))
+  local header = font(page, "GameFontNormalLarge", tostring(characterName))
   header:SetPoint("TOPLEFT", 0, 0)
   header:SetWidth(CONTENT_WIDTH)
-  local character = font(page, "GameFontHighlightSmall", "Current character: " .. tostring(characterName))
+  local character = font(page, "GameFontHighlight", tostring(className) .. " - " .. tostring(specName))
   character:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
   local fallbackSelection
   if not resolved and C and C.SelectionDisplay then
@@ -936,7 +954,16 @@ local function showConfig(content)
     local sourceLabel, scaleLabel = C.SelectionDisplay(specID, fallbackSelection, pawnAdapter().ListScales())
     sourceLine = tostring(sourceLabel) .. " | " .. tostring(scaleLabel)
   end
-  local effective = font(page, "GameFontHighlight", "Active weights: " .. sourceLine)
+  if profile and profile.automatic == false and manual.mode == "custom" then
+    local selectedID = manual.customOverrides and manual.customOverrides[tonumber(specID)]
+    local selectedScale = selectedID and C and C.Repository and C.Repository():Get(selectedID)
+    if not (C and C.IsCustomScale and C.IsCustomScale(selectedScale)) then
+      sourceLine = "Custom | Default (" .. tostring(specName) .. ")"
+    else
+      sourceLine = "Custom | " .. tostring(resolution and resolution.scaleLabel or selectedScale.name or specName)
+    end
+  end
+  local effective = font(page, "GameFontHighlight", "Active Scale: " .. sourceLine)
   effective:SetPoint("TOPLEFT", character, "BOTTOMLEFT", 0, -6)
   textColor(effective, 0.4, 1, 0.4)
   if resolved and resolved.fallback then textColor(effective, 1, 0.55, 0.2) end

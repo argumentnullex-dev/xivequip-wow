@@ -35,6 +35,13 @@ local function normalizeName(value)
   return tostring(value or ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
 end
 
+local function classDisplayName(classFile)
+  classFile = normalizeClass(classFile) or "UNKNOWN"
+  local localized = _G.LOCALIZED_CLASS_NAMES_MALE and _G.LOCALIZED_CLASS_NAMES_MALE[classFile]
+  if localized and localized ~= "" then return localized end
+  return classFile:lower():gsub("^%l", string.upper)
+end
+
 local function copy(value)
   if type(value) ~= "table" then return value end
   local out = {}
@@ -62,7 +69,7 @@ local function defaultProfile(classFile)
   local id = Profiles.DefaultProfileID(normalized)
   return {
     id = id,
-    name = "Default",
+    name = "Default - " .. classDisplayName(normalized),
     classFile = normalized,
     automatic = true,
     manual = {
@@ -110,6 +117,8 @@ function Profiles.EnsureClass(classFile)
   if type(default) ~= "table" or default.classFile ~= classFile then
     default = defaultProfile(classFile)
     classStore.Items[defaultID] = default
+  elseif normalizeName(default.name) == "Default" then
+    default.name = "Default - " .. classDisplayName(classFile)
   end
   return classStore
 end
@@ -456,6 +465,7 @@ function Profiles.SetCustomOverride(profile, specID, scaleID)
   local config = XIVEquip.XIVWeights and XIVEquip.XIVWeights.Config
   local scale = config and config.Repository and config.Repository():Get(scaleID)
   if not scale then return nil, "unknown-scale" end
+  if not (config.IsCustomScale and config.IsCustomScale(scale)) then return nil, "not-custom-scale" end
   local owner = config.GetScaleSpecID and config.GetScaleSpecID(scale)
   if owner ~= specID then return nil, "scale-spec-mismatch" end
   manual.customOverrides[specID] = scaleID

@@ -593,6 +593,56 @@ test("Config page uses spec names and display labels instead of raw ids", functi
   A.falsy(text:find("| 70", 1, true), "Config should not show raw spec ids")
 end)
 
+test("Config header identifies the character, class/spec, and active scale", function()
+  local addon, calls = harness()
+  local profile = {
+    id = "paladin-default", name = "Default - Paladin", automatic = true,
+    manual = { mode = "default", customOverrides = {}, integration = { provider = "pawn", overrides = {} } },
+  }
+  _G.GetMacroIndexByName = function() return 0 end
+  _G.GetSpecialization = function() return 1 end
+  _G.GetSpecializationInfo = function() return 70, "Retribution" end
+  _G.UnitClass = function() return "Paladin", "PALADIN" end
+  _G.UnitName = function() return "Talkamar", "Wyrmrest Accord" end
+  _G.GetRealmName = function() return "Wyrmrest Accord" end
+  addon.XIVWeights = {
+    Builtin = { Defaults = { SpecsForClass = function() return { { id = 70, name = "Retribution" } } end } },
+    Config = {
+      ResolveResultForSpec = function()
+        return { scale = { resolution = { sourceLabel = "Pawn", scaleLabel = "Paladin: Retribution" } } }
+      end,
+      ListIntegrations = function() return {} end,
+      ListManualScales = function() return {} end,
+      SpecName = function() return "Retribution" end,
+      Repository = function() return { Get = function() return nil end } end,
+      IsCustomScale = function() return false end,
+    },
+  }
+  addon.Profiles = {
+    Config = {
+      CurrentContext = function() return { classFile = "PALADIN", characterKey = "Talkamar-Wyrmrest Accord" } end,
+      GetForCharacter = function() return profile end,
+      List = function() return { profile } end,
+      Usage = function() return { count = 1 } end,
+    },
+  }
+  addon.Pawn = { GetActiveScales = function() return {} end }
+
+  local Window = loadWindow(addon, calls)
+  Window.Open()
+  local header = table.concat(calls.fontText, "\n")
+  A.truthy(header:find("Talkamar %- Wyrmrest Accord"))
+  A.truthy(header:find("Paladin %- Retribution"))
+  A.truthy(header:find("Active Scale: Pawn | Paladin: Retribution", 1, true))
+
+  local start = #calls.fontText + 1
+  profile.automatic = false
+  profile.manual.mode = "custom"
+  Window.ShowTab(1)
+  local customHeader = table.concat(calls.fontText, "\n", start)
+  A.truthy(customHeader:find("Active Scale: Custom | Default %(Retribution%)"))
+end)
+
 test("Config page's own Import button opens the Import dialog instead of erroring", function()
   local addon, calls = harness()
   _G.GetMacroIndexByName = function() return 0 end
@@ -794,9 +844,9 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   local debugBox = generalPanel._xivEquipPool.items.checkbox[3]
   local minimapBox = generalPanel._xivEquipPool.items.checkbox[6]
   local macroButton = generalPanel._xivEquipPool.items.button[1]
-  A.equal(generalPanel._xivEquipPool.items.checkbox[5].checkboxText, "Save Equipment set after auto-equip",
+  A.equal(generalPanel._xivEquipPool.items.checkbox[5].checkboxText, "Save Equipment sets after auto-equip",
     "automation setting should use the established label")
-  A.equal(generalPanel.height, 216, "Addon Settings should contain its lower row with generous bottom padding")
+  A.equal(generalPanel.height, 224, "Addon Settings should contain its lower row with generous bottom padding")
   A.truthy(minimapBox.points[1][3] <= debugBox.points[1][3] - 62,
     "Minimap Button should have breathing room below the message checkboxes")
   A.equal(macroButton.points[1][3], minimapBox.points[1][3], "Minimap and Macro controls should share a baseline")
@@ -914,7 +964,7 @@ test("Automatic keeps the remembered manual configuration visible while Pawn sup
   A.falsy(refreshedMapPanel._xivEquipPool.items.dropdown[1].enabled,
     "remembered Custom mappings should remain disabled while Automatic is enabled")
   local text = table.concat(calls.fontText, "\n")
-  A.truthy(text:find("Active weights: Pawn | Retribution", 1, true), "Active source should show Pawn after enabling Automatic")
+  A.truthy(text:find("Active Scale: Pawn | Retribution", 1, true), "Active source should show Pawn after enabling Automatic")
   A.truthy(text:find("Selection disabled while Automatic mode is engaged.", 1, true),
     "automatic mapping notice should explain why selection is unavailable")
 end)

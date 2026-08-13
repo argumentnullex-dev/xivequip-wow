@@ -254,6 +254,7 @@ function Config.GetProfileSelection(specID, runtime)
   if mode == "custom" then
     local overrides = type(manual.customOverrides) == "table" and manual.customOverrides or {}
     local selected = overrides[tonumber(specID)]
+    if selected and not Config.IsCustomScale(Config.Repository():Get(selected)) then selected = nil end
     return {
       provider = selected and "manual" or "default",
       scale = selected,
@@ -359,8 +360,18 @@ function Config.NewManualScaleSeed(specID)
   return { [primary] = 1.0 }
 end
 
+function Config.IsCustomScale(scale)
+  if type(scale) ~= "table" then return false end
+  local source = type(scale.source) == "table" and scale.source or {}
+  return source.kind == "manual"
+end
+
 function Config.ListManualScales()
-  return Config.Repository():List()
+  local out = {}
+  for _, scale in ipairs(Config.Repository():List()) do
+    if Config.IsCustomScale(scale) then out[#out + 1] = scale end
+  end
+  return out
 end
 
 local function resolveSelection(specID, sel, runtime)

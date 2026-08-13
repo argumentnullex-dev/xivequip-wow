@@ -409,6 +409,11 @@ test("Profile mutation APIs enforce spec ownership for Custom scales", function(
   A.equal(selected, nil)
   A.equal(reason, "scale-spec-mismatch")
 
+  local legacyDefault = Config.EnsureSpecScale(66)
+  selected, reason = Profiles.SetCustomOverride(profile, 66, legacyDefault.id)
+  A.equal(selected, nil)
+  A.equal(reason, "not-custom-scale")
+
   selected = Profiles.SetCustomOverride(profile, 65, holy.id)
   A.equal(selected, profile)
   A.equal(profile.manual.customOverrides[65], holy.id)
@@ -537,6 +542,18 @@ test("manual scales can be created duplicated and deleted", function()
 
   A.truthy(Config.DeleteScale("manual:one"))
   A.falsy(Config.Repository():Get("manual:one"))
+end)
+
+test("Custom scale listings exclude legacy generated Default copies", function()
+  local addon = newAddon({})
+  local Config = addon.XIVWeights.Config
+
+  Config.EnsureSpecScale(70)
+  local custom = Config.CreateManualScale("manual:retribution", "Retribution Raid", nil, 70)
+  local scales = Config.ListManualScales()
+
+  A.equal(#scales, 1)
+  A.equal(scales[1].id, custom.id)
 end)
 
 test("explicit per-spec selection persists without changing generated defaults", function()
