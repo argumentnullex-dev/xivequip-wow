@@ -115,6 +115,7 @@ test("class Default Profile is lazy, class-specific, and assigned per character"
   })
 
   A.equal(profile.id, "paladin:default")
+  A.equal(profile.name, "Default - Paladin")
   A.equal(profile.classFile, "PALADIN")
   A.equal(profile.automatic, true)
   A.equal(context.characterKey, "Daedric-Area 52")
