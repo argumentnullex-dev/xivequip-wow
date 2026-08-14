@@ -421,7 +421,7 @@ test("a second EquipBest call cannot overlap ordinary asynchronous verification"
   A.equal(second, first, "overlapping calls should receive the active result")
   A.equal(raw.planBestCalls(), 1, "the second call must not start another planner")
   A.equal(equipAttempts, 1, "the second call must not create another executor")
-  A.truthy(containsMessage(raw.printed, "already in progress"))
+  A.truthy(containsMessage(raw.printed, "An equip operation is already in progress."))
   A.truthy(addon.Gear:IsEquipRunInProgress())
 
   raw.runTimers()
@@ -1082,7 +1082,7 @@ test("a second EquipBest call cannot overlap a run awaiting BOE confirmation", f
   A.equal(second, first, "overlapping calls should receive the active result")
   A.equal(raw.planBestCalls(), 1, "the second call must not start another planner")
   A.equal(equipAttempts, 1, "the second call must not create another executor")
-  A.truthy(containsMessage(raw.printed, "already in progress"))
+  A.truthy(containsMessage(raw.printed, "An equip operation is already in progress."))
   A.truthy(addon.Gear:IsEquipRunInProgress())
 
   equipped[1] = boe

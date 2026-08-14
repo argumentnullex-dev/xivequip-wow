@@ -749,7 +749,7 @@ function C:EquipBest(opts)
   elseif _activeEquipRun then
     if showEquip then
       print((L.AddonPrefix or "XIVEquip: ") ..
-        "An equip operation is already in progress. Finish the binding confirmation first.")
+        "An equip operation is already in progress.")
     end
     return _activeEquipRun.result
   else
