@@ -385,7 +385,7 @@ Read via `context.<field>` in any phase after `evaluation_context`:
 |---|---|---|
 | `classID`, `classFile`, `specID`, `specName`, `level` | `CharacterIdentity.lua` | |
 | `armorProficiencySubclass` | `ArmorProficiency.lua` | |
-| `profilePreferences` | `ProfilePreferences.lua` | `{ preferSetBonuses, preferSpecAppropriateTrinkets, wishlist, avoidlist }` for the active Profile + spec |
+| `profilePreferences` | `ProfilePreferences.lua` | `{ preferSetBonuses, preferSpecAppropriateTrinkets, wishlist, avoidlist }` for the active Profile + spec. Spec-appropriate trinket filtering defaults on, can be disabled, permits unknown Blizzard metadata, and is bypassed by Wishlist. |
 | `weights` | `WeightsResolution.lua` | The resolved XIVWeights scale for scoring |
 | `capabilities["XIVEquip.allow_two_hand"]`, `..._dual_wield`, `..._offhand_weapon`, `..._shield`, `..._holdable`, `..._main_hand_one_hand`, `.titan_grip`, `.require_shield` | `ClassSpecWeaponCapabilities.lua`, `DualWieldOverride.lua` | Boolean weapon-hand legality flags for the active spec |
 | `caches` | `Evaluation/ContextBuilder.lua` | Mutable scratch space for the planning pass (the only non-frozen part of the context) — use it to memoize expensive per-item work, keyed by whatever's stable for your policy (see `Policies/Candidate/SpecAppropriateTrinkets.lua`'s classID/specID/itemID cache key for a real example) |
@@ -412,7 +412,7 @@ A candidate passed to a `candidate`-phase policy (see `Evaluation/CandidateNorma
 
 ### Writing a candidate policy: example
 
-An opt-in filter that hides a hypothetical "junk" item class, closely modeled on the real `Policies/Candidate/SpecAppropriateTrinkets.lua`:
+A user-configurable filter that hides a hypothetical "junk" item class demonstrates the same candidate-policy mechanics as `Policies/Candidate/SpecAppropriateTrinkets.lua`. The real trinket policy is enabled by default:
 
 ```lua
 local XIVEquip = C_AddOns.GetAddOnLocalTable("XIVEquip")

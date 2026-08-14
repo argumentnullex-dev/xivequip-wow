@@ -1,10 +1,11 @@
 -- Policies/Candidate/SpecAppropriateTrinkets.lua
--- Opt-in eligibility filter: hides trinkets Blizzard itself does not
--- consider appropriate for the player's current specialization, trusting
--- C_Item.DoesItemContainSpec's own metadata rather than any maintained
--- role/theorycraft mapping. Off by default (see Profiles/Config.lua's
--- per-spec preferSpecAppropriateTrinkets) and scoped to the trinkets
--- assignment group only -- every other slot is unaffected.
+-- Default-enabled, user-disableable eligibility filter: hides trinkets
+-- Blizzard itself does not consider appropriate for the player's current
+-- specialization, trusting C_Item.DoesItemContainSpec's own metadata rather
+-- than a maintained role/theorycraft mapping. Wishlist is an explicit escape
+-- hatch for intentional exceptions. Unknown/unavailable Blizzard metadata is
+-- permissive (see isAppropriateForSpec below), and the policy is scoped to the
+-- trinkets assignment group only -- every other slot is unaffected.
 local addonName, XIVEquip = ...
 
 local function isEnabled(context)

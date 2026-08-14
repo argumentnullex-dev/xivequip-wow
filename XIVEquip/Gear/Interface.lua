@@ -25,6 +25,16 @@ local _pendingSpecSaveToken
 local _boeConfirmFrame = (type(CreateFrame) == "function") and CreateFrame("Frame") or nil
 local _activeBindWait
 local _bindGeneration = 0
+local _activeEquipRun
+local _equipRunGeneration = 0
+
+local function isCurrentEquipRun(run)
+  return run == nil or _activeEquipRun == run
+end
+
+local function releaseEquipRun(run)
+  if run and _activeEquipRun == run then _activeEquipRun = nil end
+end
 
 local function bindConfirmationCard()
   return XIVEquip.UI and XIVEquip.UI.BindConfirmationCard
@@ -55,11 +65,36 @@ local BIND_DIALOG_WHICH = {
   EQUIP_BIND = true, EQUIP_BIND_REFUNDABLE = true, EQUIP_BIND_TRADEABLE = true,
 }
 
+local function visibleBindDialog()
+  for which in pairs(BIND_DIALOG_WHICH) do
+    if type(StaticPopup_FindVisible) == "function" then
+      local ok, dialog = pcall(StaticPopup_FindVisible, which)
+      if ok and dialog and (not dialog.IsShown or dialog:IsShown()) then return dialog end
+    end
+  end
+  for i = 1, 4 do
+    local dialog = _G["StaticPopup" .. tostring(i)]
+    if dialog and BIND_DIALOG_WHICH[dialog.which]
+        and (not dialog.IsShown or dialog:IsShown()) then
+      return dialog
+    end
+  end
+  return nil
+end
+
+local function isCurrentBindWait(wait)
+  return wait ~= nil
+      and _activeBindWait == wait
+      and wait.generation == _bindGeneration
+      and isCurrentEquipRun(wait.run)
+end
+
 if _boeConfirmFrame then
   _boeConfirmFrame:SetScript("OnEvent", function(_, event, arg1)
-    if not _activeBindWait then return end
+    local wait = _activeBindWait
+    if not isCurrentBindWait(wait) then return end
     if event == "PLAYER_EQUIPMENT_CHANGED" then
-      _activeBindWait.onEquipmentChanged(arg1)
+      wait.onEquipmentChanged(arg1)
     elseif BIND_CONFIRM_EVENT_SET[event] then
       -- Confirms Blizzard really did enter a pending-equip state for our
       -- slot (and, if the dialog skin changes mid-flight -- e.g. Blizzard
@@ -67,9 +102,26 @@ if _boeConfirmFrame then
       -- item -- lets onDialogHidden below tell that apart from a real
       -- close). Not itself required for success detection: that's
       -- PLAYER_EQUIPMENT_CHANGED's job.
-      _activeBindWait.confirmSeen = (_activeBindWait.confirmSeen or 0) + 1
-      _activeBindWait.showCard()
+      wait.confirmSeen = (wait.confirmSeen or 0) + 1
+      wait.showCard()
     end
+  end)
+end
+
+-- Blizzard's three bind dialogs call CancelPendingEquip twice on a user
+-- decline: once from OnCancel while the dialog is still shown, then again
+-- from OnHide as unconditional cleanup. Accept calls EquipPendingItem and
+-- reaches only the hidden-dialog cleanup call. A secure post-hook can
+-- therefore observe an explicit Cancel/Escape without replacing either
+-- protected popup handler or calling a protected function ourselves.
+--
+-- StaticPopup_FindVisible still contains a dialog during its OnHide stack,
+-- so visibleBindDialog also checks IsShown(). That keeps the OnHide cleanup
+-- from being mistaken for an explicit decline.
+if type(hooksecurefunc) == "function" and type(CancelPendingEquip) == "function" then
+  hooksecurefunc("CancelPendingEquip", function()
+    local wait = _activeBindWait
+    if isCurrentBindWait(wait) and visibleBindDialog() then wait.onExplicitCancel() end
   end)
 end
 
@@ -84,9 +136,9 @@ end
 if type(hooksecurefunc) == "function" then
   hooksecurefunc("StaticPopup_OnHide", function(dialog)
     local which = dialog and dialog.which
-    if _activeBindWait and BIND_DIALOG_WHICH[which] then
-      hideBindConfirmationCard()
-      _activeBindWait.onDialogHidden()
+    local wait = _activeBindWait
+    if isCurrentBindWait(wait) and BIND_DIALOG_WHICH[which] then
+      wait.onDialogHidden()
     end
   end)
 end
@@ -359,34 +411,51 @@ function C:GetLastEquipResult()
   return C._lastEquipResult
 end
 
+function C:IsEquipRunInProgress()
+  return _activeEquipRun ~= nil
+end
+
+function C:GetActiveEquipResult()
+  return _activeEquipRun and _activeEquipRun.result or nil
+end
+
 function C:_completeEquipRun(result, showEquip, opts)
   opts = opts or {}
   if result.completed then return result end
   result.completed = true
 
-  if opts.failureMessage then
-    printResult(result, opts.failureMessage)
-  elseif showEquip then
-    if result.pending_data and result.planned_count == 0 then
-      printResult(result, opts.pendingMessage or "Item data is still loading; try again shortly.")
-    elseif result.planned_count == 0 then
-      printResult(result, L.NoUpgrades or "No upgrades found.")
-    elseif result.succeeded == 0 and (result.failed + result.manual_required + result.timed_out + result.skipped + result.bind_declined) > 0 then
-      printResult(result, "Upgrade plan did not complete.")
+  local equipRun = opts.equipRun or opts._equipRun
+  local ok, err = xpcall(function()
+    if opts.failureMessage then
+      printResult(result, opts.failureMessage)
+    elseif showEquip then
+      if result.pending_data and result.planned_count == 0 then
+        printResult(result, opts.pendingMessage or "Item data is still loading; try again shortly.")
+      elseif result.planned_count == 0 then
+        printResult(result, L.NoUpgrades or "No upgrades found.")
+      elseif result.succeeded == 0 and (result.failed + result.manual_required + result.timed_out + result.skipped + result.bind_declined) > 0 then
+        printResult(result, "Upgrade plan did not complete.")
+      end
     end
-  end
 
-  local autoSave = opts.autoSave
-  if autoSave == nil then
-    autoSave = Settings and Settings.GetAutomation and Settings:GetAutomation("SaveSpecSet")
-  end
+    local autoSave = opts.autoSave
+    if autoSave == nil then
+      autoSave = Settings and Settings.GetAutomation and Settings:GetAutomation("SaveSpecSet")
+    end
 
-  if result.succeeded > 0 and autoSave and not InCombatLockdown() then
-    result.save_scheduled = true
-    C:_saveSpecSetSoon(opts.saveDelay or 0.7, result)
-  end
+    if result.succeeded > 0 and autoSave and not InCombatLockdown() then
+      result.save_scheduled = true
+      C:_saveSpecSetSoon(opts.saveDelay or 0.7, result)
+    end
 
-  if opts.onComplete then opts.onComplete(result) end
+    if opts.onComplete then opts.onComplete(result) end
+  end, planFailureDetail)
+
+  -- Completion owns the run until all completion work (including the caller's
+  -- callback) has returned, but an exception anywhere in that work must never
+  -- strand the global guard.
+  releaseEquipRun(equipRun)
+  if not ok then error(err, 0) end
   return result
 end
 
@@ -399,7 +468,9 @@ function C:_runEquipPlan(plan, opts)
   local lockDelay = opts.lockDelay or 0.05
   local stepDelay = opts.stepDelay or 0.05
   local verifyDelay = opts.verifyDelay or 0.10
+  local equipRun = opts.equipRun
   C._lastEquipResult = result
+  if equipRun then equipRun.result = result end
 
   local function complete()
     return C:_completeEquipRun(result, showEquip, opts)
@@ -484,7 +555,7 @@ function C:_runEquipPlan(plan, opts)
         local wait
 
         local function finish(status, reason)
-          if resolved then return end
+          if resolved or not isCurrentBindWait(wait) then return end
           resolved = true
           if _boeConfirmFrame then
             for _, evt in ipairs(BIND_WAIT_EVENTS) do _boeConfirmFrame:UnregisterEvent(evt) end
@@ -527,33 +598,46 @@ function C:_runEquipPlan(plan, opts)
 
         wait = {
           generation = generation,
+          run = equipRun,
           slot = slotID,
           confirmSeen = 0,
-          showCard = function() showBindConfirmationCard(preview) end,
+          showCard = function()
+            if isCurrentBindWait(wait) then showBindConfirmationCard(preview) end
+          end,
           -- PLAYER_EQUIPMENT_CHANGED(equipSlot, hasCurrent): the only
           -- authoritative success signal -- EquipPendingItem's actual equip
           -- is a server round-trip, so it lands after the dialog has
           -- already closed, not synchronously with the accept click.
           onEquipmentChanged = function(changedSlot)
+            if not isCurrentBindWait(wait) then return end
             if changedSlot ~= slotID then return end
             local newLink = GetInventoryItemLink("player", slotID)
             if (not intendedID) or itemID(newLink) == intendedID then
               finish("success")
             end
           end,
-          -- The dialog's OnHide fires on BOTH accept and cancel (Blizzard's
-          -- own defensive "cancel anything still pending" cleanup), so a
-          -- hide alone can't distinguish them. Give a short grace window for
-          -- an in-flight accept's PLAYER_EQUIPMENT_CHANGED to land first;
-          -- only conclude "declined" if nothing arrived by then. If a fresh
-          -- confirm event arrived after this hide (confirmSeen advanced),
-          -- Blizzard just switched dialog skins for the same still-pending
-          -- item -- not a real close -- so skip resolving.
+          -- OnHide happens for both Accept and Cancel, before an accepted
+          -- equip's server response is guaranteed to arrive. It is therefore
+          -- presentation-only: hide the companion and keep waiting for either
+          -- PLAYER_EQUIPMENT_CHANGED or the overall safety timeout. Treating
+          -- this as decline after a short grace period created a false-cancel
+          -- race on high latency connections.
           onDialogHidden = function()
-            local seenAtHide = wait.confirmSeen
+            if not isCurrentBindWait(wait) then return end
+            hideBindConfirmationCard()
+            wait.dialogHidden = true
+          end,
+          -- The CancelPendingEquip secure hook reaches this only while the
+          -- bind dialog is still visibly open, which identifies explicit
+          -- Cancel/Escape rather than Accept's OnHide cleanup. Keep the small
+          -- configurable grace period so a success event already in flight
+          -- still wins, while every callback remains generation/run guarded.
+          onExplicitCancel = function()
+            if not isCurrentBindWait(wait) or wait.cancelObserved then return end
+            wait.cancelObserved = true
+            local cancelGeneration = generation
             C_Timer.After(opts.bindCancelGraceDelay or 1.5, function()
-              if resolved then return end
-              if wait.confirmSeen ~= seenAtHide then return end
+              if not isCurrentBindWait(wait) or wait.generation ~= cancelGeneration then return end
               finish("bind_declined")
             end)
           end,
@@ -579,7 +663,11 @@ function C:_runEquipPlan(plan, opts)
         -- Conservative fallback: Blizzard's dialogs never auto-timeout
         -- (timeout = 0), so this exists purely so a missing event or an
         -- unusual UI condition can't leave the executor stuck forever.
-        C_Timer.After(opts.bindConfirmTimeout or 45, function() finish("timed_out") end)
+        local timeoutGeneration = generation
+        C_Timer.After(opts.bindConfirmTimeout or 45, function()
+          if not isCurrentBindWait(wait) or wait.generation ~= timeoutGeneration then return end
+          finish("timed_out")
+        end)
       end
 
       if wasBoEUnbound then
@@ -650,65 +738,102 @@ end
 -- [XIVEquip-AUTO] C:EquipBest: Applies equipment changes (gear/weapons) for the addon.
 function C:EquipBest(opts)
   opts = opts or {}
+  local showEquip = not (Settings and Settings.GetMessage) or Settings:GetMessage("Equip")
+  local equipRun = opts._equipRun
+
+  if equipRun then
+    -- Pending-data retries are continuations of the run that scheduled them,
+    -- not overlapping user/automation requests. If their owner is gone, the
+    -- retry is stale and must not start a replacement run.
+    if _activeEquipRun ~= equipRun then return equipRun.result end
+  elseif _activeEquipRun then
+    if showEquip then
+      print((L.AddonPrefix or "XIVEquip: ") ..
+        "An equip operation is already in progress. Finish the binding confirmation first.")
+    end
+    return _activeEquipRun.result
+  else
+    _equipRunGeneration = _equipRunGeneration + 1
+    equipRun = { generation = _equipRunGeneration }
+    _activeEquipRun = equipRun
+  end
+
   if InCombatLockdown() then
     print((L.AddonPrefix or "XIVEquip: ") .. (L.CannotCombat or "Cannot equip while in combat."))
+    releaseEquipRun(equipRun)
     return nil
   end
 
-  local showEquip = not (Settings and Settings.GetMessage) or Settings:GetMessage("Equip")
-  local planOk, changesOrErr, pending, plan, planResult, planFailure = xpcall(function()
-    return C:PlanBest(opts)
-  end, planFailureDetail)
-  if not planOk then
-    error(changesOrErr, 0)
-  end
-  plan = plan or {}
+  local ok, returned = xpcall(function()
+    local planOk, changesOrErr, pending, plan, planResult, planFailure = xpcall(function()
+      return C:PlanBest(opts)
+    end, planFailureDetail)
+    if not planOk then error(changesOrErr, 0) end
+    plan = plan or {}
 
-  if planFailure then
-    local result = newEquipRunResult({}, false)
-    result.failed = 1
-    table.insert(result.steps, { index = 1, status = "failed", reason = "planner_failed", detail = tostring(planFailure) })
-    C._lastEquipResult = result
-    return C:_completeEquipRun(result, showEquip, {
-      failureMessage = "Planner failed; no gear was equipped. Check the XIVEquip debug log for details.",
+    if planFailure then
+      local result = newEquipRunResult({}, false)
+      result.failed = 1
+      table.insert(result.steps, { index = 1, status = "failed", reason = "planner_failed", detail = tostring(planFailure) })
+      C._lastEquipResult = result
+      equipRun.result = result
+      return C:_completeEquipRun(result, showEquip, {
+        failureMessage = "Planner failed; no gear was equipped. Check the XIVEquip debug log for details.",
+        onComplete = opts.onComplete,
+        equipRun = equipRun,
+      })
+    end
+
+    printSocketPotential()
+
+    local attempt = opts._pendingAttempt or 0
+    local maxDataRetries = opts.maxDataRetries or 2
+    if pending then
+      local result = newEquipRunResult(plan, true)
+      C._lastEquipResult = result
+      equipRun.result = result
+      local retrying = attempt < maxDataRetries
+      if not retrying then
+        result.timed_out = result.timed_out + 1
+        local completeOpts = {}
+        for k, v in pairs(opts) do completeOpts[k] = v end
+        completeOpts._equipRun = equipRun
+        C:_completeEquipRun(result, showEquip, completeOpts)
+      end
+      if retrying then
+        C_Timer.After(opts.retryDelay or 0.25, function()
+          if _activeEquipRun ~= equipRun then return end
+          local nextOpts = {}
+          for k, v in pairs(opts) do nextOpts[k] = v end
+          nextOpts._pendingAttempt = attempt + 1
+          nextOpts._equipRun = equipRun
+          C:EquipBest(nextOpts)
+        end)
+      end
+      return result
+    end
+
+    return C:_runEquipPlan(plan, {
+      showEquip = showEquip,
+      autoSave = opts.autoSave,
+      saveDelay = opts.saveDelay,
       onComplete = opts.onComplete,
+      maxLockRetries = opts.maxLockRetries,
+      lockDelay = opts.lockDelay,
+      stepDelay = opts.stepDelay,
+      verifyDelay = opts.verifyDelay,
+      finishDelay = opts.finishDelay,
+      bindCancelGraceDelay = opts.bindCancelGraceDelay,
+      bindConfirmTimeout = opts.bindConfirmTimeout,
+      equipRun = equipRun,
     })
+  end, planFailureDetail)
+
+  if not ok then
+    releaseEquipRun(equipRun)
+    error(returned, 0)
   end
-
-  printSocketPotential()
-
-  local attempt = opts._pendingAttempt or 0
-  local maxDataRetries = opts.maxDataRetries or 2
-  if pending then
-    local result = newEquipRunResult(plan, true)
-    C._lastEquipResult = result
-    local retrying = attempt < maxDataRetries
-    if not retrying then
-      result.timed_out = result.timed_out + 1
-      C:_completeEquipRun(result, showEquip, opts)
-    end
-    if retrying then
-      C_Timer.After(opts.retryDelay or 0.25, function()
-        local nextOpts = {}
-        for k, v in pairs(opts) do nextOpts[k] = v end
-        nextOpts._pendingAttempt = attempt + 1
-        C:EquipBest(nextOpts)
-      end)
-    end
-    return result
-  end
-
-  return C:_runEquipPlan(plan, {
-    showEquip = showEquip,
-    autoSave = opts.autoSave,
-    saveDelay = opts.saveDelay,
-    onComplete = opts.onComplete,
-    maxLockRetries = opts.maxLockRetries,
-    lockDelay = opts.lockDelay,
-    stepDelay = opts.stepDelay,
-    verifyDelay = opts.verifyDelay,
-    finishDelay = opts.finishDelay,
-  })
+  return returned
 end
 
 function C:SaveNamedEquipmentSet(setName, icon)

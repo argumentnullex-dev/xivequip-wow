@@ -1,6 +1,6 @@
 ## Interface: 120007, 120100
 ## Title: XIVEquip
-## Notes: FFXIV-style 'Equip Recommended Gear' button using Pawn when available.
+## Notes: Recommends and equips specialization-aware best gear using XIVWeights or Pawn scales, with profiles and preferences.
 ## Author: argument.null.ex@gmail.com (aka Code Ninja)
 ## Version: 2.0.0-rc.12
 ## SavedVariables: XIVEquip_Settings
@@ -10,7 +10,6 @@
 # addon-local table when this is set. Without it, RegisterPolicy exists but
 # is unreachable from outside XIVEquip's own files.
 ## AllowAddOnTableAccess: 1
-## Category: Equipment
 ## Category: Equipment
 ## Category-deDE: Ausrüstung
 ## Category-esES: Equipo

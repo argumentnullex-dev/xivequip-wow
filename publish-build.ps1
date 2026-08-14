@@ -36,11 +36,42 @@ function Set-TocVersion {
     Set-Content -LiteralPath $Path -Value $updated
 }
 
+# Final publishing accepts a clean release version or either development
+# suffix used by this repository. In every case the archive and staged TOC
+# receive the bare x.y.z release:
+#   2.0.0-dev.99 -> 2.0.0
+#   2.0.0-rc.12  -> 2.0.0
+#   2.0.0        -> 2.0.0
+function Get-ReleaseVersion {
+    param([string]$Version)
+
+    if ($Version -notmatch "^(?<Base>\d+\.\d+\.\d+)(?:-(?:dev|rc)\.\d+)?$") {
+        throw "Version '$Version' does not match x.y.z, x.y.z-dev.N, or x.y.z-rc.N."
+    }
+
+    return $Matches.Base
+}
+
 if (-not (Test-Path -LiteralPath $AddonDir)) {
     throw "XIVEquip directory not found at expected path: $AddonDir"
 }
 if (-not (Test-Path -LiteralPath $TocPath)) {
     throw "XIVEquip.toc not found at expected path: $TocPath"
+}
+
+# A final release is never allowed to silently skip verification. The shared
+# test entry point already owns supported-Lua discovery and produces a clear
+# error when no runtime is installed, so publishing reuses it unconditionally
+# instead of copying RC's optional-test machinery or exposing a normal skip.
+$testScript = Join-Path $RepoRoot "tools\test.ps1"
+if (-not (Test-Path -LiteralPath $testScript)) {
+    throw "Offline test runner not found at expected path: $testScript"
+}
+
+Write-Host "Running required offline test suite..." -ForegroundColor Cyan
+& $testScript
+if ($LASTEXITCODE -ne 0) {
+    throw "Offline test suite failed -- final publishing is blocked."
 }
 
 if ([string]::IsNullOrWhiteSpace($ArchiveDir)) {
@@ -51,7 +82,7 @@ if ([string]::IsNullOrWhiteSpace($ArchiveDir)) {
 }
 
 $currentVersion = Get-TocVersion -Path $TocPath
-$releaseVersion = $currentVersion -replace "-dev\.\d+$", ""
+$releaseVersion = Get-ReleaseVersion -Version $currentVersion
 
 if ($releaseVersion -ne $currentVersion) {
     Write-Host "Publish version: $currentVersion -> $releaseVersion" -ForegroundColor Green
