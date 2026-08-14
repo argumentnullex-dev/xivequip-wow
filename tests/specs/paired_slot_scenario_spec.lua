@@ -25,6 +25,5 @@ end
 -- including displacement side effects between paired slots.
 Runner.RegisterAll(test, skip, root, A, loadScenarios("paired_slots" .. sep .. "rings.lua"), "run")
 Runner.RegisterAll(test, skip, root, A, loadScenarios("paired_slots" .. sep .. "trinkets.lua"), "run")
-Runner.RegisterAll(test, skip, root, A, loadScenarios("policies" .. sep .. "trinket_policy.lua"), "run")
 
 return tests

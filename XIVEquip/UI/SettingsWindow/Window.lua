@@ -1120,7 +1120,7 @@ local function showConfig(content)
     end)
   specTrinketPreference:SetPoint("TOPLEFT", 14, -224)
   local specTrinketPreferenceNote = font(modePanel, "GameFontDisableSmall",
-    "Hide trinkets Blizzard doesn't consider appropriate for this specialization. Wishlisted trinkets are always shown.")
+    "Enabled by default; hide trinkets Blizzard doesn't consider appropriate for this specialization. Wishlisted trinkets are always shown.")
   specTrinketPreferenceNote:SetPoint("TOPLEFT", 36, -244)
 
   local specs = defaults and defaults.SpecsForClass(classFile) or {}

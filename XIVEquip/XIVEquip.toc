@@ -1,8 +1,8 @@
 ## Interface: 120007, 120100
 ## Title: XIVEquip
-## Notes: FFXIV-style 'Equip Recommended Gear' button using Pawn when available.
+## Notes: Recommends and equips specialization-aware best gear using XIVWeights or Pawn scales, with profiles and preferences.
 ## Author: argument.null.ex@gmail.com (aka Code Ninja)
-## Version: 2.0.0-rc.8
+## Version: 2.0.0-rc.13
 ## SavedVariables: XIVEquip_Settings
 ## IconTexture: Interface\AddOns\XIVEquip\Assets\icon_blue_128
 # Third-party addons reach XIVEquip:RegisterPolicy (PublicAPI/Policies.lua)
@@ -10,7 +10,6 @@
 # addon-local table when this is set. Without it, RegisterPolicy exists but
 # is unreachable from outside XIVEquip's own files.
 ## AllowAddOnTableAccess: 1
-## Category: Equipment
 ## Category: Equipment
 ## Category-deDE: Ausrüstung
 ## Category-esES: Equipo
@@ -103,6 +102,7 @@ Planning/PlanBuilder.lua
 Integrations/Pawn.lua
 
 # Gear execution
+UI/BindConfirmationCard.lua
 Gear/Interface.lua
 
 # Automation Features

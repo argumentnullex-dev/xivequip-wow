@@ -42,9 +42,19 @@ local function newHarness(config)
   local iconMods = {}
   local pickups = {}
   local backpackMoves = 0
+  local cursorClearCount = 0
+  local bindPopupVisible = false
+  local pendingBindEquip
   local passStarts, passEnds = 0, 0
   local frames = {}
   local secureHooks = {}
+  local bindCardShows = {}
+  local bindCardHides = 0
+  local planBestCalls = 0
+  local bindDialog = {
+    which = "EQUIP_BIND",
+    IsShown = function() return bindPopupVisible end,
+  }
   for name, setID in pairs(config.existingSets or {}) do
     setIDs[name] = setID
   end
@@ -73,6 +83,12 @@ local function newHarness(config)
         if key == "SaveSpecSet" then return config.autoSave == true end
         return false
       end,
+    },
+    UI = {
+      BindConfirmationCard = {
+        Show = function(details) bindCardShows[#bindCardShows + 1] = details end,
+        Hide = function() bindCardHides = bindCardHides + 1 end,
+      },
     },
   }
 
@@ -124,7 +140,15 @@ local function newHarness(config)
   _G.GetItemInfoInstant = function() return nil end
   _G.UnitClass = function() return "Player", "WARRIOR" end
   _G.UnitLevel = function() return 80 end
-  _G.ClearCursor = function() config.cursorCleared = true end
+  _G.ClearCursor = function()
+    cursorClearCount = cursorClearCount + 1
+    config.cursorCleared = true
+    config.cursorLink = nil
+    if pendingBindEquip then
+      pendingBindEquip = nil
+      bindPopupVisible = false
+    end
+  end
   _G.PickupInventoryItem = function(slot)
     pickups[#pickups + 1] = slot
     config.cursorSlot = slot
@@ -136,8 +160,26 @@ local function newHarness(config)
       config.cursorSlot = nil
     end
   end
+  _G.EquipCursorItem = function(slot)
+    local link = config.cursorLink
+    local bindType = link and config.bindTypes and config.bindTypes[link] or nil
+    if link and (bindType == 2 or bindType == 9) then
+      pendingBindEquip = { slot = slot, link = link }
+      bindPopupVisible = true
+      return
+    end
+    if link and slot then equipped[slot] = link end
+    config.cursorLink = nil
+  end
   _G.GetSpecialization = function() return 1 end
   _G.GetSpecializationInfo = function() return 1, "Arms", nil, 123 end
+  _G.CancelPendingEquip = function() end
+  _G.StaticPopup_FindVisible = function(which)
+    if bindPopupVisible and (which == "EQUIP_BIND" or which == "EQUIP_BIND_REFUNDABLE" or which == "EQUIP_BIND_TRADEABLE") then
+      bindDialog.which = which
+      return bindDialog
+    end
+  end
   -- Minimal fake frame/event system: production code (Gear/Interface.lua's
   -- BOE bind-confirmation waiting) registers a real Frame and listens for
   -- real WoW events, so tests need to be able to both create that frame and
@@ -159,6 +201,12 @@ local function newHarness(config)
     DoesItemExist = function() return false end,
     IsBound = function(loc)
       return loc and loc.bound == true
+    end,
+  }
+  _G.C_Container = {
+    PickupContainerItem = function(bag, slot)
+      local bagItems = config.bagItems and config.bagItems[bag]
+      config.cursorLink = bagItems and bagItems[slot] or nil
     end,
   }
   _G.ItemLocation = {
@@ -199,9 +247,11 @@ local function newHarness(config)
   loadAddonFile("Global" .. sep .. "Constants.lua", addon)
   loadAddonFile("Core" .. sep .. "GearCore.lua", addon)
 
-  addon.Gear_Core.equipByBasics = config.equipByBasics or function(pick)
-    equipped[pick.targetSlot] = pick.link
-    return pick.link
+  if not config.useRealEquipByBasics then
+    addon.Gear_Core.equipByBasics = config.equipByBasics or function(pick)
+      equipped[pick.targetSlot] = pick.link
+      return pick.link
+    end
   end
 
   loadAddonFile("Gear" .. sep .. "Interface.lua", addon)
@@ -211,7 +261,7 @@ local function newHarness(config)
   -- checkFullyOptimal), so a static "always return the full plan" stub would
   -- incorrectly look like there's always more to do.
   if not config.keepPlanBest then
-    addon.Gear.PlanBest = config.planBest or function()
+    local planBest = config.planBest or function()
       local remaining = {}
       for _, pick in ipairs(config.plan or {}) do
         if equipped[pick.targetSlot] ~= pick.link then
@@ -219,6 +269,10 @@ local function newHarness(config)
         end
       end
       return {}, false, remaining
+    end
+    addon.Gear.PlanBest = function(...)
+      planBestCalls = planBestCalls + 1
+      return planBest(...)
     end
   end
 
@@ -249,9 +303,17 @@ local function newHarness(config)
     end
   end
 
+  local function runNextTimer()
+    local fn = popNextTimer()
+    if not fn then error("timer queue is empty") end
+    fn()
+  end
+
   return addon, {
     runTimers = runTimers,
     runUntil = runUntil,
+    runNextTimer = runNextTimer,
+    now = function() return virtualClock end,
     equipped = equipped,
     printed = printed,
     logs = logs,
@@ -263,8 +325,14 @@ local function newHarness(config)
     iconMods = iconMods,
     pickups = pickups,
     backpackMoves = function() return backpackMoves end,
+    cursorClearCount = function() return cursorClearCount end,
+    bindPopupVisible = function() return bindPopupVisible end,
+    setBindPopupVisible = function(value) bindPopupVisible = value == true end,
+    bindCardShows = bindCardShows,
+    bindCardHides = function() return bindCardHides end,
     passStarts = function() return passStarts end,
     passEnds = function() return passEnds end,
+    planBestCalls = function() return planBestCalls end,
     -- Fires `event` on every fake frame that registered for it, exactly as
     -- the real client dispatches events: synchronously, not through timers.
     fireEvent = function(event, ...)
@@ -278,6 +346,7 @@ local function newHarness(config)
     -- (production hooks StaticPopup_Hide this way to observe the
     -- bind-confirm dialog closing without touching it).
     fireSecureHook = function(name, ...)
+      if name == "StaticPopup_OnHide" then bindPopupVisible = false end
       for _, fn in ipairs(secureHooks[name] or {}) do fn(...) end
     end,
   }
@@ -292,6 +361,7 @@ test("empty plan completes without saving", function()
   A.equal(result.planned_count, 0)
   A.equal(#raw.saves, 0)
   A.truthy(containsMessage(raw.printed, "No upgrades found."))
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "synchronous ordinary completion must release the active-run guard")
 end)
 
 test("verified equip success updates result and saves when enabled", function()
@@ -328,6 +398,37 @@ test("verified equip success updates result and saves when enabled", function()
   A.equal(raw.ignores[2], 19)
   A.equal(raw.unignores[1], 4)
   A.equal(raw.unignores[2], 19)
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "ordinary asynchronous completion must release the active-run guard")
+end)
+
+test("a second EquipBest call cannot overlap ordinary asynchronous verification", function()
+  local newLink = itemLink(202)
+  local equipped = { [1] = itemLink(101) }
+  local equipAttempts = 0
+  local addon, raw = newHarness({
+    equipped = equipped,
+    plan = { { targetSlot = 1, link = newLink } },
+    equipByBasics = function(pick)
+      equipAttempts = equipAttempts + 1
+      equipped[pick.targetSlot] = pick.link
+      return pick.link
+    end,
+  })
+
+  local first = addon.Gear:EquipBest({ verifyDelay = 0.25 })
+  local second = addon.Gear:EquipBest()
+
+  A.equal(second, first, "overlapping calls should receive the active result")
+  A.equal(raw.planBestCalls(), 1, "the second call must not start another planner")
+  A.equal(equipAttempts, 1, "the second call must not create another executor")
+  A.truthy(containsMessage(raw.printed, "An equip operation is already in progress."))
+  A.truthy(addon.Gear:IsEquipRunInProgress())
+
+  raw.runTimers()
+
+  A.equal(first.succeeded, 1)
+  A.equal(first.completed, true)
+  A.falsy(addon.Gear:IsEquipRunInProgress())
 end)
 
 test("equip routes through the planner", function()
@@ -403,6 +504,7 @@ test("a planner failure aborts without equipping or invoking legacy planners", f
   A.equal(raw.equipped[1], oldLink)
   A.truthy(containsMessage(raw.printed, "Planner failed; no gear was equipped."))
   A.truthy(containsMessage(raw.logs, "planner failed"))
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "planner failure must release the active-run guard")
 end)
 
 test("a planner failure prints even when normal equip messages are disabled", function()
@@ -725,6 +827,7 @@ test("equip exception records failure and still ends the pass once", function()
   A.equal(result.succeeded, 0)
   A.equal(result.set_saved, false)
   A.equal(#raw.saves, 0)
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "an equip exception must release the active-run guard")
 end)
 
 test("permanently locked slot times out without hanging", function()
@@ -782,6 +885,84 @@ test("unbound BoE triggers a pending bind-confirmation instead of manual_require
   A.truthy(containsMessage(raw.printed, "Confirm the bind-on-equip popup"))
 end)
 
+test("Warbound-Until-Equipped item (bindType 9) also triggers a pending bind-confirmation", function()
+  local warbound = itemLink(205)
+  local addon, raw = newHarness({
+    equipped = { [1] = itemLink(101) },
+    bindTypes = { [warbound] = 9 },
+    plan = { { targetSlot = 1, link = warbound, loc = { bound = false } } },
+    equipByBasics = function() end,
+  })
+
+  local result = addon.Gear:EquipBest()
+
+  A.equal(result.manual_required, 0)
+  A.equal(result.failed, 0)
+  A.truthy(result.awaiting, "Warbound-Until-Equipped items must wait for confirmation just like classic BoE")
+  A.equal(result.awaiting.slot, 1)
+end)
+
+test("equipByBasics is told to skip its final ClearCursor for a possibly-unbound BoE, but not for a normal item", function()
+  local boe = itemLink(201)
+  local normalLink = itemLink(301)
+  local calls = {}
+  local equipped = { [1] = itemLink(101), [3] = itemLink(103) }
+  local addon, raw = newHarness({
+    equipped = equipped,
+    bindTypes = { [boe] = 2 },
+    plan = {
+      { targetSlot = 1, link = boe, loc = { bound = false } },
+      { targetSlot = 3, link = normalLink },
+    },
+    equipByBasics = function(pick, skipFinalClear)
+      calls[#calls + 1] = { targetSlot = pick.targetSlot, skipFinalClear = skipFinalClear }
+      if pick.targetSlot == 3 then equipped[pick.targetSlot] = pick.link end
+    end,
+  })
+
+  addon.Gear:EquipBest()
+  raw.runUntil(function() return #calls >= 1 end)
+
+  A.equal(calls[1].targetSlot, 1)
+  A.truthy(calls[1].skipFinalClear, "a possibly-unbound BoE must not have its cursor cleared before a popup can appear")
+
+  -- Resolve the BoE wait so the plan continues to the normal item.
+  equipped[1] = boe
+  raw.fireEvent("PLAYER_EQUIPMENT_CHANGED", 1, true)
+  raw.runUntil(function() return #calls >= 2 end)
+
+  A.equal(calls[2].targetSlot, 3)
+  A.falsy(calls[2].skipFinalClear, "a normal item should keep the existing ClearCursor behavior")
+end)
+
+test("real bag equip keeps Blizzard's bind popup pending instead of clearing its cursor item", function()
+  local boe = itemLink(206)
+  local addon, raw = newHarness({
+    useRealEquipByBasics = true,
+    equipped = { [1] = itemLink(101) },
+    bagItems = { [0] = { [1] = boe } },
+    bindTypes = { [boe] = 2 },
+    plan = {
+      {
+        targetSlot = 1, link = boe, bagID = 0, slotIndex = 1, loc = { bound = false },
+        preview = {
+          slot = 1, slotName = "Head", oldLink = itemLink(101), newLink = boe,
+          deltaScore = 42.5, deltaIlvl = 12,
+        },
+      },
+    },
+  })
+
+  local result = addon.Gear:EquipBest()
+
+  A.truthy(raw.bindPopupVisible(), "the pending cursor item must survive long enough for Blizzard's popup to remain visible")
+  A.truthy(result.awaiting, "the equip run must pause while Blizzard waits for the user's confirmation")
+  A.equal(raw.cursorClearCount(), 1, "only the pre-pickup cursor cleanup should run before confirmation")
+  A.equal(#raw.bindCardShows, 1, "the recommendation companion should appear with Blizzard's bind popup")
+  A.equal(raw.bindCardShows[1].newLink, boe)
+  A.equal(raw.bindCardShows[1].deltaScore, 42.5)
+end)
+
 test("BoE acceptance equips the item, marks the step successful, and resumes the plan", function()
   local boe = itemLink(201)
   local nextLink = itemLink(301)
@@ -817,6 +998,8 @@ test("BoE acceptance equips the item, marks the step successful, and resumes the
   A.equal(raw.equipped[1], boe)
   A.equal(raw.equipped[3], nextLink)
   A.equal(result.set_saved, true)
+  A.truthy(raw.bindCardHides() > 0, "accepting the bind should dismiss the recommendation companion")
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "acceptance must release the active-run guard after completion")
 end)
 
 test("BoE cancellation resolves without hanging and does not count as a failure", function()
@@ -829,13 +1012,15 @@ test("BoE cancellation resolves without hanging and does not count as a failure"
     equipByBasics = function() end,
   })
 
-  local result = addon.Gear:EquipBest()
+  local result = addon.Gear:EquipBest({ bindCancelGraceDelay = 0.2, bindConfirmTimeout = 30 })
   A.truthy(result.awaiting)
 
-  -- Simulate the user clicking Cancel (or Escaping): Blizzard's dialog
-  -- hides without the equipped slot ever changing.
-  raw.fireSecureHook("StaticPopup_Hide", "EQUIP_BIND")
-  raw.runTimers()
+  -- Blizzard calls CancelPendingEquip from OnCancel while the dialog is
+  -- still shown, then hides it and calls CancelPendingEquip again as cleanup.
+  raw.setBindPopupVisible(true)
+  raw.fireSecureHook("CancelPendingEquip", 1)
+  raw.fireSecureHook("StaticPopup_OnHide", { which = "EQUIP_BIND" })
+  raw.runUntil(function() return result.completed end)
 
   A.equal(result.awaiting, nil)
   A.equal(result.bind_declined, 1)
@@ -845,6 +1030,105 @@ test("BoE cancellation resolves without hanging and does not count as a failure"
   A.equal(result.completed, true)
   A.equal(result.set_saved, false)
   A.truthy(containsMessage(raw.printed, "Declined binding"))
+  A.truthy(raw.bindCardHides() > 0, "closing Blizzard's popup should dismiss the recommendation companion")
+  A.truthy(raw.now() < 1, "EquipBest must forward the configured explicit-cancel grace delay")
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "explicit decline must release the active-run guard")
+end)
+
+test("a popup hide alone remains pending long enough for a delayed successful equip", function()
+  local boe = itemLink(207)
+  local equipped = { [1] = itemLink(101) }
+  local addon, raw = newHarness({
+    equipped = equipped,
+    bindTypes = { [boe] = 2 },
+    plan = { { targetSlot = 1, link = boe, loc = { bound = false } } },
+    equipByBasics = function() end,
+  })
+
+  local result = addon.Gear:EquipBest({ bindCancelGraceDelay = 0.01, bindConfirmTimeout = 30 })
+  A.truthy(result.awaiting)
+
+  -- Accept and Cancel both hide the popup. Without an explicit visible-dialog
+  -- CancelPendingEquip observation, hide must never be enough to call decline.
+  raw.fireSecureHook("StaticPopup_OnHide", { which = "EQUIP_BIND" })
+  A.truthy(result.awaiting, "popup hide must continue awaiting the server result")
+  A.equal(result.bind_declined, 0)
+
+  equipped[1] = boe
+  raw.fireEvent("PLAYER_EQUIPMENT_CHANGED", 1, true)
+  raw.runTimers()
+
+  A.equal(result.succeeded, 1)
+  A.equal(result.bind_declined, 0)
+  A.equal(result.timed_out, 0)
+  A.equal(result.completed, true)
+  A.falsy(addon.Gear:IsEquipRunInProgress())
+end)
+
+test("a second EquipBest call cannot overlap a run awaiting BOE confirmation", function()
+  local boe = itemLink(208)
+  local equipped = { [1] = itemLink(101) }
+  local equipAttempts = 0
+  local addon, raw = newHarness({
+    equipped = equipped,
+    bindTypes = { [boe] = 2 },
+    plan = { { targetSlot = 1, link = boe, loc = { bound = false } } },
+    equipByBasics = function() equipAttempts = equipAttempts + 1 end,
+  })
+
+  local first = addon.Gear:EquipBest({ bindConfirmTimeout = 30 })
+  local second = addon.Gear:EquipBest()
+
+  A.equal(second, first, "overlapping calls should receive the active result")
+  A.equal(raw.planBestCalls(), 1, "the second call must not start another planner")
+  A.equal(equipAttempts, 1, "the second call must not create another executor")
+  A.truthy(containsMessage(raw.printed, "An equip operation is already in progress."))
+  A.truthy(addon.Gear:IsEquipRunInProgress())
+
+  equipped[1] = boe
+  raw.fireEvent("PLAYER_EQUIPMENT_CHANGED", 1, true)
+  raw.runTimers()
+
+  A.equal(first.succeeded, 1, "the original wait must still resolve normally")
+  A.equal(first.completed, true)
+  A.falsy(addon.Gear:IsEquipRunInProgress())
+end)
+
+test("a stale explicit-cancel timer from an older generation cannot resolve a newer BOE wait", function()
+  local boe1, boe2 = itemLink(209), itemLink(210)
+  local equipped = { [1] = itemLink(101), [3] = itemLink(103) }
+  local addon, raw = newHarness({
+    equipped = equipped,
+    bindTypes = { [boe1] = 2, [boe2] = 2 },
+    plan = {
+      { targetSlot = 1, link = boe1, loc = { bound = false } },
+      { targetSlot = 3, link = boe2, loc = { bound = false } },
+    },
+    equipByBasics = function() end,
+  })
+
+  local result = addon.Gear:EquipBest({ bindCancelGraceDelay = 5, bindConfirmTimeout = 100 })
+  A.equal(result.awaiting.slot, 1)
+
+  -- Schedule an explicit-cancel callback for generation one, then let success
+  -- win before its grace timer fires and advance to generation two.
+  raw.setBindPopupVisible(true)
+  raw.fireSecureHook("CancelPendingEquip", 1)
+  raw.fireSecureHook("StaticPopup_OnHide", { which = "EQUIP_BIND" })
+  equipped[1] = boe1
+  raw.fireEvent("PLAYER_EQUIPMENT_CHANGED", 1, true)
+  raw.runUntil(function() return result.awaiting and result.awaiting.slot == 3 end)
+
+  raw.runNextTimer() -- generation one's delayed cancel callback at t=5
+  A.equal(result.awaiting.slot, 3, "stale generation one must not touch generation two")
+  A.equal(result.bind_declined, 0)
+  A.equal(result.succeeded, 1)
+
+  equipped[3] = boe2
+  raw.fireEvent("PLAYER_EQUIPMENT_CHANGED", 3, true)
+  raw.runTimers()
+  A.equal(result.succeeded, 2)
+  A.equal(result.completed, true)
 end)
 
 test("a normal item followed by a BoE equips the normal item immediately, then pauses for the BoE", function()
@@ -917,7 +1201,7 @@ test("a bind confirmation that never resolves times out instead of hanging the r
     equipByBasics = function() end,
   })
 
-  local result = addon.Gear:EquipBest()
+  local result = addon.Gear:EquipBest({ bindConfirmTimeout = 0.25 })
   A.truthy(result.awaiting)
 
   -- Neither PLAYER_EQUIPMENT_CHANGED nor a dialog-hide ever arrives (e.g.
@@ -931,6 +1215,8 @@ test("a bind confirmation that never resolves times out instead of hanging the r
   A.equal(result.bind_declined, 0)
   A.equal(result.completed, true)
   A.equal(result.set_saved, false)
+  A.truthy(raw.now() < 1, "EquipBest must forward the configured bind timeout to the executor")
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "timeout must release the active-run guard")
 end)
 
 test("final spec-set save is not scheduled while a BoE confirmation is still outstanding", function()
@@ -1018,6 +1304,7 @@ test("combat during locked-slot wait skips the plan before protected equip", fun
   A.equal(equipAttempts, 0)
   A.equal(result.skipped, 1)
   A.equal(result.failed, 0)
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "combat abort during a lock wait must release the active-run guard")
 end)
 
 test("pending item data reaches a bounded timeout", function()
@@ -1035,6 +1322,7 @@ test("pending item data reaches a bounded timeout", function()
   A.equal(result.pending_data, true)
   A.equal(result.timed_out, 1)
   A.equal(result.completed, true)
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "pending-data timeout must release the active-run guard")
 end)
 
 test("combat during execution skips remaining steps and prevents save", function()
@@ -1063,6 +1351,7 @@ test("combat during execution skips remaining steps and prevents save", function
   A.equal(result.skipped, 1)
   A.equal(result.set_saved, false)
   A.equal(#raw.saves, 0)
+  A.falsy(addon.Gear:IsEquipRunInProgress(), "combat abort between plan steps must release the active-run guard")
 end)
 
 return tests

@@ -1,10 +1,8 @@
 -- tests/scenarios/paired_slots/trinkets.lua
--- Doc section 7's trinket bullets that only need scoring/uniqueness (no
--- policy metadata), represented through the native scenario harness. The
--- preferred/avoided/excluded/required/passive-on-use bullets need trinket
--- policy metadata that doesn't exist yet -- see
--- tests/scenarios/policies/trinket_policy.lua for those, written as
--- skipped placeholders per user decision.
+-- Trinket scoring/uniqueness scenarios represented through the native
+-- scenario harness. The current default-enabled Blizzard spec-suitability
+-- filter, Wishlist override, Avoidlist behavior, and permissive unknown-
+-- metadata path are covered end-to-end in profile_preferences_policy_spec.
 
 local root = ...
 local sep = package.config:sub(1, 1)

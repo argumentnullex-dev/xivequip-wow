@@ -35,6 +35,7 @@ local specs = {
   "settings_spec",
   "settings_window_spec",
   "ui_preview_spec",
+  "bind_confirmation_card_spec",
   "minimap_button_spec",
   "equip_execution_spec",
   "fixture_spec",
