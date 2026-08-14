@@ -90,8 +90,14 @@ local function appendPick(plan, changes, slotID, current, candidate, currentSlot
   if sourceSlot == slotID then return end
 
   local pick = candidatePick(slotID, candidate, finalSlotScores)
+  local change = changeRow(slotID, current, candidate, pick, currentSlotScores, finalSlotScores)
+  -- Execution needs the same human-facing context as the hover preview when
+  -- Blizzard pauses an unbound item behind its confirmation dialog. Keeping
+  -- the row on the corresponding physical plan step avoids trying to match
+  -- links/slots again after equipment-slot moves have already begun.
+  pick.preview = change
   plan[#plan + 1] = pick
-  changes[#changes + 1] = changeRow(slotID, current, candidate, pick, currentSlotScores, finalSlotScores)
+  changes[#changes + 1] = change
 end
 
 local function appendUnequip(plan, changes, slotID, current, currentSlotScores, finalSlotScores)
@@ -101,8 +107,10 @@ local function appendUnequip(plan, changes, slotID, current, currentSlotScores, 
     targetSlot = slotID,
     oldLink = current.link,
   }
+  local change = changeRow(slotID, current, nil, pick, currentSlotScores, finalSlotScores)
+  pick.preview = change
   plan[#plan + 1] = pick
-  changes[#changes + 1] = changeRow(slotID, current, nil, pick, currentSlotScores, finalSlotScores)
+  changes[#changes + 1] = change
 end
 
 local function planHasMainhandClear(plan)

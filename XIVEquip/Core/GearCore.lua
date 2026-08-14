@@ -358,9 +358,9 @@ end
 -- fires EQUIP_BIND_CONFIRM (or the _REFUNDABLE/_TRADEABLE variant) while it
 -- waits for the user to accept or cancel Blizzard's own popup. Clearing the
 -- cursor immediately afterward -- as this function always used to,
--- unconditionally -- discards that pending state before the popup logic
--- ever gets a chance to establish itself, so the confirmation is silently
--- lost and no dialog appears at all. Callers that already know (via
+-- unconditionally -- discards that pending state and invalidates the popup,
+-- so the confirmation disappears before the user can act on it. Callers that
+-- already know (via
 -- whatever bind-type check they use) that the item might need confirmation
 -- should pass true here, and clear the cursor themselves once the wait
 -- actually resolves.

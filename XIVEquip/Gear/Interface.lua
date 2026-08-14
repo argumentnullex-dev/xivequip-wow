@@ -26,6 +26,20 @@ local _boeConfirmFrame = (type(CreateFrame) == "function") and CreateFrame("Fram
 local _activeBindWait
 local _bindGeneration = 0
 
+local function bindConfirmationCard()
+  return XIVEquip.UI and XIVEquip.UI.BindConfirmationCard
+end
+
+local function showBindConfirmationCard(details)
+  local card = bindConfirmationCard()
+  if card and type(card.Show) == "function" then pcall(card.Show, details) end
+end
+
+local function hideBindConfirmationCard()
+  local card = bindConfirmationCard()
+  if card and type(card.Hide) == "function" then pcall(card.Hide) end
+end
+
 local BIND_WAIT_EVENTS = {
   "EQUIP_BIND_CONFIRM", "EQUIP_BIND_REFUNDABLE_CONFIRM", "EQUIP_BIND_TRADEABLE_CONFIRM",
   "PLAYER_EQUIPMENT_CHANGED",
@@ -54,22 +68,24 @@ if _boeConfirmFrame then
       -- close). Not itself required for success detection: that's
       -- PLAYER_EQUIPMENT_CHANGED's job.
       _activeBindWait.confirmSeen = (_activeBindWait.confirmSeen or 0) + 1
+      _activeBindWait.showCard()
     end
   end)
 end
 
 -- Never touches StaticPopupDialogs["EQUIP_BIND"/"EQUIP_BIND_REFUNDABLE"/
 -- "EQUIP_BIND_TRADEABLE"] -- OnAccept/OnCancel/OnHide stay exactly
--- Blizzard's own, and only Blizzard's popup ever calls the protected
--- EquipPendingItem/CancelPendingEquip. hooksecurefunc is a pure post-call
--- observer: it cannot run before, replace, or block the original, and
--- cannot feed insecure execution back into it, so this does not taint the
--- protected click path -- it only ever tells us a matching dialog closed,
--- never why, which is why success is still decided solely by
--- PLAYER_EQUIPMENT_CHANGED above, not by this hook.
+-- Blizzard's own. hooksecurefunc is a pure post-call observer: it cannot run
+-- before, replace, or block the original. Hook StaticPopup_OnHide rather than
+-- StaticPopup_Hide: Blizzard's popup buttons call dialog:Hide() directly, so
+-- the latter is not involved when the user clicks either OK or Cancel.
+-- This only tells us that a matching dialog closed, never why, which is why
+-- success is still decided solely by PLAYER_EQUIPMENT_CHANGED above.
 if type(hooksecurefunc) == "function" then
-  hooksecurefunc("StaticPopup_Hide", function(which)
+  hooksecurefunc("StaticPopup_OnHide", function(dialog)
+    local which = dialog and dialog.which
     if _activeBindWait and BIND_DIALOG_WHICH[which] then
+      hideBindConfirmationCard()
       _activeBindWait.onDialogHidden()
     end
   end)
@@ -474,6 +490,7 @@ function C:_runEquipPlan(plan, opts)
             for _, evt in ipairs(BIND_WAIT_EVENTS) do _boeConfirmFrame:UnregisterEvent(evt) end
           end
           if _activeBindWait == wait then _activeBindWait = nil end
+          hideBindConfirmationCard()
           result.awaiting = nil
           if ClearCursor then ClearCursor() end
 
@@ -499,10 +516,20 @@ function C:_runEquipPlan(plan, opts)
           C_Timer.After(stepDelay, function() step(index + 1) end)
         end
 
+        local preview = pick.preview or {
+          slot = slotID,
+          slotName = (Core.SLOT_LABEL and Core.SLOT_LABEL[slotID]) or ("Slot " .. tostring(slotID)),
+          oldLink = oldLink,
+          newLink = pickLink,
+          deltaScore = pick.deltaScore,
+          deltaIlvl = pick.deltaIlvl,
+        }
+
         wait = {
           generation = generation,
           slot = slotID,
           confirmSeen = 0,
+          showCard = function() showBindConfirmationCard(preview) end,
           -- PLAYER_EQUIPMENT_CHANGED(equipSlot, hasCurrent): the only
           -- authoritative success signal -- EquipPendingItem's actual equip
           -- is a server round-trip, so it lands after the dialog has
@@ -537,6 +564,13 @@ function C:_runEquipPlan(plan, opts)
         if _boeConfirmFrame then
           for _, evt in ipairs(BIND_WAIT_EVENTS) do _boeConfirmFrame:RegisterEvent(evt) end
         end
+
+        -- EquipCursorItem fires the confirmation event synchronously before
+        -- this waiter can be installed. By this point Blizzard's dialog is
+        -- already visible, so perform the initial companion-card show now;
+        -- subsequent confirmation events (including dialog-skin switches)
+        -- refresh it through the event handler above.
+        wait.showCard()
 
         if showEquip then
           printResult(result, string.format("Confirm the bind-on-equip popup for %s to continue equipping.", tostring(pickLink or "(item)")))

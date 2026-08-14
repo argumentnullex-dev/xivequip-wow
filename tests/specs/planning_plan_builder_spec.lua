@@ -210,6 +210,7 @@ test("PlanBuilder uses evaluated slot scores when present", function()
   A.equal(#plan, 1)
   A.equal(plan[1].score, 55)
   A.equal(changes[1].deltaScore, 45)
+  A.equal(plan[1].preview, changes[1], "the physical equip step should retain its matching human-facing preview row")
 end)
 
 return tests

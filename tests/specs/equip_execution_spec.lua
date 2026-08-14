@@ -42,9 +42,14 @@ local function newHarness(config)
   local iconMods = {}
   local pickups = {}
   local backpackMoves = 0
+  local cursorClearCount = 0
+  local bindPopupVisible = false
+  local pendingBindEquip
   local passStarts, passEnds = 0, 0
   local frames = {}
   local secureHooks = {}
+  local bindCardShows = {}
+  local bindCardHides = 0
   for name, setID in pairs(config.existingSets or {}) do
     setIDs[name] = setID
   end
@@ -73,6 +78,12 @@ local function newHarness(config)
         if key == "SaveSpecSet" then return config.autoSave == true end
         return false
       end,
+    },
+    UI = {
+      BindConfirmationCard = {
+        Show = function(details) bindCardShows[#bindCardShows + 1] = details end,
+        Hide = function() bindCardHides = bindCardHides + 1 end,
+      },
     },
   }
 
@@ -124,7 +135,15 @@ local function newHarness(config)
   _G.GetItemInfoInstant = function() return nil end
   _G.UnitClass = function() return "Player", "WARRIOR" end
   _G.UnitLevel = function() return 80 end
-  _G.ClearCursor = function() config.cursorCleared = true end
+  _G.ClearCursor = function()
+    cursorClearCount = cursorClearCount + 1
+    config.cursorCleared = true
+    config.cursorLink = nil
+    if pendingBindEquip then
+      pendingBindEquip = nil
+      bindPopupVisible = false
+    end
+  end
   _G.PickupInventoryItem = function(slot)
     pickups[#pickups + 1] = slot
     config.cursorSlot = slot
@@ -135,6 +154,17 @@ local function newHarness(config)
       equipped[config.cursorSlot] = nil
       config.cursorSlot = nil
     end
+  end
+  _G.EquipCursorItem = function(slot)
+    local link = config.cursorLink
+    local bindType = link and config.bindTypes and config.bindTypes[link] or nil
+    if link and (bindType == 2 or bindType == 9) then
+      pendingBindEquip = { slot = slot, link = link }
+      bindPopupVisible = true
+      return
+    end
+    if link and slot then equipped[slot] = link end
+    config.cursorLink = nil
   end
   _G.GetSpecialization = function() return 1 end
   _G.GetSpecializationInfo = function() return 1, "Arms", nil, 123 end
@@ -159,6 +189,12 @@ local function newHarness(config)
     DoesItemExist = function() return false end,
     IsBound = function(loc)
       return loc and loc.bound == true
+    end,
+  }
+  _G.C_Container = {
+    PickupContainerItem = function(bag, slot)
+      local bagItems = config.bagItems and config.bagItems[bag]
+      config.cursorLink = bagItems and bagItems[slot] or nil
     end,
   }
   _G.ItemLocation = {
@@ -199,9 +235,11 @@ local function newHarness(config)
   loadAddonFile("Global" .. sep .. "Constants.lua", addon)
   loadAddonFile("Core" .. sep .. "GearCore.lua", addon)
 
-  addon.Gear_Core.equipByBasics = config.equipByBasics or function(pick)
-    equipped[pick.targetSlot] = pick.link
-    return pick.link
+  if not config.useRealEquipByBasics then
+    addon.Gear_Core.equipByBasics = config.equipByBasics or function(pick)
+      equipped[pick.targetSlot] = pick.link
+      return pick.link
+    end
   end
 
   loadAddonFile("Gear" .. sep .. "Interface.lua", addon)
@@ -263,6 +301,10 @@ local function newHarness(config)
     iconMods = iconMods,
     pickups = pickups,
     backpackMoves = function() return backpackMoves end,
+    cursorClearCount = function() return cursorClearCount end,
+    bindPopupVisible = function() return bindPopupVisible end,
+    bindCardShows = bindCardShows,
+    bindCardHides = function() return bindCardHides end,
     passStarts = function() return passStarts end,
     passEnds = function() return passEnds end,
     -- Fires `event` on every fake frame that registered for it, exactly as
@@ -832,6 +874,34 @@ test("equipByBasics is told to skip its final ClearCursor for a possibly-unbound
   A.falsy(calls[2].skipFinalClear, "a normal item should keep the existing ClearCursor behavior")
 end)
 
+test("real bag equip keeps Blizzard's bind popup pending instead of clearing its cursor item", function()
+  local boe = itemLink(206)
+  local addon, raw = newHarness({
+    useRealEquipByBasics = true,
+    equipped = { [1] = itemLink(101) },
+    bagItems = { [0] = { [1] = boe } },
+    bindTypes = { [boe] = 2 },
+    plan = {
+      {
+        targetSlot = 1, link = boe, bagID = 0, slotIndex = 1, loc = { bound = false },
+        preview = {
+          slot = 1, slotName = "Head", oldLink = itemLink(101), newLink = boe,
+          deltaScore = 42.5, deltaIlvl = 12,
+        },
+      },
+    },
+  })
+
+  local result = addon.Gear:EquipBest()
+
+  A.truthy(raw.bindPopupVisible(), "the pending cursor item must survive long enough for Blizzard's popup to remain visible")
+  A.truthy(result.awaiting, "the equip run must pause while Blizzard waits for the user's confirmation")
+  A.equal(raw.cursorClearCount(), 1, "only the pre-pickup cursor cleanup should run before confirmation")
+  A.equal(#raw.bindCardShows, 1, "the recommendation companion should appear with Blizzard's bind popup")
+  A.equal(raw.bindCardShows[1].newLink, boe)
+  A.equal(raw.bindCardShows[1].deltaScore, 42.5)
+end)
+
 test("BoE acceptance equips the item, marks the step successful, and resumes the plan", function()
   local boe = itemLink(201)
   local nextLink = itemLink(301)
@@ -867,6 +937,7 @@ test("BoE acceptance equips the item, marks the step successful, and resumes the
   A.equal(raw.equipped[1], boe)
   A.equal(raw.equipped[3], nextLink)
   A.equal(result.set_saved, true)
+  A.truthy(raw.bindCardHides() > 0, "accepting the bind should dismiss the recommendation companion")
 end)
 
 test("BoE cancellation resolves without hanging and does not count as a failure", function()
@@ -884,7 +955,7 @@ test("BoE cancellation resolves without hanging and does not count as a failure"
 
   -- Simulate the user clicking Cancel (or Escaping): Blizzard's dialog
   -- hides without the equipped slot ever changing.
-  raw.fireSecureHook("StaticPopup_Hide", "EQUIP_BIND")
+  raw.fireSecureHook("StaticPopup_OnHide", { which = "EQUIP_BIND" })
   raw.runTimers()
 
   A.equal(result.awaiting, nil)
@@ -895,6 +966,7 @@ test("BoE cancellation resolves without hanging and does not count as a failure"
   A.equal(result.completed, true)
   A.equal(result.set_saved, false)
   A.truthy(containsMessage(raw.printed, "Declined binding"))
+  A.truthy(raw.bindCardHides() > 0, "closing Blizzard's popup should dismiss the recommendation companion")
 end)
 
 test("a normal item followed by a BoE equips the normal item immediately, then pauses for the BoE", function()
