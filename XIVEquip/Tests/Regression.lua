@@ -131,14 +131,30 @@ addCase("/xive status completes without error", function()
   end)
 end)
 
-addCase("settings migrate to schema version 2", function()
+addCase("legacy settings migrate to the current canonical schema", function()
   withSavedSettings(function()
+    local S = XIVEquip.Settings
     local st = getSettings()
-    expectEqual(st.SchemaVersion, 2, "schema version")
-    expectTruthy(st.Comparer and st.Comparer.Selected, "canonical comparer")
+    local currentSchema = S:GetSchemaVersion()
+
+    -- Exercise migration from the old root/automation/debug/comparer shapes
+    -- instead of duplicating the current schema number in this live check.
+    st.SchemaVersion = 2
+    st.AutoSpecEquip = true
+    st.Automation = { AutoSets = true }
+    st.Debug = true
+    st.Comparer = { Selected = "ilvl" }
+    S:Initialize()
+
+    expectEqual(st.SchemaVersion, currentSchema, "schema version")
+    expectEqual(st.SettingsModel, "v2", "settings model")
     expectEqual(type(st.Debug), "table", "debug shape")
-    expectTruthy(st.Automation and st.Automation.SpecEquip ~= nil, "spec automation field")
-    expectTruthy(st.Automation and st.Automation.SaveSpecSet ~= nil, "save automation field")
+    expectEqual(st.Debug.Enabled, true, "legacy debug value")
+    expectEqual(st.Automation and st.Automation.SpecEquip, true, "legacy spec automation migration")
+    expectEqual(st.Automation and st.Automation.SaveSpecSet, true, "legacy save automation migration")
+    expectEqual(st.Comparer, nil, "retired comparer")
+    expectEqual(st.AutoSpecEquip, nil, "retired root automation field")
+    expectEqual(st.Automation and st.Automation.AutoSets, nil, "retired automation alias")
   end)
 end)
 
