@@ -2,7 +2,7 @@
 ## Title: XIVEquip
 ## Notes: Recommends and equips specialization-aware best gear using XIVWeights or Pawn scales, with profiles and preferences.
 ## Author: argument.null.ex@gmail.com (aka Code Ninja)
-## Version: 2.0.0-rc.13
+## Version: 2.0.0-rc.14
 ## SavedVariables: XIVEquip_Settings
 ## IconTexture: Interface\AddOns\XIVEquip\Assets\icon_blue_128
 # Third-party addons reach XIVEquip:RegisterPolicy (PublicAPI/Policies.lua)
