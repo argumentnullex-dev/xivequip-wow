@@ -1,10 +1,7 @@
-# XIVEquip 2.0 — Equip Recommended Gear for World of Warcraft
+# XIVEquip — Equip Recommended Gear for World of Warcraft
 
-## CurseForge Summary
-
-**FFXIV-style Equip Recommended Gear for WoW — smart, spec-aware gearing from the items already in your bags.**
-
----
+> **CurseForge Summary field:**  
+> FFXIV-style Equip Recommended Gear for WoW — smart, spec-aware gearing from the items already in your bags.
 
 ## Stop digging through your bags
 
@@ -16,7 +13,7 @@ Leveling and drowning in quest rewards? Swapping to an off-spec you haven't play
 
 No spreadsheets. No bag archaeology. **No Pawn required.**
 
-![XIVEquip recommendation preview](REPLACE_WITH_CURSEFORGE_URL_FOR_retribution-upgrade-preview-character-panel.png)
+![XIVEquip recommendation preview](./screenshots/retribution-upgrade-preview-character-panel.png)
 
 ## Preview it. Equip it. Done.
 
@@ -30,45 +27,54 @@ Already wearing the best setup it can find? XIVEquip simply tells you there are 
 
 The minimap button keeps the common actions close at hand:
 
-* **Left-click:** Equip Recommended Gear
-* **Shift + Left-click:** Preview recommendations
-* **Right-click:** Open settings
+- **Left-click:** Equip Recommended Gear
+- **Shift + Left-click:** Preview recommendations
+- **Right-click:** Open settings
 
-![XIVEquip minimap controls](REPLACE_WITH_CURSEFORGE_URL_FOR_minimap-button-controls-tooltip.png)
+![XIVEquip minimap controls](./screenshots/minimap-button-controls-tooltip.png)
 
 ## Smarter than “highest item level wins”
 
-WoW gear gets weird. XIVEquip accounts for that.
+WoW gear can be complicated. XIVEquip accounts for that.
 
 It looks at your equipment as a **complete loadout**, so it can make sensible choices when several slots affect each other. That includes:
 
-* Correct armor and weapons for your specialization
-* Dual-wield, two-handed, shield, and off-hand setups
-* Fury Warrior Titan's Grip and Frost Death Knight weapon choices
-* Ring and trinket pairs
-* Unique-Equipped restrictions
-* 2-piece and 4-piece set bonuses
-* Spec-appropriate trinkets
-* Your own Wishlist and Avoidlist preferences
+- Correct armor and weapons for your specialization
+- Dual-wield, two-handed, shield, and off-hand setups
+- Fury Warrior Titan's Grip and Frost Death Knight weapon choices
+- Ring and trinket pairs
+- Unique-Equipped restrictions
+- 2-piece and 4-piece set bonuses
+- Spec-appropriate trinkets
+- Your own Wishlist and Avoidlist preferences
 
 That also means XIVEquip can sometimes recommend a lower-item-level piece when its stats make it the better choice for the weights you're using.
 
 ## Works out of the box — customize it when you want to
 
-XIVEquip 2.0 includes **built-in stat weights for every specialization**, so you can install it and start using it without another addon.
+XIVEquip includes **built-in stat weights for every specialization**, so you can install it and start using it without another addon.
 
-Want more control? Create your own XIVWeights scale and tune the stats that matter to you.
+Want more control? Create your own custom scale and tune the stats that matter to you.
 
-![XIVEquip custom scale editor](REPLACE_WITH_CURSEFORGE_URL_FOR_custom-scale-weight-editor.png)
+![XIVEquip custom scale editor](./screenshots/custom-scale-weight-editor.png)
 
-You can also bring in weights you already use:
+## Bring your own weights — or use Pawn directly
 
-* Import Pawn / Raidbots-style weight strings
-* Import Wowhead-style stat priorities
-* Use Pawn directly if you already have it installed
-* Export your custom XIVWeights scales for sharing or backup
+XIVEquip works completely on its own, with built-in scales for every specialization. But if you already use **Pawn**, XIVEquip can use your Pawn scales directly when deciding what gear to equip. That means you keep the features Pawn already provides — such as visually identifying upgrades in your bags and on item tooltips and working with stat-weight exports from tools like Raidbots — while adding XIVEquip's ability to evaluate your available gear and turn those weights into a complete recommended loadout.
 
-Pawn is supported, but **XIVEquip does not depend on Pawn**.
+![XIVEquip minimap controls](./screenshots/pawn-integration.png)
+
+In other words, **Pawn can tell you how valuable an item is; XIVEquip can use that information to equip it for you.**
+
+You can also bring weights into XIVEquip without keeping Pawn installed:
+
+* **Use Pawn scales directly** when Pawn is installed
+* **Import Pawn / Raidbots-style weight strings**
+* **Import Wowhead-style stat priorities**
+* **Create and edit your own custom scales**
+* **Export scales** for sharing or backup
+
+If you already have a Pawn workflow you like, XIVEquip complements it rather than replacing it.
 
 ## Tell XIVEquip about the gear you actually want
 
@@ -84,7 +90,7 @@ Put an item on the Avoidlist when you do not want XIVEquip recommending it for t
 
 You can add items from your current gear and bags, by item link or item ID, and even Ctrl-click item links into the active list while the settings page is open.
 
-![XIVEquip Wishlist](REPLACE_WITH_CURSEFORGE_URL_FOR_protection-wishlist-settings.png)
+![XIVEquip Wishlist](./screenshots/protection-wishlist-settings.png)
 
 ### Set bonuses and trinkets
 
@@ -94,13 +100,15 @@ Both behaviors are configurable, and Wishlist gives you an intentional override 
 
 ## Profiles for different characters and specs
 
-Your Retribution setup does not have to behave like your Protection setup.
+Your Paladin setup does not have to behave like your Warrior setup.
 
-Profiles let you keep different gearing preferences for different characters and specializations. For each spec, you can use XIVEquip's defaults, choose a custom scale, or use an installed integration such as Pawn.
+Profiles let you keep different gearing preferences for different characters and specializations. Within each profile, you can use XIVEquip's defaults, choose a custom scale, or use an installed integration such as Pawn for each specialization.
+
+A default profile shared by all characters of the same class makes it easy to set up alts, while separate profiles let you fine-tune the preferences for a particular character.
 
 You can also **import and export custom scales**, making it easy to back up a setup or share it with someone else.
 
-![XIVEquip profile and automation settings](REPLACE_WITH_CURSEFORGE_URL_FOR_config-profile-and-automation-settings.png)
+![XIVEquip profile and automation settings](./screenshots/config-profile-and-automation-settings.png)
 
 ## Great for leveling and spec swapping
 
@@ -118,33 +126,33 @@ XIVEquip can recommend ordinary Bind-on-Equip and Warbound-Until-Equipped items 
 
 It does **not** silently bind them. Blizzard's normal binding confirmation still appears, and XIVEquip adds a recommendation panel showing:
 
-* The item being equipped
-* What it will replace
-* Expected score improvement
-* Item-level difference
-* The stats you gain and lose
+- The item being equipped
+- What it will replace
+- Expected score improvement
+- Item-level difference
+- The stats you gain and lose
 
 Accept the normal Blizzard confirmation to continue the equip operation, or cancel it and keep the item unbound.
 
-![XIVEquip BOE confirmation](REPLACE_WITH_CURSEFORGE_URL_FOR_boe-bind-confirmation-recommendation.png)
+![XIVEquip BOE confirmation](./screenshots/boe-bind-confirmation-recommendation.png)
 
 ## Optional conveniences
 
 XIVEquip also includes a few quality-of-life features for players who want them:
 
-* Automatically equip recommended gear after a specialization change
-* Save successful results as Blizzard equipment sets
-* Create or refresh an XIVEquip macro
-* Choose whether equip/login messages are shown
-* Hide the minimap button if you prefer another way to launch it
+- Automatically equip recommended gear after a specialization change
+- Save successful results as Blizzard equipment sets
+- Create or refresh an XIVEquip macro
+- Choose whether equip/login messages are shown
+- Hide the minimap button if you prefer another way to launch it
 
 ## Why XIVEquip?
 
-XIVEquip is not trying to replace simulation tools for cutting-edge raid optimization.
+XIVEquip is not trying to replace simulation tools for cutting-edge raid optimization. XIVEquip applies your selected stat weights and preferences to the gear you have available. It does not simulate your character, rotation, encounters, or complex item interactions.
 
 It is for the much more common question:
 
-**“Given the gear I own right now, what should I actually be wearing?”**
+**“Given the gear I own and the priorities I've chosen, what should I equip right now?”**
 
 That makes it useful for leveling, alts, off-specs, freshly geared characters, casual endgame play, and anyone who would rather play World of Warcraft than spend ten minutes comparing every new item in their bags.
 
