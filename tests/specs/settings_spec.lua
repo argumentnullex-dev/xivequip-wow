@@ -12,6 +12,13 @@ local function loadAddonFile(rel, addon)
   chunk("XIVEquip", addon)
 end
 
+local function printedContains(text)
+  for _, line in ipairs(_G.printed or {}) do
+    if tostring(line):find(text, 1, true) then return true end
+  end
+  return false
+end
+
 local function newAddon(settings)
   local addon = {
     L = { AddonPrefix = "XIVEquip: " },
@@ -205,7 +212,8 @@ test("slash automation commands mutate canonical fields", function()
 end)
 
 test("/xive help prints the command list", function()
-  newAddon({})
+  local addon = newAddon({})
+  loadAddonFile("Tests" .. sep .. "Regression.lua", addon)
 
   SlashCmdList.XIVE("help")
 
@@ -214,6 +222,9 @@ test("/xive help prints the command list", function()
   A.contains(_G.printed, "/xive settings")
   A.contains(_G.printed, "/xive equip")
   A.contains(_G.printed, "/xive status")
+  for _, command in ipairs({ "smoke", "test", "perf", "validate", "fixture capture", "fixture clear" }) do
+    A.falsy(printedContains("/xive " .. command), "diagnostic command should be hidden from help: " .. command)
+  end
 end)
 
 test("plan and equip commands use the planner entry points", function()

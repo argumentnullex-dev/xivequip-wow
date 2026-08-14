@@ -351,7 +351,4 @@ if Cmd and Cmd.RegisterRoot then
     printLine("Captured fixtures cleared.")
   end)
 
-  Cmd.Help(" /xive test                          - run in-game regression checks")
-  Cmd.Help(" /xive fixture capture               - capture equipped and bag item fixture data")
-  Cmd.Help(" /xive fixture clear                 - remove captured fixture data")
 end

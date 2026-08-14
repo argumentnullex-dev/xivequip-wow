@@ -53,10 +53,7 @@ function C.Help(line) helplines[#helplines + 1] = line end
 
 C.Help(" /xive plan – print the current equip plan without equipping anything")
 C.Help(" /xive equip – equip recommended gear")
-C.Help(" /xive validate – save backup.xive, unequip gear, equip recommendations, confirm slots are filled with the top-recommended item")
-C.Help(" /xive smoke – run /xive test, then /xive validate if tests pass")
 C.Help(" /xive status – print selected settings and active scale")
-C.Help(" /xive perf – run a planning pass and print timing/counter diagnostics")
 
 -- print_help: Core addon plumbing: print help.
 local function print_help()
@@ -75,9 +72,6 @@ local function print_help()
   print("  /xive auto sets on|off           – auto-save set on equip")
   print("  /xive status                     – print settings and active scale")
   print("  /xive plan                       – print recommended equip plan")
-  print("  /xive perf                       – print planner performance diagnostics")
-  print("  /xive validate                   – backup, unequip, equip recommended gear, confirm it's the top recommendation")
-  print("  /xive smoke                      – run test, then validation if tests pass")
   for _, line in ipairs(helplines) do print("  " .. line) end
 end
 
