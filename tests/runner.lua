@@ -33,6 +33,7 @@ local specs = {
   "planning_runtime_spec",
   "planning_plan_builder_spec",
   "settings_spec",
+  "live_regression_spec",
   "settings_window_spec",
   "ui_preview_spec",
   "bind_confirmation_card_spec",

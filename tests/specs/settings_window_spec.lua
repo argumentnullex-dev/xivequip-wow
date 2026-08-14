@@ -38,7 +38,7 @@ local function loadWindow(addon, calls)
       end,
       SetAllPoints = function() end,
       ClearAllPoints = function(self) self.points = {} end,
-      SetWidth = function() end,
+      SetWidth = function(self, width) self.width = width end,
       SetJustifyH = function() end,
     }
   end
@@ -827,6 +827,8 @@ test("state changes and tab switches reset nested Config pools before rebinding"
   for _, item in ipairs(modePanel._xivEquipPool.items.font) do
     if item.text:find("Wishlisted trinkets are always shown.", 1, true) then specTrinketNote = item end
   end
+  A.truthy(specTrinketNote.points[1][2] + specTrinketNote.width <= modePanel.width - 14,
+    "the spec-appropriate-trinkets note should wrap inside the scoring panel's right edge")
   local modePanelTop = modePanel.points[1][3]
   local modePanelBottom = modePanelTop - modePanel.height
   local customMapPanelTop = customMapPanel.points[1][3]
