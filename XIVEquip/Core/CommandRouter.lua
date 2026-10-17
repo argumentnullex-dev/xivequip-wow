@@ -207,6 +207,12 @@ C.RegisterRoot("status", function(_)
   local S = Settings()
   local st = (S and S.Get and S:Get()) or _G.XIVEquip_Settings or {}
   print(PREFIX .. "Status")
+  local metadata = C_AddOns and C_AddOns.GetAddOnMetadata or _G.GetAddOnMetadata
+  if type(metadata) == "function" then
+    local version = metadata(addon, "Version") or "unknown"
+    local revision = metadata(addon, "X-Source-Revision")
+    print(PREFIX .. "Version: " .. version .. (revision and (" (" .. revision:sub(1, 7) .. ")") or ""))
+  end
   print(PREFIX .. "Settings schema: " .. tostring(st.SchemaVersion or "unknown"))
   print(PREFIX .. "Auto spec: " .. (((S and S.GetAutomation and S:GetAutomation("SpecEquip")) or false) and "ON" or "OFF"))
   print(PREFIX .. "Auto sets: " .. (((S and S.GetAutomation and S:GetAutomation("SaveSpecSet")) or false) and "ON" or "OFF"))

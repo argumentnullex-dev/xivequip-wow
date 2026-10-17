@@ -58,4 +58,25 @@ test("captured fixture does not retain direct character identity fields", functi
   A.equal(fixture.character.realm, "<redacted>", "realm should be redacted")
 end)
 
+test("captured fixture removes identifiers from nested strings and item hyperlinks", function()
+  local fixture = loadFixture()
+  if not fixture then return end
+
+  local function inspect(value)
+    if type(value) == "table" then
+      for key, child in pairs(value) do
+        if type(key) == "string" then
+          A.falsy(key:lower():find("guid", 1, true), "fixture must not retain GUID fields")
+          inspect(key)
+        end
+        inspect(child)
+      end
+    elseif type(value) == "string" then
+      A.falsy(value:find("Player%-%x+%-%x+"), "fixture must not retain embedded player identifiers")
+      A.falsy(value:find("Item%-%x+%-%x+"), "fixture must not retain embedded item identifiers")
+    end
+  end
+  inspect(fixture)
+end)
+
 return tests

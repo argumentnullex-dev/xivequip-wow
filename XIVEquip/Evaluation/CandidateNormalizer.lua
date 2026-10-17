@@ -35,7 +35,7 @@ local STAT_TOKEN_MAP = {
   ITEM_MOD_HASTE_RATING = "haste", ITEM_MOD_HASTE_RATING_SHORT = "haste",
   ITEM_MOD_MASTERY_RATING = "mastery", ITEM_MOD_MASTERY_RATING_SHORT = "mastery",
   ITEM_MOD_VERSATILITY = "versatility", ITEM_MOD_VERSATILITY_SHORT = "versatility",
-  ITEM_MOD_LIFESTEAL = "leech",
+  ITEM_MOD_LIFESTEAL = "leech", ITEM_MOD_LIFESTEAL_SHORT = "leech", ITEM_MOD_CR_LIFESTEAL_SHORT = "leech",
   ITEM_MOD_AVOIDANCE_RATING = "avoidance",
   ITEM_MOD_SPEED_RATING = "movementSpeed", ITEM_MOD_SPEED_RATING_SHORT = "movementSpeed",
 }
@@ -75,9 +75,61 @@ local function parseItemID(link)
 end
 
 local function getItemStatsCompat(link)
-  local fn = _G.GetItemStats or (C_Item and C_Item.GetItemStats)
+  local fn = (C_Item and C_Item.GetItemStats) or _G.GetItemStats
   if type(fn) ~= "function" then return {} end
-  return fn(link) or {}
+  local ok, stats = pcall(fn, link)
+  if not ok or type(stats) ~= "table" then return {} end
+  return stats
+end
+
+local function statsFingerprint(stats)
+  local entries = {}
+  for token, amount in pairs(stats or {}) do
+    if type(amount) == "number" then
+      entries[#entries + 1] = { token = tostring(token), amount = amount }
+    end
+  end
+  table.sort(entries, function(left, right) return left.token < right.token end)
+
+  local parts = {}
+  for _, entry in ipairs(entries) do
+    parts[#parts + 1] = entry.token .. "=" .. string.format("%.17g", entry.amount)
+  end
+  return table.concat(parts, "|")
+end
+
+-- ReadStats is shared with CandidateCollector so the normalized-item cache
+-- can fingerprint the facts that actually determine an item's score. Item
+-- links and GUIDs often become available before Blizzard finishes loading
+-- GetItemStats; when that happens the same physical item must be normalized
+-- again once its stats appear, even though neither identity value changed.
+function CandidateNormalizer.ReadStats(link)
+  local stats = getItemStatsCompat(link)
+  return stats, statsFingerprint(stats)
+end
+
+-- Item links can report an unscaled/base level for legacy and scaling gear
+-- (the captured Stew-Stained Cape returned 535 from the link while the
+-- equipped physical item was level 78). Prefer the location-aware API for
+-- both equipped and bag candidates, then fall back to link metadata.
+function CandidateNormalizer.ReadItemLevel(link, source, baseItemLevel)
+  local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
+  local location = source and source.loc
+  if location and C_Item and type(C_Item.GetCurrentItemLevel) == "function" then
+    local ok, level = pcall(C_Item.GetCurrentItemLevel, location)
+    if ok and type(level) == "number" and level > 0 then return level end
+  end
+
+  local detailedLevelFn = (C_Item and C_Item.GetDetailedItemLevelInfo) or _G.GetDetailedItemLevelInfo
+  if type(detailedLevelFn) == "function" then
+    local ok, level = pcall(detailedLevelFn, link)
+    if ok and type(level) == "number" and level > 0 then return level end
+  end
+
+  if type(baseItemLevel) ~= "number" and type(GetItemInfo) == "function" then
+    baseItemLevel = select(4, GetItemInfo(link))
+  end
+  return baseItemLevel
 end
 
 local function getWeaponDamageAndSpeed(link, perf)
@@ -158,6 +210,9 @@ end
 --   { kind = "bag", bag = 0, slot = 4, guid = "...", physicalID = "bag:0:4" }
 -- Passed through verbatim on the returned candidate.
 function CandidateNormalizer.FromLink(link, source, opts)
+  -- Retail exposes these through C_Item; deprecated globals may be absent.
+  local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
+  local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
   source = source or {}
   opts = opts or {}
   local itemID = parseItemID(link) or source.itemID
@@ -169,27 +224,15 @@ function CandidateNormalizer.FromLink(link, source, opts)
   itemID = itemID or resolvedItemID
   local _, _, _, baseItemLevel, requiredLevel, _, _, _, _, _, _, _, _, _, _, setID = GetItemInfo(link)
 
-  -- GetItemInfo's 4th return is the item's *base* level. GetDetailedItemLevelInfo
-  -- returns the *effective* level shown on the tooltip (accounting for item
-  -- upgrades/track), which is what a candidate's value should reflect --
-  -- so it's tried first, not just as a fallback for when the base level is
-  -- somehow unavailable (a valid cached item almost always has a numeric
-  -- base level, which would otherwise make this fallback dead code).
-  local detailedLevelFn = (C_Item and C_Item.GetDetailedItemLevelInfo) or _G.GetDetailedItemLevelInfo
-  local itemLevel
-  if type(detailedLevelFn) == "function" then
-    local effectiveLevel = detailedLevelFn(link)
-    if type(effectiveLevel) == "number" and effectiveLevel > 0 then
-      itemLevel = effectiveLevel
-    end
-  end
-  if not itemLevel then
-    itemLevel = baseItemLevel
+  local itemLevel = opts.itemLevel
+  if type(itemLevel) ~= "number" or itemLevel <= 0 then
+    itemLevel = CandidateNormalizer.ReadItemLevel(link, source, baseItemLevel)
   end
 
   local uniqueKey, uniqueLimit = resolveUniqueness(itemID, link)
 
-  local rawStats = getItemStatsCompat(link)
+  local rawStats = opts.rawStats
+  if type(rawStats) ~= "table" then rawStats = getItemStatsCompat(link) end
 
   local stats = {}
   for _, feature in ipairs(STAT_FEATURES) do stats[feature] = 0 end

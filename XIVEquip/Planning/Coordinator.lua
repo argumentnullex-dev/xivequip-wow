@@ -356,7 +356,62 @@ local function currentScores(collection, context, runtime)
   return scores, groupScores
 end
 
-local function diagnosticsFor(collection, groups, runtime, context, perf)
+local function containsCandidate(assignments, candidate)
+  for _, assignment in ipairs(assignments or {}) do
+    for _, pick in pairs((assignment and assignment.picks) or {}) do
+      if pick == candidate then return true end
+    end
+  end
+  return false
+end
+
+local function singletonCandidateDiagnostics(collection, groups, selected, runtime, context)
+  local groupsByID = {}
+  for _, group in ipairs(groups or {}) do groupsByID[group.id] = group end
+
+  local rows = {}
+  for _, def in ipairs(SINGLETON_SLOTS) do
+    local current = collection.equippedBySlot and collection.equippedBySlot[def.slot]
+    local group = groupsByID[def.id]
+    local selectedAssignment = selected and selected[def.id]
+    local selectedCandidate = selectedAssignment and selectedAssignment.picks and selectedAssignment.picks.slot
+    for _, candidate in ipairs(candidatesForSlot(collection.candidates, def.slot, current)) do
+      local evaluation = XIVEquip.Evaluation.CandidateEvaluator.Evaluate(candidate, context, {
+        groupId = def.id,
+        role = "slot",
+        slot = def.slot,
+        currentCandidate = current,
+        currentByRole = { slot = current },
+        currentBySlot = { [def.slot] = current },
+        score = runtime and runtime.ScoreCandidate and function(value, scoreContext)
+          return runtime.ScoreCandidate(value, scoreContext, def.slot, "slot")
+        end or nil,
+      })
+      rows[#rows + 1] = {
+        groupId = def.id,
+        slot = def.slot,
+        itemID = candidate.itemID,
+        link = candidate.link,
+        itemLevel = candidate.itemLevel,
+        sourceKind = candidate.source and candidate.source.kind,
+        sourceBag = candidate.source and candidate.source.bag,
+        sourceSlot = candidate.source and candidate.source.slot,
+        stats = candidate.stats,
+        eligible = evaluation.eligible,
+        baseScore = evaluation.baseScore,
+        scoreAdjustment = evaluation.scoreAdjustment,
+        score = evaluation.score,
+        reasons = evaluation.reasons,
+        current = candidate == current,
+        inFrontier = group and containsCandidate(group.frontier, candidate) or false,
+        selected = candidate == selectedCandidate,
+      }
+    end
+  end
+  return rows
+end
+
+local function diagnosticsFor(collection, groups, runtime, context, perf, selected, opts)
   local diagnostics = {
     unresolved = collection.unresolved,
     groupFrontierSizes = {},
@@ -379,6 +434,10 @@ local function diagnosticsFor(collection, groups, runtime, context, perf)
           or XIVEquip.Evaluation.CandidateEvaluator.Score(candidate, context),
       }
     end
+  end
+  if opts and opts.captureCandidates then
+    diagnostics.singletonCandidates = singletonCandidateDiagnostics(
+      collection, groups, selected, runtime, context)
   end
   if perf then diagnostics.performance = perf:Snapshot() end
   return diagnostics
@@ -437,8 +496,12 @@ function Coordinator.Plan(opts)
       currentSlotScores, currentGroupScores = currentScores(collection, context, runtime)
     end
     local diagnostics = perf and perf:Measure("Diagnostics", function()
-      return diagnosticsFor(collection, groups, runtime, evaluationContext, perf)
-    end) or diagnosticsFor(collection, groups, runtime, context)
+      return diagnosticsFor(collection, groups, runtime, evaluationContext, perf, selected, {
+        captureCandidates = opts.captureDiagnostics == true,
+      })
+    end) or diagnosticsFor(collection, groups, runtime, context, nil, selected, {
+      captureCandidates = opts.captureDiagnostics == true,
+    })
 
     return {
       finalSlots = finalSlots,

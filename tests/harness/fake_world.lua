@@ -299,9 +299,21 @@ function FakeWorld.Install(scenario)
     return item and item.ilvl or 0
   end
 
-  -- Global GetItemStats, matching Pawn's own GetItemStatsCompat fallback
-  -- order (global first, then C_Item.GetItemStats).
+  -- Keep the legacy alias for older-client compatibility tests.
   _G.GetItemStats = getItemStats
+
+  -- Model clients that have removed the deprecated global item APIs, or
+  -- leave globals present but unusable. Production must prefer C_Item.
+  if scenario.itemAPIMode then
+    for _, name in ipairs({ "GetItemInfo", "GetItemInfoInstant", "GetItemStats", "GetDetailedItemLevelInfo" }) do
+      _G.C_Item[name] = _G[name]
+      if scenario.itemAPIMode == "namespaced-only" then
+        _G[name] = nil
+      else
+        _G[name] = function() error("deprecated item API called: " .. name) end
+      end
+    end
+  end
 
   _G.InCombatLockdown = function() return false end
   _G.IsInventoryItemLocked = function() return false end

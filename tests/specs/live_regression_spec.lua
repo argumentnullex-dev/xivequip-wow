@@ -64,4 +64,32 @@ test("the in-game regression suite passes against the current settings schema", 
   if not ok then error(err, 0) end
 end)
 
+for _, mode in ipairs({ "namespaced-only", "deprecated-globals-error" }) do
+  test("fixture capture preserves item metadata and stats with current APIs: " .. mode, function()
+    local FakeWorld = dofile(root .. sep .. "tests" .. sep .. "harness" .. sep .. "fake_world.lua")
+    local originals = {}
+    for _, name in ipairs({ "C_Item", "GetItemInfo", "GetItemInfoInstant", "GetItemStats", "GetDetailedItemLevelInfo" }) do
+      originals[#originals + 1] = { name, _G[name] }
+    end
+    local ok, err = xpcall(function()
+      FakeWorld.Install({
+        itemAPIMode = mode,
+        items = {
+          helm = { itemID = 99201, equipLoc = "INVTYPE_HEAD", classID = 4, subclassID = 4,
+            itemLevel = 110, stats = { ITEM_MOD_STRENGTH_SHORT = 80 } },
+        },
+        equipped = { [1] = "helm" },
+      })
+      local addon = {}
+      loadAddonFile("Tests" .. sep .. "Regression.lua", addon)
+      local fixture = addon.Tests:CaptureFixture()
+      A.equal(fixture.equipped[1].itemID, 99201)
+      A.equal(fixture.equipped[1].itemLevel, 110)
+      A.equal(fixture.equipped[1].stats.ITEM_MOD_STRENGTH_SHORT, 80)
+    end, debug.traceback)
+    for _, entry in ipairs(originals) do _G[entry[1]] = entry[2] end
+    if not ok then error(err, 0) end
+  end)
+end
+
 return tests

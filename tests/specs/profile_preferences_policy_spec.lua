@@ -718,4 +718,32 @@ test("set preference off creates no optimizer policy state overhead", function()
   A.equal(counters["set_bonus.bound_calls"] or 0, 0)
 end)
 
+test("Wishlist proc trinket can beat stat-scored current gear", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local listPolicy = policyByID(resolved.candidate, "XIVEquip.profile_item_lists")
+  local context = { profilePreferences = { wishlist = { [10] = true }, avoidlist = {} }, policies = { candidate = { listPolicy } } }
+  local currentA, currentB, wished = { itemID = 20 }, { itemID = 30 }, { itemID = 10 }
+  local result = addon.Evaluation.CandidateEvaluator.Evaluate(wished, context, {
+    currentCandidate = currentA, currentByRole = { a = currentA, b = currentB },
+    score = function(value) return value == currentA and 100 or value == currentB and 200 or 0 end,
+  })
+  A.truthy(result.eligible)
+  A.equal(result.baseScore, 0)
+  A.equal(result.score, 220)
+end)
+
+test("Wishlist breaks zero-score ties while respecting Avoidlist", function()
+  local addon = newAddon()
+  local resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending())
+  local listPolicy = policyByID(resolved.candidate, "XIVEquip.profile_item_lists")
+  local context = { profilePreferences = { wishlist = { [10] = true }, avoidlist = {} }, policies = { candidate = { listPolicy } } }
+  local item = { itemID = 10 }
+  local wished = addon.Evaluation.CandidateEvaluator.Evaluate(item, context, { score = function() return 0 end })
+  A.truthy(wished.score > 0)
+  context.profilePreferences.avoidlist[10] = true
+  local avoided = addon.Evaluation.CandidateEvaluator.Evaluate(item, context, { score = function() return 0 end })
+  A.falsy(avoided.eligible)
+end)
+
 return tests

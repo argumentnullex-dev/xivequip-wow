@@ -196,9 +196,11 @@ function Tests:Run()
 end
 
 local function itemRecord(link, itemLoc)
+  local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
+  local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
   if not link then return nil end
   local itemID = tonumber(link:match("item:(%d+)"))
-  local name, _, quality, itemLevel, reqLevel, className, subclassName, _, equipLoc, icon, sellPrice, classID, subclassID, bindType =
+  local name, _, quality, itemLevel, reqLevel, className, subclassName, _, equipLoc, icon, sellPrice, classID, subclassID, bindType, _, setID =
       GetItemInfo(link)
   local instantName, _, instantQuality, instantLevel, instantMinLevel, instantClassID, instantSubclassID = nil
   if itemID and GetItemInfoInstant then
@@ -215,6 +217,28 @@ local function itemRecord(link, itemLoc)
   if itemLoc and C_Item and C_Item.GetCurrentItemLevel then
     local ok, value = pcall(C_Item.GetCurrentItemLevel, itemLoc)
     if ok then currentIlvl = value end
+  end
+
+  local stats = {}
+  local getItemStats = (C_Item and C_Item.GetItemStats) or _G.GetItemStats
+  if type(getItemStats) == "function" then
+    local ok, value = pcall(getItemStats, link)
+    if ok and type(value) == "table" then stats = value end
+  end
+
+  local equippable
+  if C_Item and type(C_Item.IsEquippableItem) == "function" then
+    local ok, value = pcall(C_Item.IsEquippableItem, link)
+    if ok then equippable = value == true end
+  end
+
+  local uniqueCategory, uniqueLimit
+  if C_Item and type(C_Item.GetItemUniqueness) == "function" then
+    local ok, category, limit = pcall(C_Item.GetItemUniqueness, link)
+    if ok then
+      uniqueCategory = category
+      uniqueLimit = limit
+    end
   end
 
   return {
@@ -234,6 +258,11 @@ local function itemRecord(link, itemLoc)
     icon = icon,
     sellPrice = sellPrice,
     bindType = bindType,
+    setID = setID,
+    stats = stats,
+    equippable = equippable,
+    uniqueCategory = uniqueCategory,
+    uniqueLimit = uniqueLimit,
   }
 end
 
@@ -263,6 +292,7 @@ function Tests:CaptureFixture()
   end
 
   local fixture = {
+    fixtureVersion = 2,
     capturedAt = now(),
     character = {
       name = UnitName and UnitName("player") or nil,
@@ -325,6 +355,29 @@ function Tests:CaptureFixture()
         source = scale.source,
         class = scale.class,
         spec = scale.spec,
+        values = scale.values,
+      }
+    end
+  end
+
+  if XIVEquip.Gear and type(XIVEquip.Gear.PlanBest) == "function" then
+    local _, pending, plan, result, planFailure = XIVEquip.Gear:PlanBest({
+      planner = { captureDiagnostics = true },
+    })
+    fixture.planner = {
+      pending = pending == true,
+      failure = planFailure and tostring(planFailure) or nil,
+      scoreSource = result and result.diagnostics and result.diagnostics.scoreSource,
+      singletonCandidates = result and result.diagnostics and result.diagnostics.singletonCandidates or {},
+      plan = {},
+    }
+    for _, pick in ipairs(plan or {}) do
+      fixture.planner.plan[#fixture.planner.plan + 1] = {
+        targetSlot = pick.targetSlot,
+        itemID = pick.itemID,
+        link = pick.link,
+        itemLevel = pick.ilvl,
+        score = pick.score,
       }
     end
   end

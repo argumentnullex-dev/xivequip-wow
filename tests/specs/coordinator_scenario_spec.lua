@@ -25,4 +25,25 @@ end
 Runner.RegisterAll(test, skip, root, A, loadScenarios("coordinator" .. sep .. "scenarios.lua"), "run")
 Runner.RegisterAll(test, skip, root, A, loadScenarios("profiles" .. sep .. "scenarios.lua"), "plan")
 
+for _, mode in ipairs({ "namespaced-only", "deprecated-globals-error" }) do
+  test("equips upgrades using current item APIs: " .. mode, function()
+    local scenario = {
+      name = "current item APIs",
+      itemAPIMode = mode,
+      character = { classFile = "PALADIN", specID = 66, specName = "Protection", level = 80 },
+      items = {
+        old = { itemID = 99001, equipLoc = "INVTYPE_HEAD", classID = 4, subclassID = 4,
+          itemLevel = 100, scores = { [1] = 10 } },
+        upgrade = { itemID = 99002, equipLoc = "INVTYPE_HEAD", classID = 4, subclassID = 4,
+          itemLevel = 110, scores = { [1] = 20 } },
+        food = { itemID = 99003, equipLoc = "", classID = 0 },
+      },
+      equipped = { [1] = "old" },
+      bags = { [0] = { "upgrade", "food" } },
+      expect = { final = { [1] = "upgrade" }, pending = false },
+    }
+    Runner.AssertFinal(A, Runner.Run(root, scenario), scenario)
+  end)
+end
+
 return tests

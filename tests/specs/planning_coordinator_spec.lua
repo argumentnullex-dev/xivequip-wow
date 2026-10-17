@@ -16,8 +16,14 @@ end
 local function ring(id, s11, s12, extra) return Item.ring(id, s11, s12, extra) end
 local function trinket(id, s13, s14, extra) return Item.trinket(id, s13, s14, extra) end
 local function weapon(id, equipLoc, mh, oh, extra) return Item.weapon(id, equipLoc, mh, oh, extra) end
-local function shield(id, score, extra) return weapon(id, "INVTYPE_SHIELD", 0, score, extra) end
-local function holdable(id, score, extra) return weapon(id, "INVTYPE_HOLDABLE", 0, score, extra) end
+local function shield(id, score, extra)
+  extra = extra or {}; extra.classID = 4; extra.subclassID = extra.subclassID or 6
+  return weapon(id, "INVTYPE_SHIELD", 0, score, extra)
+end
+local function holdable(id, score, extra)
+  extra = extra or {}; extra.classID = 4; extra.subclassID = extra.subclassID or 0
+  return weapon(id, "INVTYPE_HOLDABLE", 0, score, extra)
+end
 
 local function loadAddonFile(rel, addon)
   local chunk = assert(loadfile(root .. sep .. "XIVEquip" .. sep .. rel))
@@ -159,7 +165,11 @@ local scenarios = {
   {
     name = "weapon archetype Mage can prefer one-hand plus holdable",
     character = { classFile = "MAGE", specID = 62, specName = "Arcane" },
-    items = { staff = weapon(1501, "INVTYPE_2HWEAPON", 100, 100), mh = weapon(1502, "INVTYPE_WEAPON", 80, 0), off = holdable(1503, 60) },
+    items = {
+      staff = weapon(1501, "INVTYPE_2HWEAPON", 100, 100, { subclassID = 10 }),
+      mh = weapon(1502, "INVTYPE_WEAPON", 80, 0, { subclassID = 7 }),
+      off = holdable(1503, 60),
+    },
     bags = { [0] = { "staff", "mh", "off" } },
     expect = { final = { [16] = "mh", [17] = "off" } },
   },
@@ -348,6 +358,43 @@ test("planning coordinator closes live runtime when planning throws", function()
   A.equal(passStarts, 0)
   A.equal(passEnds, 0)
   A.equal(runtimeCloses, 1)
+end)
+
+test("candidate diagnostics are opt-in and explain the selected singleton", function()
+  local Bootstrap = dofile(root .. sep .. "tests" .. sep .. "harness" .. sep .. "addon_bootstrap.lua")
+  local FakeWorld = dofile(root .. sep .. "tests" .. sep .. "harness" .. sep .. "fake_world.lua")
+  FakeWorld.Install({ items = { helm = { itemID = 9010, equipLoc = "INVTYPE_HEAD", classID = 4, subclassID = 4, itemLevel = 100 } }, bags = { [0] = { "helm" } } })
+  local addon = {}
+  Bootstrap.LoadCore(root, addon)
+  Bootstrap.LoadWeights(root, addon)
+  Bootstrap.LoadPolicyContext(root, addon)
+  Bootstrap.LoadAssignments(root, addon)
+  Bootstrap.LoadOptimization(root, addon)
+  Bootstrap.LoadPlanning(root, addon)
+  local scale = addon.XIVWeights.NewScale({ weights = {} })
+  local opts = {
+    resolved = addon.Policies.Resolver.Finalize(addon.Policies.DefaultRegistry:Pending()),
+    runtime = {
+      UnitClass = function() return "Warrior", "WARRIOR", 1 end,
+      GetSpecialization = function() return 1 end,
+      GetSpecializationInfo = function() return 71, "Arms" end,
+      UnitLevel = function() return 80 end,
+      IsDualWielding = function() return false end,
+      ResolveWeights = function() return scale end,
+      ScoreCandidate = function(candidate) return candidate.itemLevel end,
+    },
+  }
+  local ordinary = addon.Planning.Coordinator.Plan(opts)
+  A.equal(ordinary.diagnostics.singletonCandidates, nil)
+  opts.captureDiagnostics = true
+  local captured = addon.Planning.Coordinator.Plan(opts)
+  A.equal(captured.finalSlots[1].itemID, 9010)
+  local rows = captured.diagnostics.singletonCandidates
+  A.equal(#rows, 1)
+  A.equal(rows[1].itemID, 9010)
+  A.truthy(rows[1].eligible)
+  A.truthy(rows[1].inFrontier)
+  A.truthy(rows[1].selected)
 end)
 
 return tests

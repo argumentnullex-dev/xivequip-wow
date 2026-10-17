@@ -10,8 +10,14 @@ local Item = dofile(root .. sep .. "tests" .. sep .. "harness" .. sep .. "item_b
 
 local function weapon2h(id, score, extra) return Item.weapon(id, "INVTYPE_2HWEAPON", score, score, extra) end
 local function weapon1h(id, score, extra) return Item.weapon(id, "INVTYPE_WEAPON", score, score, extra) end
-local function shield(id, score, extra) return Item.weapon(id, "INVTYPE_SHIELD", 0, score, extra) end
-local function holdable(id, score, extra) return Item.weapon(id, "INVTYPE_HOLDABLE", 0, score, extra) end
+local function shield(id, score, extra)
+  extra = extra or {}; extra.classID = 4; extra.subclassID = extra.subclassID or 6
+  return Item.weapon(id, "INVTYPE_SHIELD", 0, score, extra)
+end
+local function holdable(id, score, extra)
+  extra = extra or {}; extra.classID = 4; extra.subclassID = extra.subclassID or 0
+  return Item.weapon(id, "INVTYPE_HOLDABLE", 0, score, extra)
+end
 
 return {
 
@@ -120,6 +126,24 @@ return {
     expect = { final = { [17] = "betterHoldable" }, unchanged = { 16 } },
   },
 
+  -- Captured live on a Protection Paladin: Bad Zed's Worst Channeler
+  -- (item 264621) is an INVTYPE_WEAPON dagger (subclass 15), and Blizzard's
+  -- IsEquippableItem reports true even though Paladins cannot equip daggers.
+  -- Its deliberately dominant score proves proficiency is enforced as
+  -- eligibility rather than merely left for the game to reject at execution.
+  {
+    name = "weapon proficiency: Protection Paladin rejects a higher-scoring captured dagger",
+    character = { classFile = "PALADIN", specID = 66, specName = "Protection" },
+    items = {
+      currentSword = weapon1h(258952, 100, { subclassID = 7, equippable = true }),
+      currentShield = shield(268196, 100, { classID = 4, subclassID = 6, equippable = true }),
+      capturedDagger = weapon1h(264621, 999, { subclassID = 15, equippable = true }),
+    },
+    equipped = { [16] = "currentSword", [17] = "currentShield" },
+    bags = { [0] = { "capturedDagger" } },
+    expect = { unchanged = { 16, 17 } },
+  },
+
   -- 5. Two-handed or 1H+shield/holdable (Elemental Shaman)
   {
     name = "weapon archetype: 2H or 1H+offhand, 2H wins on total score, naked (Elemental Shaman)",
@@ -168,8 +192,8 @@ return {
     name = "weapon archetype: 2H or 1H+holdable, holdable pair wins, naked (Mage)",
     character = { classFile = "MAGE", specID = 62, specName = "Arcane" },
     items = {
-      staff = weapon2h(1601, 120),
-      mh1h = weapon1h(1602, 70),
+      staff = weapon2h(1601, 120, { subclassID = 10 }),
+      mh1h = weapon1h(1602, 70, { subclassID = 7 }),
       legalHoldable = holdable(1603, 60),
       illegalShieldTrap = shield(1604, 999),
     },
@@ -181,8 +205,8 @@ return {
     name = "weapon archetype: 2H or 1H+holdable, pair upgrade replaces equipped 2H (Mage)",
     character = { classFile = "MAGE", specID = 62, specName = "Arcane" },
     items = {
-      old2h = weapon2h(1605, 100),
-      mh1h = weapon1h(1606, 60),
+      old2h = weapon2h(1605, 100, { subclassID = 10 }),
+      mh1h = weapon1h(1606, 60, { subclassID = 7 }),
       legalHoldable = holdable(1607, 50),
     },
     equipped = { [16] = "old2h" },

@@ -397,6 +397,7 @@ end
 local NEEDS_BIND_CONFIRM = { [2] = true, [9] = true }
 
 local function isUnboundBoE(pick, link)
+  local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
   if not (link and link ~= "" and GetItemInfo) then return false end
   local bindType = select(14, GetItemInfo(link))
   if not NEEDS_BIND_CONFIRM[bindType] then return false end

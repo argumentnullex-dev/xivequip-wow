@@ -263,7 +263,7 @@ and writes a redacted fixture to:
 tests\fixtures\live_capture.lua
 ```
 
-Character name, realm, and item GUIDs are redacted. Item IDs, links, equipment locations, item levels, slot assignments, and active Pawn scale metadata are retained so offline tests can replay realistic item data.
+Character name, realm, and item GUID fields are redacted, along with player/item identifiers embedded inside links or other strings. Item IDs, link structure, equipment locations, item levels, slot assignments, and active Pawn scale metadata are retained so offline tests can replay realistic item data.
 
 ## Publish build (final release)
 
@@ -277,7 +277,7 @@ The publish build script:
 
 1. Reads the current TOC version.
 2. Removes a trailing `-dev.N` or `-rc.N`, if present.
-3. Writes the release version back to `XIVEquip/XIVEquip.toc`.
+3. Requires a clean committed source tree and writes the release version plus its Git revision into the staged TOC; source files remain unchanged.
 4. Creates `XIVEquip-<version>.zip` in `%XIVEQUIP_ARCHIVE_DIR%`.
 
 For example:
@@ -311,7 +311,7 @@ The suite loads addon modules with mocked WoW APIs and covers scale resolution, 
 
 Before cutting an RC or stable archive, perform a quick live-client pass:
 
-1. `/reload`, then confirm the expected version in the AddOns list.
+1. `/reload`, then run `/xive status` to confirm the expected version and source revision; the AddOns list also shows the version.
 2. Run `/xive smoke` (runs `/xive test`, then validates a fresh equip against the recommendation).
 3. With the built-in source selected, confirm preview and equip display the expected specialization scale.
 4. With Pawn enabled and selected as an addon integration, confirm preview and equip display the selected Pawn scale.
@@ -319,7 +319,7 @@ Before cutting an RC or stable archive, perform a quick live-client pass:
 6. Test a shield spec, such as Protection Warrior or Protection Paladin.
 7. Test a one-ring or one-trinket upgrade where the stronger currently equipped item should be retained.
 8. Test a normal equip with auto-save off, then with auto-save on.
-9. If practical, test an unbound BoE candidate and confirm it is reported as manual-required rather than silently completed.
+9. If practical, test an unbound BoE candidate: confirm Blizzard's bind popup remains visible, accepting continues the equip, and cancelling leaves the item unbound.
 10. Capture one useful fixture with `/xive fixture capture`, then reload and import it for offline replay.
 
 ## File structure

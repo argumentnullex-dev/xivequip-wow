@@ -210,6 +210,20 @@ function CandidateEvaluator.Evaluate(candidate, context, opts)
     baseScore = baseScore,
   }
 
+  local strongestCurrentBaseScore
+  local seenCurrent = {}
+  local function includeCurrent(value)
+    if not value or seenCurrent[value] then return end
+    seenCurrent[value] = true
+    local score = tonumber(scoreCandidate(value, context)) or 0
+    if strongestCurrentBaseScore == nil or score > strongestCurrentBaseScore then
+      strongestCurrentBaseScore = score
+    end
+  end
+  includeCurrent(opts.currentCandidate)
+  for _, value in pairs(opts.currentByRole or {}) do includeCurrent(value) end
+  policyContext.strongestCurrentBaseScore = strongestCurrentBaseScore or 0
+
   local resolver = XIVEquip.Policies and XIVEquip.Policies.Resolver
   local policies = resolver and resolver.ActiveForPhase
       and resolver.ActiveForPhase(context, "candidate", opts.groupId)

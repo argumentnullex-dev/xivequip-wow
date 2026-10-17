@@ -31,9 +31,9 @@ local C_Timer                  = _G.C_Timer or C_Timer
 ---@type fun(...): boolean
 local InCombatLockdown         = _G.InCombatLockdown or InCombatLockdown
 ---@type fun(...)
-local GetItemStats             = _G.GetItemStats or GetItemStats
+local GetItemStats             = (C_Item and C_Item.GetItemStats) or _G.GetItemStats
 ---@type fun(...)
-local GetDetailedItemLevelInfo = _G.GetDetailedItemLevelInfo or GetDetailedItemLevelInfo
+local GetDetailedItemLevelInfo = (C_Item and C_Item.GetDetailedItemLevelInfo) or _G.GetDetailedItemLevelInfo
 
 XIVEquip                       = XIVEquip or {}
 XIVEquip.UI                    = XIVEquip.UI or {}
@@ -62,6 +62,7 @@ local STAT_TO_PAWN             = {
 
 -- GetBoEText: Gets a "BoE" string for item links if necessary.
 local function GetBoEText(itemLink, itemLoc)
+  local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
   if type(itemLink) ~= "string" or itemLink == "" then return "" end
   local bindType = select(14, GetItemInfo(itemLink))
   if bindType == 2 then -- LE_ITEM_BIND_ON_EQUIP
@@ -126,6 +127,7 @@ end
 -- Retail item level (works on links)
 -- [XIVEquip-AUTO] GetIlvl: Returns ilvl.
 local function GetIlvl(link)
+  local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
   if type(GetDetailedItemLevelInfo) == "function" then
     local ok, v = pcall(GetDetailedItemLevelInfo, link)
     if ok then return v end

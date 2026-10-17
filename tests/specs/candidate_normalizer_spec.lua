@@ -58,6 +58,7 @@ test("uses the full item link when the itemID cannot be parsed locally", functio
     A.equal(info, richLink)
     return { ITEM_MOD_HASTE_RATING_SHORT = 123 }
   end
+  _G.C_Item.GetItemStats = _G.GetItemStats
 
   local candidate = addon.Evaluation.CandidateNormalizer.FromLink(richLink, { kind = "bag" })
 
@@ -284,6 +285,39 @@ test("does not tooltip-parse ordinary armor for weapon fallback values", functio
   A.equal(tooltipReads, 0)
   A.equal(candidate.weapon.minimumDamage, 0)
   A.equal(candidate.weapon.swingIntervalSeconds, 0)
+end)
+
+test("scaled item level prefers the physical location over the link", function()
+  local addon = newAddon()
+  FakeWorld.Install({ items = { cape = { itemID = 9001, equipLoc = "INVTYPE_CLOAK", itemLevel = 535 } } })
+  local loc = {}
+  C_Item.GetCurrentItemLevel = function(value) A.equal(value, loc); return 78 end
+  local candidate = addon.Evaluation.CandidateNormalizer.FromLink(FakeWorld.ItemLink(9001), { loc = loc })
+  A.equal(candidate.itemLevel, 78)
+end)
+
+test("item-level API errors fall back to base metadata", function()
+  local addon = newAddon()
+  FakeWorld.Install({ items = { cape = { itemID = 9002, equipLoc = "INVTYPE_CLOAK", itemLevel = 78 } } })
+  C_Item.GetCurrentItemLevel = function() error("unavailable") end
+  GetDetailedItemLevelInfo = function() error("unavailable") end
+  local candidate = addon.Evaluation.CandidateNormalizer.FromLink(FakeWorld.ItemLink(9002), { loc = {} })
+  A.equal(candidate.itemLevel, 78)
+end)
+
+test("unavailable item stats do not throw during normalization", function()
+  local addon = newAddon()
+  FakeWorld.Install({ items = { cape = { itemID = 9003, equipLoc = "INVTYPE_CLOAK" } } })
+  GetItemStats = function() error("not loaded") end
+  local candidate = addon.Evaluation.CandidateNormalizer.FromLink(FakeWorld.ItemLink(9003), {})
+  A.equal(candidate.stats.haste, 0)
+end)
+
+test("retail leech stat aliases contribute to scoring", function()
+  local addon = newAddon()
+  FakeWorld.Install({ items = { cape = { itemID = 9004, equipLoc = "INVTYPE_CLOAK", stats = { ITEM_MOD_CR_LIFESTEAL_SHORT = 15 } } } })
+  local candidate = addon.Evaluation.CandidateNormalizer.FromLink(FakeWorld.ItemLink(9004), {})
+  A.equal(candidate.stats.leech, 15)
 end)
 
 return tests

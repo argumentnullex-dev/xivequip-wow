@@ -182,7 +182,7 @@ local function countSocketedGems(link)
 end
 
 local function countEmptySockets(link)
-  local GetItemStatsCompat = GetItemStats or (C_Item and C_Item.GetItemStats)
+  local GetItemStatsCompat = (C_Item and C_Item.GetItemStats) or GetItemStats
   if type(GetItemStatsCompat) ~= "function" or type(link) ~= "string" then return 0 end
   local ok, st = pcall(GetItemStatsCompat, link)
   if not ok or type(st) ~= "table" then return 0 end
@@ -294,6 +294,8 @@ end
 
 -- Core.getItemLevel: Core addon plumbing: get item level.
 function Core.getItemLevel(link, itemLoc)
+  local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
+  local GetDetailedItemLevelInfo = (C_Item and C_Item.GetDetailedItemLevelInfo) or _G.GetDetailedItemLevelInfo
   -- 1) Prefer ItemLocation if present (most accurate for current ilvl)
   if itemLoc and C_Item and C_Item.DoesItemExist and C_Item.DoesItemExist(itemLoc) then
     local ok, cur = pcall(C_Item.GetCurrentItemLevel, itemLoc)
@@ -332,6 +334,7 @@ end
 -- Read currently equipped for a slot (unchanged logic)
 -- [XIVEquip-AUTO] Core.equippedBasics: Helper for Core module.
 function Core.equippedBasics(slotID, comparer)
+  local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
   local loc = ItemLocation:CreateFromEquipmentSlot(slotID)
   if not (loc and C_Item.DoesItemExist and C_Item.DoesItemExist(loc)) then return nil end
 
@@ -439,6 +442,7 @@ end
 -- jewelry and cloaks are always valid
 -- [XIVEquip-AUTO] Core.equipIsValidArmorType: Applies equipment changes (gear/weapons) for the addon.
 function Core.equipIsValidArmorType(itemID, slotID, expectedArmorSubclass)
+  local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
   if not itemID then return false end
   -- If this slot isn't restricted armor, always allow
   if not Core.ARMOR[slotID] then
@@ -483,6 +487,8 @@ do
 
   -- Exported: Core.chooseForSlot (slot-agnostic; works for jewelry as-is)
   function Core.chooseForSlot(comparer, slotID, expectedArmorSubclass, used)
+    local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
+    local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
     local dbg                 = debugf
     local equipped            = equippedBasics(slotID, comparer)
     local equippedIlvl        = (equipped and equipped.ilvl) or 0
@@ -519,7 +525,7 @@ do
       end
     end
 
-    local GetItemStatsCompat = GetItemStats or (C_Item and C_Item.GetItemStats)
+    local GetItemStatsCompat = (C_Item and C_Item.GetItemStats) or GetItemStats
 
     -- Count how many gems are already socketed on this specific item link.
     -- ItemString fields: itemID:enchant:gem1:gem2:gem3:gem4:...

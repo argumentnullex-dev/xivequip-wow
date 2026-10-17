@@ -63,6 +63,7 @@ local function locationHasItem(location)
 end
 
 local function canNormalize(link, itemID)
+  local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
   if type(GetItemInfoInstant) ~= "function" then return true end
   local ok, id, _, _, equipLoc = pcall(GetItemInfoInstant, itemID or link)
   return ok and id ~= nil and equipLoc ~= nil
@@ -84,6 +85,7 @@ local function supportedEquipLoc(equipLoc)
 end
 
 local function couldBeSupportedEquipment(itemID, link)
+  local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
   if type(GetItemInfoInstant) ~= "function" then return true end
   local ok, resolvedID, _, _, equipLoc = pcall(GetItemInfoInstant, itemID or link)
   if not ok then return true end
@@ -112,15 +114,27 @@ local function collectLocation(result, location, source)
   end
 
   local cache = Evaluation.NormalizedItemCache
+  local normalizeOpts = { perf = perf }
+  local cacheFingerprint = {}
+  if Evaluation.CandidateNormalizer and type(Evaluation.CandidateNormalizer.ReadStats) == "function" then
+    local statsFingerprint
+    normalizeOpts.rawStats, statsFingerprint = Evaluation.CandidateNormalizer.ReadStats(link)
+    cacheFingerprint[#cacheFingerprint + 1] = "stats=" .. tostring(statsFingerprint)
+  end
+  if Evaluation.CandidateNormalizer and type(Evaluation.CandidateNormalizer.ReadItemLevel) == "function" then
+    normalizeOpts.itemLevel = Evaluation.CandidateNormalizer.ReadItemLevel(link, source)
+    cacheFingerprint[#cacheFingerprint + 1] = "itemLevel=" .. tostring(normalizeOpts.itemLevel)
+  end
+  normalizeOpts.cacheFingerprint = table.concat(cacheFingerprint, "\30")
   local function normalize(candidateLink, candidateSource, normalizeOpts)
     return Evaluation.CandidateNormalizer.FromLink(candidateLink, candidateSource, normalizeOpts)
   end
   local candidate, normalizeReason
   local normalizeToken = perf and perf:Start("Normalization")
   if cache and cache.Get then
-    candidate, normalizeReason = cache.Get(source.guid, link, source, normalize, { perf = perf })
+    candidate, normalizeReason = cache.Get(source.guid, link, source, normalize, normalizeOpts)
   else
-    candidate, normalizeReason = normalize(link, source, { perf = perf })
+    candidate, normalizeReason = normalize(link, source, normalizeOpts)
   end
   if perf then perf:Stop(normalizeToken) end
   if not candidate then

@@ -69,6 +69,7 @@ local specs = {
   "assignment_paired_spec",
   "assignment_singleton_spec",
   "weapon_hand_legality_policy_spec",
+  "weapon_proficiency_policy_spec",
   "assignment_groups_cross_validation_spec",
   "assignment_frontier_spec",
   "loadout_optimizer_spec",
