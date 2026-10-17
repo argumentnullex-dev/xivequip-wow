@@ -45,15 +45,16 @@ local function firstStat(stats, tokens)
 end
 
 local function itemStats(link)
-  local fn = _G.GetItemStats or (_G.C_Item and _G.C_Item.GetItemStats)
+  local fn = (_G.C_Item and _G.C_Item.GetItemStats) or _G.GetItemStats
   if type(fn) ~= "function" or type(link) ~= "string" then return {} end
   local ok, stats = pcall(fn, link)
   return ok and type(stats) == "table" and stats or {}
 end
 
 local function itemTexture(link)
-  if type(_G.GetItemInfo) ~= "function" or type(link) ~= "string" then return nil end
-  local ok, texture = pcall(function() return select(10, _G.GetItemInfo(link)) end)
+  local GetItemInfo = (_G.C_Item and _G.C_Item.GetItemInfo) or _G.GetItemInfo
+  if type(GetItemInfo) ~= "function" or type(link) ~= "string" then return nil end
+  local ok, texture = pcall(function() return select(10, GetItemInfo(link)) end)
   return ok and texture or nil
 end
 

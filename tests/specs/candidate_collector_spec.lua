@@ -254,5 +254,65 @@ test("resolved non-equipment bag items are rejected before full normalization", 
   A.equal(result.candidates[1].itemID, 7307)
 end)
 
-return tests
+test("same GUID and link refresh when delayed stats arrive", function()
+  local addon = newAddon()
+  addon.Evaluation.NormalizedItemCache.Reset()
+  FakeWorld.Install({ items = { ring = { itemID = 9005, equipLoc = "INVTYPE_FINGER", guid = "delayed-ring" } }, bags = { [0] = { "ring" } } })
+  local stats = {}
+  C_Item.GetItemStats = function() return stats end
+  local first = addon.Evaluation.CandidateCollector.Collect({ slots = { 11 } })
+  stats = { ITEM_MOD_HASTE_RATING_SHORT = 80 }
+  local second = addon.Evaluation.CandidateCollector.Collect({ slots = { 11 } })
+  A.equal(first.candidates[1].stats.haste, 0)
+  A.equal(second.candidates[1].stats.haste, 80)
+end)
 
+test("same GUID and link refresh when physical item level changes", function()
+  local addon = newAddon()
+  addon.Evaluation.NormalizedItemCache.Reset()
+  FakeWorld.Install({ items = { ring = { itemID = 9006, equipLoc = "INVTYPE_FINGER", guid = "scaled-ring" } }, bags = { [0] = { "ring" } } })
+  local level = 78
+  C_Item.GetCurrentItemLevel = function() return level end
+  local first = addon.Evaluation.CandidateCollector.Collect({ slots = { 11 } })
+  level = 82
+  local second = addon.Evaluation.CandidateCollector.Collect({ slots = { 11 } })
+  A.equal(first.candidates[1].itemLevel, 78)
+  A.equal(second.candidates[1].itemLevel, 82)
+end)
+
+test("stat table enumeration order does not invalidate normalized cache", function()
+  local addon = newAddon()
+  addon.Evaluation.NormalizedItemCache.Reset()
+  FakeWorld.Install({ items = { ring = { itemID = 9007, equipLoc = "INVTYPE_FINGER", guid = "ordered-ring" } }, bags = { [0] = { "ring" } } })
+  local stats = { ITEM_MOD_HASTE_RATING_SHORT = 80, ITEM_MOD_CRIT_RATING_SHORT = 40 }
+  C_Item.GetItemStats = function() return stats end
+  local calls = 0
+  local normalize = addon.Evaluation.CandidateNormalizer.FromLink
+  addon.Evaluation.CandidateNormalizer.FromLink = function(...) calls = calls + 1; return normalize(...) end
+  addon.Evaluation.CandidateCollector.Collect({ slots = { 11 } })
+  stats = {}; stats.ITEM_MOD_CRIT_RATING_SHORT = 40; stats.ITEM_MOD_HASTE_RATING_SHORT = 80
+  addon.Evaluation.CandidateCollector.Collect({ slots = { 11 } })
+  A.equal(calls, 1)
+end)
+
+test("current APIs preserve pending gear retries and exclude ordinary bag items", function()
+  local addon = newAddon()
+  FakeWorld.Install({
+    itemAPIMode = "namespaced-only",
+    items = {
+      ring = { itemID = 99101, equipLoc = "INVTYPE_FINGER", itemLevel = 300, loaded = false },
+      food = { itemID = 99102, equipLoc = "", classID = 0 },
+    },
+    bags = { [0] = { "ring", "food" } },
+  })
+  local first = addon.Evaluation.CandidateCollector.Collect({ slots = { 11 } })
+  A.equal(first.pending, true)
+  A.equal(#first.unresolved, 1)
+  A.equal(first.unresolved[1].itemID, 99101)
+  local second = addon.Evaluation.CandidateCollector.Collect({ slots = { 11 } })
+  A.equal(second.pending, false)
+  A.equal(#second.candidates, 1)
+  A.equal(second.candidates[1].itemID, 99101)
+end)
+
+return tests

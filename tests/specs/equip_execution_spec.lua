@@ -885,6 +885,23 @@ test("unbound BoE triggers a pending bind-confirmation instead of manual_require
   A.truthy(containsMessage(raw.printed, "Confirm the bind-on-equip popup"))
 end)
 
+test("current item APIs still pause for bind confirmation without clearing the cursor", function()
+  local boe = itemLink(206)
+  local addon, raw = newHarness({
+    useRealEquipByBasics = true,
+    equipped = { [1] = itemLink(101) },
+    bagItems = { [0] = { [1] = boe } },
+    bindTypes = { [boe] = 2 },
+    plan = { { targetSlot = 1, link = boe, bagID = 0, slotIndex = 1, loc = { bound = false } } },
+  })
+  C_Item.GetItemInfo = GetItemInfo
+  _G.GetItemInfo = nil
+  local result = addon.Gear:EquipBest()
+  A.truthy(result.awaiting)
+  A.truthy(raw.bindPopupVisible())
+  A.equal(raw.cursorClearCount(), 1)
+end)
+
 test("Warbound-Until-Equipped item (bindType 9) also triggers a pending bind-confirmation", function()
   local warbound = itemLink(205)
   local addon, raw = newHarness({

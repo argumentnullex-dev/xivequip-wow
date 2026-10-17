@@ -553,6 +553,7 @@ local function currentState()
 end
 
 local function parseItemID(value)
+  local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
   if type(value) == "number" then return value > 0 and math.floor(value) or nil end
   value = tostring(value or "")
   local itemID = tonumber(value:match("|Hitem:(%d+)") or value:match("item:(%d+)") or value:match("^%s*(%d+)%s*$"))
@@ -565,6 +566,7 @@ local function parseItemID(value)
 end
 
 local function itemNameAndLink(itemID, fallbackLink)
+  local GetItemInfo = (C_Item and C_Item.GetItemInfo) or _G.GetItemInfo
   local name, link
   if type(GetItemInfo) == "function" then
     local ok, resolvedName, resolvedLink = pcall(GetItemInfo, fallbackLink or itemID)
@@ -609,6 +611,7 @@ local function ownedGearItems()
 end
 
 local function isGearItem(itemID, value)
+  local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or _G.GetItemInfoInstant
   if type(GetItemInfoInstant) ~= "function" then return true end
   local ok, resolved, _, _, equipLoc = pcall(GetItemInfoInstant, value or itemID)
   if not ok or not resolved then return true end

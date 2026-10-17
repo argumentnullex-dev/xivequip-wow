@@ -81,6 +81,14 @@ if ([string]::IsNullOrWhiteSpace($ArchiveDir)) {
     }
 }
 
+$sourceRevision = & git -C $RepoRoot rev-parse HEAD
+if ($LASTEXITCODE -ne 0) { throw "Cannot determine source revision." }
+$sourceRevision = $sourceRevision.Trim()
+$sourceChanges = & git -C $RepoRoot status --porcelain --untracked-files=normal
+if ($LASTEXITCODE -ne 0 -or $sourceChanges) {
+    throw "Commit all intended release changes before building a final archive."
+}
+
 $currentVersion = Get-TocVersion -Path $TocPath
 $releaseVersion = Get-ReleaseVersion -Version $currentVersion
 
@@ -109,6 +117,8 @@ try {
     New-Item -ItemType Directory -Path $stagingRoot | Out-Null
     Copy-Item -LiteralPath $AddonDir -Destination $stagingRoot -Recurse -Force
     Set-TocVersion -Path $stagingTocPath -Version $releaseVersion
+    $stagedToc = Get-Content -LiteralPath $stagingTocPath | Where-Object { $_ -notmatch "^##\s*X-Source-Revision:" }
+    Set-Content -LiteralPath $stagingTocPath -Value @($stagedToc + "## X-Source-Revision: $sourceRevision")
 
     Compress-Archive `
         -Path $stagingAddonDir `

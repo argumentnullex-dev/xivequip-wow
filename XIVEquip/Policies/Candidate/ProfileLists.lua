@@ -1,6 +1,7 @@
 -- Wishlist and Avoidlist are evaluated at candidate time: an avoided item
--- never becomes a proposed replacement, while a wished item receives a
--- transparent ten-percent bonus to its ordinary score.
+-- never becomes a proposed replacement. A wished item receives its ordinary
+-- ten-percent bonus, with a current-gear floor so an explicit Wishlist choice
+-- still works for proc/on-use items whose calculable stat score is zero.
 local addonName, XIVEquip = ...
 
 XIVEquip:RegisterPolicy({
@@ -16,7 +17,11 @@ XIVEquip:RegisterPolicy({
     end
     if preferences.wishlist and preferences.wishlist[itemID] then
       local baseScore = tonumber(policyContext and policyContext.baseScore) or 0
-      return { scoreAdjustment = baseScore * 0.10, reason = "wishlist" }
+      local currentScore = tonumber(policyContext and policyContext.strongestCurrentBaseScore) or 0
+      local anchor = math.max(baseScore, currentScore)
+      local margin = math.max(math.abs(baseScore), math.abs(currentScore)) * 0.10
+      if margin <= 0 then margin = 1e-6 end
+      return { scoreAdjustment = (anchor + margin) - baseScore, reason = "wishlist" }
     end
     return nil
   end,

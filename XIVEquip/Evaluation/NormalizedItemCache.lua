@@ -49,13 +49,17 @@ function Cache.Get(guid, link, source, normalize, opts)
   source = source or {}
   opts = opts or {}
   local perf = opts.perf
+  local fingerprint = link
+  if opts.cacheFingerprint ~= nil then
+    fingerprint = tostring(link or "") .. "\30stats\30" .. tostring(opts.cacheFingerprint)
+  end
   if not guid then
     if perf then perf:Add("normalization.cache_misses", 1) end
     return normalize(link, source, opts)
   end
 
   local entry = Cache.entries[guid]
-  if entry and entry.fingerprint == link and entry.normalized then
+  if entry and entry.fingerprint == fingerprint and entry.normalized then
     entry.lastSeenGeneration = Cache.generation
     if perf then perf:Add("normalization.cache_hits", 1) end
     return cloneCandidate(entry.normalized, {
@@ -73,7 +77,7 @@ function Cache.Get(guid, link, source, normalize, opts)
   if not normalized then return nil, reason end
 
   Cache.entries[guid] = {
-    fingerprint = link,
+    fingerprint = fingerprint,
     normalized = cloneCandidate(normalized, { link = link }),
     lastSeenGeneration = Cache.generation,
   }
